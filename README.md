@@ -66,6 +66,17 @@ ghcr.io/branc9/brainbox:v1.2.3        # git tag
 
 A TrueNAS csak a `docker-compose.yml`-t olvassa és pull-ol. **Nem buildel.**
 
+> **Fontos – GHCR láthatóság.** Az első build után a csomag alapból **privát**,
+> így a TrueNAS nem tudja hitelesítés nélkül pullolni. Két lehetőség:
+>
+> - **A) Csomagot nyilvánosra tenni:** GitHub → jobb felső avatar → *Your packages*
+>   → `brainbox` → *Package settings* → *Change visibility* → **Public**.
+> - **B) Hitelesítés a TrueNAS hoston** (privát marad):
+>   ```bash
+>   echo "<PAT read:packages scope-pal>" | docker login ghcr.io -u branc9 --password-stdin
+>   ```
+>   (Classic PAT: `read:packages`. Finomhangolt token: *Packages → Read*.)
+
 1. Másold a `.env.example`-t `.env`-be és töltsd ki (kötelező:
    `DJANGO_SECRET_KEY`, `POSTGRES_PASSWORD`).
 2. (Opcionális) állítsd be `BRAINBOX_ADMIN_USERNAME` / `BRAINBOX_ADMIN_PASSWORD`-ot,
