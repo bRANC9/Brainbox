@@ -17,6 +17,7 @@ from apps.links.models import ResourceLink
 from apps.permissions.constants import Effect, Permission
 from apps.permissions.models import ResourceACL
 from apps.resources.models import Resource
+from apps.secrets.models import Secret, SecretAttachment
 from apps.workspaces.models import Project, Workspace
 from apps.workspaces.services import ProjectService, WorkspaceService
 
@@ -566,6 +567,52 @@ class GitRepositorySerializer(serializers.ModelSerializer):
                 setattr(instance, field, validated_data[field])
         instance.save()
         return instance
+
+
+# ---------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------
+class SecretAttachmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SecretAttachment
+        fields = ["id", "workspace", "project", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+
+class SecretSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True)
+    attachments = SecretAttachmentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Secret
+        fields = [
+            "id",
+            "name",
+            "description",
+            "secret_type",
+            "metadata",
+            "is_active",
+            "fingerprint",
+            "last_used_at",
+            "created_at",
+            "updated_at",
+            "attachments",
+        ]
+        read_only_fields = fields
+
+
+class SecretCreateSerializer(serializers.ModelSerializer):
+    payload = serializers.JSONField(write_only=True)
+
+    class Meta:
+        model = Secret
+        fields = ["name", "description", "secret_type", "metadata", "payload"]
+        extra_kwargs = {
+            "description": {"required": False, "allow_blank": True},
+            "metadata": {"required": False},
+            "secret_type": {"required": False},
+        }
+        validators: list = []
 
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,8 @@ from apps.permissions.models import ResourceACL
 from apps.permissions.services import PermissionService
 from apps.resources.models import Resource
 from apps.search.services import SearchService
+from apps.secrets.models import Secret
+from apps.secrets.services import SecretService
 from apps.workspaces.models import Project, Workspace
 
 from . import serializers as s
@@ -504,6 +506,102 @@ class GitRepositoryViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
         if not from_ref:
             raise ValidationError({"from": "This query parameter is required."})
         return Response({"diff": GitService.diff_repository(repository, from_ref, request.query_params.get("to", ""))})
+
+
+# ---------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------
+class SecretViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    search_fields = ["name"]
+
+    def get_queryset(self):
+        return Secret.objects.filter(owner=self.request.user).prefetch_related("attachments")
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return s.SecretCreateSerializer
+        return s.SecretSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = s.SecretCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        secret = SecretService.create(
+            owner=request.user,
+            name=data["name"],
+            payload=data.get("payload"),
+            secret_type=data.get("secret_type", "generic"),
+            description=data.get("description", ""),
+            metadata=data.get("metadata") or {},
+            request=request,
+        )
+        return Response(s.SecretSerializer(secret).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        secret = self.get_object()
+        SecretService.update(
+            secret=secret,
+            payload=request.data.get("payload", None),
+            description=request.data.get("description", None),
+            metadata=request.data.get("metadata", None),
+            secret_type=request.data.get("secret_type"),
+            request=request,
+        )
+        return Response(s.SecretSerializer(secret).data)
+
+    def _target(self, request):
+        workspace = None
+        project = None
+        if request.data.get("workspace"):
+            workspace = get_object_or_404(Workspace, pk=request.data["workspace"])
+        if request.data.get("project"):
+            project = get_object_or_404(Project, pk=request.data["project"])
+        return workspace, project
+
+    @action(detail=True, methods=["post"])
+    def rotate(self, request, pk=None):
+        secret = self.get_object()
+        if "payload" not in request.data:
+            raise ValidationError({"payload": "This field is required."})
+        SecretService.update(secret=secret, payload=request.data["payload"], request=request)
+        return Response(s.SecretSerializer(secret).data)
+
+    @action(detail=True, methods=["post"])
+    def attach(self, request, pk=None):
+        secret = self.get_object()
+        workspace, project = self._target(request)
+        attachment = SecretService.attach(
+            secret=secret, workspace=workspace, project=project, created_by=request.user
+        )
+        return Response(
+            s.SecretAttachmentSerializer(attachment).data, status=status.HTTP_201_CREATED
+        )
+
+    @action(detail=True, methods=["post"])
+    def detach(self, request, pk=None):
+        secret = self.get_object()
+        workspace, project = self._target(request)
+        count = SecretService.detach(secret=secret, workspace=workspace, project=project)
+        return Response({"detached": count})
+
+    @action(detail=True, methods=["post"])
+    def use(self, request, pk=None):
+        secret = self.get_object()
+        try:
+            value = SecretService.reveal(
+                secret,
+                user=request.user,
+                workspace_id=request.data.get("workspace"),
+                project_id=request.data.get("project"),
+                request=request,
+                api_key=api_key_from_request(request),
+            )
+        except PermissionDenied:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise PermissionDenied(str(exc)) from exc
+        return Response({"id": str(secret.pk), "name": secret.name, "value": value})
 
 
 # ---------------------------------------------------------------------------

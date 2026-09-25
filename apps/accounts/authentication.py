@@ -1,4 +1,7 @@
-"""DRF authentication using per-user API/MCP keys."""
+"""API/MCP key authentication.
+
+Shared by DRF (`ApiKeyAuthentication`) and the MCP endpoint (plain Django).
+"""
 
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
@@ -7,37 +10,42 @@ from rest_framework.exceptions import AuthenticationFailed
 from .models import ApiKey
 
 
-class ApiKeyAuthentication(BaseAuthentication):
-    """Authenticates `Authorization: ApiKey <raw>` or `X-API-Key: <raw>`.
+def extract_api_key(request) -> str | None:
+    header = request.META.get("HTTP_AUTHORIZATION", "")
+    if header.startswith("ApiKey "):
+        return header[len("ApiKey ") :].strip() or None
+    value = request.META.get("HTTP_X_API_KEY", "")
+    return value.strip() or None
 
-    On success `request.user` is the key owner and `request.auth` is the
-    :class:`ApiKey` instance, which the permission engine uses to narrow scope.
+
+def resolve_api_key(request):
+    """Return ``(user, api_key)`` for the request, or ``(None, None)``.
+
+    Raises ``AuthenticationFailed`` when a key is supplied but invalid/expired.
     """
+    raw_key = extract_api_key(request)
+    if not raw_key:
+        return (None, None)
+
+    prefix = raw_key[:16]
+    for key in ApiKey.objects.filter(key_prefix=prefix).select_related("user"):
+        if key.matches(raw_key):
+            if not key.is_usable:
+                raise AuthenticationFailed("API key is inactive, revoked or expired.")
+            ApiKey.objects.filter(pk=key.pk).update(last_used_at=timezone.now())
+            return (key.user, key)
+    raise AuthenticationFailed("Invalid API key.")
+
+
+class ApiKeyAuthentication(BaseAuthentication):
+    """DRF authentication using per-user API/MCP keys."""
 
     keyword = "ApiKey"
-    header = "HTTP_X_API_KEY"
 
     def authenticate(self, request):
-        raw_key = self._extract_key(request)
-        if not raw_key:
+        if not extract_api_key(request):
             return None
-
-        prefix = raw_key[:16]
-        now = timezone.now()
-        for key in ApiKey.objects.filter(key_prefix=prefix).select_related("user"):
-            if key.matches(raw_key):
-                if not key.is_usable:
-                    raise AuthenticationFailed("API key is inactive, revoked or expired.")
-                ApiKey.objects.filter(pk=key.pk).update(last_used_at=now)
-                return (key.user, key)
-        raise AuthenticationFailed("Invalid API key.")
-
-    def _extract_key(self, request) -> str | None:
-        header = request.META.get("HTTP_AUTHORIZATION", "")
-        if header.startswith(f"{self.keyword} "):
-            return header[len(self.keyword) + 1 :].strip() or None
-        value = request.META.get(self.header, "")
-        return value.strip() or None
+        return resolve_api_key(request)
 
     def authenticate_header(self, request) -> str:
         return self.keyword

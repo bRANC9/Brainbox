@@ -17,6 +17,7 @@ router.register("users", views.UserViewSet, basename="user")
 router.register("groups", views.GroupViewSet, basename="group")
 router.register("permissions", views.ResourceACLViewSet, basename="permission")
 router.register("api-keys", views.ApiKeyViewSet, basename="api-key")
+router.register("secrets", views.SecretViewSet, basename="secret")
 router.register("audit", views.AuditEventViewSet, basename="audit")
 
 urlpatterns = router.urls + [

@@ -12,6 +12,7 @@ urlpatterns = [
     path("healthz", healthz, name="healthz"),
     path("accounts/", include("django.contrib.auth.urls")),
     path("api/v1/", include("apps.api.urls")),
+    path("mcp", include("apps.mcp.urls")),
     path("", include("apps.web.urls")),
 ]
 
