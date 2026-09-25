@@ -20,6 +20,8 @@ from apps.embeddings.vectorstores import VectorStoreError, get_vector_store
 from apps.permissions.constants import Permission
 from apps.permissions.services import PermissionService
 
+from .rerankers import get_reranker
+
 STATUS_WEIGHTS = {
     DocumentStatus.APPROVED: 1.0,
     DocumentStatus.EXPERIMENTAL: 0.6,
@@ -234,9 +236,14 @@ class SearchService:
                     "workspace": str(document.workspace_id),
                     "project": str(document.project_id) if document.project_id else None,
                     "score": round(score, 6),
+                    "updated_at": document.updated_at.isoformat(),
                     "snippet": _snippet(candidate.content, query),
                 }
             )
 
         scored.sort(key=lambda row: row["score"], reverse=True)
-        return scored[:limit]
+        # Rerank step (terv.md 20): runs on the already permission-filtered
+        # top-N, so it can never promote an inaccessible document.
+        reranker = get_reranker()
+        top_n = max(settings.BRAINBOX_RERANK_TOP_N, limit)
+        return reranker.rerank(query, scored[:top_n], limit=limit)

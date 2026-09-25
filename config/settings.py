@@ -51,6 +51,7 @@ DJANGO_APPS = [
 
 THIRD_PARTY_APPS = [
     "rest_framework",
+    "django_prometheus",
 ]
 
 LOCAL_APPS = [
@@ -68,6 +69,8 @@ LOCAL_APPS = [
     "apps.secrets",
     "apps.mcp",
     "apps.knowledge",
+    "apps.jobs",
+    "apps.monitoring",
     "apps.audit",
     "apps.api",
     "apps.web",
@@ -78,12 +81,14 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -236,6 +241,24 @@ BRAINBOX_SECRET_SCAN_MODE = os.environ.get("BRAINBOX_SECRET_SCAN_MODE", "off")  
 BRAINBOX_LLM_PROVIDER = os.environ.get("BRAINBOX_LLM_PROVIDER", "noop")
 BRAINBOX_LLM_MODEL = os.environ.get("BRAINBOX_LLM_MODEL", "gpt-4o-mini")
 BRAINBOX_STALE_DAYS = int(os.environ.get("BRAINBOX_STALE_DAYS", "180"))
+
+# Reranking (search phase rerank step)
+BRAINBOX_RERANKER = os.environ.get("BRAINBOX_RERANKER", "heuristic")
+BRAINBOX_RERANK_TOP_N = int(os.environ.get("BRAINBOX_RERANK_TOP_N", "50"))
+# Optional OpenAI-compatible /rerank endpoint (cross-encoder style)
+BRAINBOX_RERANK_URL = os.environ.get("BRAINBOX_RERANK_URL", "")
+BRAINBOX_RERANK_MODEL = os.environ.get("BRAINBOX_RERANK_MODEL", "")
+
+# Monitoring
+# If set, /metrics requires this token (Bearer or ?token=). Empty = open.
+BRAINBOX_METRICS_TOKEN = os.environ.get("BRAINBOX_METRICS_TOKEN", "")
+
+# Background jobs (DB-backed scheduler + worker, ai-handler style)
+BRAINBOX_SCHEDULER_ENABLED = env_bool("BRAINBOX_SCHEDULER_ENABLED", True)
+BRAINBOX_SCHEDULER_TICK_SEC = int(os.environ.get("BRAINBOX_SCHEDULER_TICK_SEC", "30"))
+BRAINBOX_JOB_LOCK_TTL_SEC = int(os.environ.get("BRAINBOX_JOB_LOCK_TTL_SEC", "120"))
+BRAINBOX_JOB_POLL_SEC = int(os.environ.get("BRAINBOX_JOB_POLL_SEC", "3"))
+BRAINBOX_JOB_HISTORY_DAYS = int(os.environ.get("BRAINBOX_JOB_HISTORY_DAYS", "30"))
 
 # OIDC (Phase 6) - fully optional, disabled unless OIDC_ENABLED is true
 OIDC_ENABLED = env_bool("OIDC_ENABLED", False)

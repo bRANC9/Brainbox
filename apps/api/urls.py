@@ -3,6 +3,8 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from apps.jobs import api as jobs_views
+
 from . import views
 
 router = DefaultRouter()
@@ -19,6 +21,8 @@ router.register("permissions", views.ResourceACLViewSet, basename="permission")
 router.register("api-keys", views.ApiKeyViewSet, basename="api-key")
 router.register("secrets", views.SecretViewSet, basename="secret")
 router.register("audit", views.AuditEventViewSet, basename="audit")
+router.register("jobs", jobs_views.JobViewSet, basename="job")
+router.register("job-runs", jobs_views.JobRunViewSet, basename="job-run")
 
 urlpatterns = router.urls + [
     path("search/", views.SearchView.as_view(), name="search"),

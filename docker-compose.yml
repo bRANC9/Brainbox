@@ -67,6 +67,9 @@ services:
       BRAINBOX_CHUNK_OVERLAP: ${BRAINBOX_CHUNK_OVERLAP:-150}
       BRAINBOX_AUTO_INDEX: ${BRAINBOX_AUTO_INDEX:-1}
       BRAINBOX_SEARCH_BACKEND: ${BRAINBOX_SEARCH_BACKEND:-simple}
+      BRAINBOX_RERANKER: ${BRAINBOX_RERANKER:-heuristic}
+      BRAINBOX_RERANK_TOP_N: ${BRAINBOX_RERANK_TOP_N:-50}
+      BRAINBOX_METRICS_TOKEN: ${BRAINBOX_METRICS_TOKEN:-}
       QDRANT_URL: ${QDRANT_URL:-}
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-brainbox_chunks}
@@ -128,6 +131,23 @@ services:
       BRAINBOX_AUTO_INDEX: ${BRAINBOX_AUTO_INDEX:-1}
     volumes:
       - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
+    restart: unless-stopped
+
+  # Scheduler: single owner (DB lease) fires due jobs. Safe to scale to 2+
+  # replicas - only the lease holder ticks.
+  scheduler:
+    image: ghcr.io/branc9/brainbox:${BRAINBOX_TAG:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "manage.py", "scheduler"]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set}
+      DJANGO_DEBUG: "0"
+      DATABASE_URL: postgres://${POSTGRES_USER:-brainbox}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-brainbox}
+      BRAINBOX_SCHEDULER_ENABLED: ${BRAINBOX_SCHEDULER_ENABLED:-1}
+      BRAINBOX_SCHEDULER_TICK_SEC: ${BRAINBOX_SCHEDULER_TICK_SEC:-30}
+      BRAINBOX_JOB_LOCK_TTL_SEC: ${BRAINBOX_JOB_LOCK_TTL_SEC:-120}
     restart: unless-stopped
 
 volumes:

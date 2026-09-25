@@ -338,6 +338,73 @@ ellenőrzi, tartalmaz-e valószínű credentialt (`manage.py scan_secrets`).
 
 ---
 
+## Háttérfeladatok (DB-alapú scheduler, ai-handler minta)
+
+A `apps/jobs` egy **DB-alapú ütemező + worker**, ami az ai-handler scheduler
+mintáját portolja – de a saját dokumentált korlátainak **javításával**. Nincs
+Celery/Redis: a `jobs_job_run` sor maga a queue, amit a workerek atomikusan
+claimelnek.
+
+```text
+scheduler konténer ──lease──▶ tick() ──▶ waiting run sorok ──▶ worker konténer(ek)
+                                   (skip-if-busy, retry, orphan recovery)
+```
+
+- **Ütemezés**: `interval` / `daily` / `weekly` / `monthly`, `schedule_config`
+  JSON + opcionális `{"timezone": "Europe/Budapest"}` (a minta ezt még hiányzónak
+  jelölte).
+- **Lock**: DB-lease (`jobs_scheduler_state`) heartbeat-tel – több replika esetén
+  is csak egy scheduler tickel (a minta /tmp lock fájlt használt, skálázásnál
+  cserélni kellett volna).
+- **Retry**: hibánál újrapróbálkozás `max_retries` szerint, `attempt` növelésével.
+- **Idempotencia**: `dedupe_key` mező – azonos payload-hoz tartozó aktív run mellé
+  nem szabadul új run enqueue-elni.
+- **Recover**: age-aware orphan-recovery a beragadt waiting/running run-okra.
+- **Beépített taskok** (`apps/jobs/tasks_brainbox.py`): `embedding_backfill`,
+  `git_sync_all`, `recover_stuck_runs`, `prune_job_history`, `prune_audit_log`.
+
+Kezelés:
+
+```bash
+python manage.py jobctl --list-tasks
+python manage.py jobctl --status
+python manage.py jobctl --run git_sync_all --run-now
+python manage.py jobctl --tick
+python manage.py jobctl --runs
+```
+
+REST (`/api/v1/jobs/`, staff): `run_now`, `registry`, `scheduler_status`, `runs`;
+`/api/v1/job-runs/<id>/cancel/`. Adminban: *Jobs* és *Job runs*.
+
+> **pip-csomag lehetőség:** a `apps/jobs` magja (registry, schedule-matematika,
+> modellek, engine, admin, API) **framework-only**, nincs benne Brainbox-specifikus
+> import → szinte 1:1 kiemelhető önálló Django csomaggá. A Brainbox-függő taskok
+> külön modulban vannak, így kivétel nélkül.
+
+---
+
+## Monitoring (Prometheus)
+
+- `GET /metrics` – Prometheus scrape (django-prometheus + Brainbox domain gauge-ök:
+  dokumentumok státuszonként, chunk-ek, embedding-index, git repók/sync állapot,
+  secretek, job run-ok, audit események). `BRAINBOX_METRICS_TOKEN` esetén
+  Bearer-token kell.
+- `GET /healthz` – liveness (DB ping).
+- `GET /readyz` – readiness (DB + migrációk alkalmazva + storage írható).
+
+---
+
+## Reranking
+
+A keresési pipeline `retrieval → permission filter → rerank → top-N`. A reranker
+provider (terv 20):
+- `heuristic` (default) – determinisztikus, külső szolgáltatás nélkül: title/path
+  egyezés, pontos frázis, tudás-státusz, frissesség;
+- `crossencoder` – OpenAI-kompatibilis `/rerank` endpoint (opcionális);
+- `none` – csak alap score.
+
+---
+
 ## Könyvtárszerkezet
 
 
@@ -353,8 +420,10 @@ apps/
   files/                File, FileVersion (+ services)
   links/                ResourceLink (+ LinkService)
   git/                  GitRepository, GitSyncState, GitCommitReference, GitClient, GitService
+  jobs/                 DB-backed scheduler: registry, schedule math, Job/JobRun, engine, worker
+  monitoring/           Prometheus domain collector + /readyz
   embeddings/           KnowledgeChunk, EmbeddingIndexState, providers, chunking, vector stores
-  search/               SearchService (text + semantic + hybrid)
+  search/               SearchService (text + semantic + hybrid) + rerankers
   knowledge/            graph, AI drafts, discovery, quality metrics (+ LLM provider)
   secrets/              Secret, SecretAttachment, crypto, scanner
   mcp/                  JSON-RPC MCP szerver + tool registry
