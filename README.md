@@ -11,7 +11,7 @@ deploymenthez igazított build/pull folyamattal.
 
 ---
 
-## Mi van kész (Phase 1)
+## Mi van kész (Phase 1 + 2)
 
 - **Resource Identity**: minden objektum egy `Resource` (UUID, `parent` lánc).
 - **Workspace / Project** létrehozás, listázás, ACL.
@@ -25,11 +25,16 @@ deploymenthez igazított build/pull folyamattal.
 - **API key**: HMAC-SHA256 hash, prefix, revoke, expiry, scope (workspace/project szint).
 - **Audit log**: append-only `AuditEvent`.
 - **REST API** (`/api/v1/...`) és **Web UI** (Django templates + Markdown render).
+- **Git integráció (Phase 2)**: repository csatolása Workspace/Project szinten,
+  a checkout a source of truth (storage adapter), pull → import, platform írás →
+  auto-commit (+ push), `direct_commit` / `branch_pr` workflow, branch/commit/diff.
+- **Obsidian import**: meglévő vault Git repóból, frontmatter + `[[wikilink]]` →
+  `ResourceLink`, nem-markdown fájlok → `File` (checksum/verzió).
 - **Docker** image GitHub Actions-ből (GHCR), TrueNAS compose pull-al.
 - **CI**: ruff + Django check + migration check + tests (PostgreSQL service).
 
-Nem része ennek a körnek (a terv Phase 2–7): Git integráció, Obsidian import,
-Qdrant/embedding, MCP server, Secret Vault, OIDC.
+Nem része ennek a körnek (a terv Phase 3–7): Qdrant/embedding, MCP server,
+Secret Vault, OIDC, haladó AI.
 
 ---
 
@@ -145,7 +150,7 @@ Főbb végpontok (`/api/v1/`):
 
 ```text
 workspaces/  projects/  resources/  documents/  files/
-links/  users/  groups/  permissions/  api-keys/  audit/
+links/  git/  users/  groups/  permissions/  api-keys/  audit/
 ```
 
 Néhány hasznos művelet:
@@ -171,6 +176,59 @@ curl -X POST https://brainbox.example.com/api/v1/api-keys/ \
 
 ---
 
+## Git integráció / Obsidian import (Phase 2)
+
+Egy Workspace vagy Project Git-backed lehet. Ilyenkor a **repository checkout a
+source of truth**: a dokumentumok/fájlok közvetlenül a repó fájába íródnak, és a
+platform minden írása vissza-commitol a Gitbe (`auto_sync`), a beállított
+workflow szerint.
+
+- `direct_commit` — közvetlenül a `default_branch`-re commitol és pushol.
+- `branch_pr` — `brainbox/<user>` feature branchre commitol és pushol (PR-t
+  külsőleg nyitsz).
+
+Csatolás és Obsidian vault import (clone + scan egy lépésben):
+
+```bash
+# Csatolás workspace szinten (privát repónál a BRAINBOX_GIT_TOKEN-t használja)
+curl -X POST https://brainbox.example.com/api/v1/git/ \
+  -H "Authorization: ApiKey <kulcs>" -H "Content-Type: application/json" \
+  -d '{"workspace":"<workspace-uuid>","name":"Company Vault",
+       "remote_url":"https://github.com/acme/knowledge.git",
+       "default_branch":"main","workflow":"branch_pr"}'
+
+# Csatolás project szinten
+#   {"project":"<project-uuid>", ...}  (workspace is kötelező)
+```
+
+Git műveletek repónként (`<repo-id>` = a `git/` erőforrás id-ja):
+
+```text
+GET    /api/v1/git/                      # lista (permission-szűrve)
+GET    /api/v1/git/<id>/status/          # branch, head, dirty, utolsó commitok
+POST   /api/v1/git/<id>/pull/            # fetch + rebase + import (scan)
+POST   /api/v1/git/<id>/scan/            # working tree újraolvasása DB-be
+POST   /api/v1/git/<id>/commit/          # {"message": "..."}  add -A + commit
+POST   /api/v1/git/<id>/push/            # aktuális branch push
+GET    /api/v1/git/<id>/branches/
+GET    /api/v1/git/<id>/diff/?from=<ref>&to=<ref>
+```
+
+Web UI-n a Workspace/Project oldalon Git panel mutatja az állapotot és az utolsó
+commitokat; a **Sync from Git** gomb `pull` + import a `require_write` joggal.
+
+Import részletek: `.md`/`.markdown` → **Document** (frontmatter → metadata,
+status, priority; heading/fájlnév → cím), minden más fájl → **File**
+(checksum-alapú verzió). Az Obsidian `[[wikilink]]` és relatív `[..](x.md)`
+hivatkozások feloldódnak (path / basename / cím alapján) és **ResourceLink**-ké
+válnak. A `.git`, `.obsidian`, `node_modules` és dotfile-ok kimaradnak.
+
+> Git-backed repóhoz tartozó fájlok a `knowledge_data` volume `git/<repo-id>/`
+> könyvtárában élnek. Nem Git-backed workspace/projekt a korábbi
+> `workspaces/<id>/...` layoutot használja — a storage adapter ezt elrejti.
+
+---
+
 ## Könyvtárszerkezet
 
 ```text
@@ -184,6 +242,7 @@ apps/
   documents/            Document, DocumentVersion, frontmatter, services
   files/                File, FileVersion (+ services)
   links/                ResourceLink (+ LinkService)
+  git/                  GitRepository, GitSyncState, GitCommitReference, GitClient, GitService
   audit/                AuditEvent (+ AuditService)
   api/                  DRF serializers/viewsets/urls/health
   web/                  Web UI views
@@ -200,5 +259,8 @@ terv.md                 eredeti architektúra terv
 
 ## Következő lépések (a terv szerint)
 
-Phase 2 Git adapter + Obsidian import · Phase 3 full-text + Qdrant + embedding ·
-Phase 4 MCP server · Phase 5 Secret Vault · Phase 6 OIDC/enterprise · Phase 7 advanced AI.
+Phase 3 full-text + Qdrant + embedding · Phase 4 MCP server · Phase 5 Secret Vault ·
+Phase 6 OIDC/enterprise · Phase 7 advanced AI.
+
+Phase 2 maradék finomítás (opcionális): valódi PR nyitás a GitHub API-val,
+webhook-alapú pull, ütemezett háttér-sync a `worker`-ben.

@@ -11,6 +11,7 @@ from apps.audit.models import AuditEvent
 from apps.documents.models import Document, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File, FileVersion
+from apps.git.models import GitCommitReference, GitRepository, GitSyncState
 from apps.groups.models import Group, GroupMembership
 from apps.links.models import ResourceLink
 from apps.permissions.constants import Effect, Permission
@@ -463,6 +464,108 @@ class ApiKeyCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
     expires_at = serializers.DateTimeField(required=False, allow_null=True)
     scopes = ApiKeyScopeInputSerializer(many=True, required=False)
+
+
+# ---------------------------------------------------------------------------
+# Git
+# ---------------------------------------------------------------------------
+class GitSyncStateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GitSyncState
+        fields = [
+            "status",
+            "branch",
+            "last_synced_sha",
+            "last_pulled_at",
+            "last_pushed_at",
+            "last_error",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class GitCommitReferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GitCommitReference
+        fields = [
+            "id",
+            "sha",
+            "branch",
+            "message",
+            "author_name",
+            "author_email",
+            "direction",
+            "created_by",
+            "committed_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class GitRepositorySerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="pk", read_only=True)
+    resource = serializers.UUIDField(read_only=True)
+    workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all())
+    project = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(), required=False, allow_null=True
+    )
+    scope_label = serializers.CharField(read_only=True)
+    sync_state = GitSyncStateSerializer(read_only=True)
+    commits = GitCommitReferenceSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = GitRepository
+        fields = [
+            "id",
+            "resource",
+            "workspace",
+            "project",
+            "name",
+            "remote_url",
+            "default_branch",
+            "workflow",
+            "auto_sync",
+            "is_active",
+            "scope_label",
+            "sync_state",
+            "commits",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "resource",
+            "scope_label",
+            "sync_state",
+            "commits",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        extra_kwargs = {"name": {"required": False, "allow_blank": True}}
+        validators: list = []
+
+    def create(self, validated_data):
+        from apps.git.services import GitService
+
+        return GitService.attach_repository(
+            workspace=validated_data["workspace"],
+            project=validated_data.get("project"),
+            remote_url=validated_data.get("remote_url", ""),
+            name=validated_data.get("name", ""),
+            default_branch=validated_data.get("default_branch", "main"),
+            workflow=validated_data.get("workflow", "direct_commit"),
+            created_by=_actor(self),
+            request=self.context.get("request"),
+        )
+
+    def update(self, instance, validated_data):
+        for field in ("name", "remote_url", "default_branch", "workflow", "auto_sync", "is_active"):
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+        instance.save()
+        return instance
 
 
 # ---------------------------------------------------------------------------

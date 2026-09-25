@@ -156,3 +156,15 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
 }
 
 .auth { max-width: 360px; margin: 4rem auto; }
+
+.git-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.git-panel h2 { margin-top: 0; }
+.commits { list-style: none; padding-left: 0; margin: 0.5rem 0 0; }
+.commits li { padding: 0.2rem 0; font-size: 0.9rem; }
+.commits code, .git-panel code { background: var(--panel-2); padding: 0.05rem 0.35rem; border-radius: 4px; }

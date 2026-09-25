@@ -21,6 +21,9 @@ from apps.documents.models import Document, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File
 from apps.files.services import FileService
+from apps.git.git_cli import GitError
+from apps.git.models import GitRepository
+from apps.git.services import GitService
 from apps.groups.models import Group
 from apps.links.models import ResourceLink
 from apps.links.services import LinkService
@@ -406,6 +409,98 @@ class ApiKeyViewSet(viewsets.ModelViewSet):
         api_key = self.get_object()
         api_key.revoke()
         return Response(s.ApiKeySerializer(api_key).data)
+
+
+# ---------------------------------------------------------------------------
+# Git
+# ---------------------------------------------------------------------------
+def _run_git(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except GitError as exc:
+        raise ValidationError({"git": str(exc)}) from exc
+
+
+class GitRepositoryViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):
+    queryset = GitRepository.objects.select_related(
+        "resource", "workspace", "project", "sync_state"
+    )
+    serializer_class = s.GitRepositorySerializer
+    permission_classes = [IsAuthenticated, ResourcePermission]
+    search_fields = ["name", "remote_url"]
+    ordering_fields = ["name", "created_at"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        params = self.request.query_params
+        if params.get("workspace"):
+            queryset = queryset.filter(workspace_id=params["workspace"])
+        if params.get("project"):
+            queryset = queryset.filter(project_id=params["project"])
+        return queryset
+
+    def get_create_target(self, validated_data):
+        project = validated_data.get("project")
+        if project is not None:
+            return project.resource
+        workspace = validated_data.get("workspace")
+        return workspace.resource if workspace else None
+
+    def perform_destroy(self, instance):
+        GitService.detach_repository(instance, user=self.request.user, request=self.request)
+
+    @action(detail=True, methods=["post"])
+    def pull(self, request, pk=None):
+        repository = self.get_object()
+        result = _run_git(
+            GitService.pull_repository, repository, user=request.user, request=request
+        )
+        return Response(result)
+
+    @action(detail=True, methods=["post"])
+    def push(self, request, pk=None):
+        repository = self.get_object()
+        _run_git(GitService.push_repository, repository, user=request.user, request=request)
+        return Response({"pushed": True})
+
+    @action(detail=True, methods=["post"])
+    def commit(self, request, pk=None):
+        repository = self.get_object()
+        message = request.data.get("message") or "Manual commit"
+        sha = _run_git(
+            GitService.commit_repository,
+            repository=repository,
+            message=message,
+            user=request.user,
+            request=request,
+        )
+        return Response({"sha": sha})
+
+    @action(detail=True, methods=["post"])
+    def scan(self, request, pk=None):
+        repository = self.get_object()
+        result = _run_git(
+            GitService.scan_repository, repository, user=request.user, request=request
+        )
+        return Response(result)
+
+    @action(detail=True, methods=["get"])
+    def status(self, request, pk=None):
+        repository = self.get_object()
+        return Response(GitService.status_repository(repository))
+
+    @action(detail=True, methods=["get"])
+    def branches(self, request, pk=None):
+        repository = self.get_object()
+        return Response({"branches": GitService._client(repository).branches()})
+
+    @action(detail=True, methods=["get"])
+    def diff(self, request, pk=None):
+        repository = self.get_object()
+        from_ref = request.query_params.get("from")
+        if not from_ref:
+            raise ValidationError({"from": "This query parameter is required."})
+        return Response({"diff": GitService.diff_repository(repository, from_ref, request.query_params.get("to", ""))})
 
 
 # ---------------------------------------------------------------------------

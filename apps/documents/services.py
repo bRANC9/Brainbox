@@ -6,6 +6,8 @@ immutable :class:`DocumentVersion` snapshot for history/diff/restore.
 
 from __future__ import annotations
 
+import logging
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils.text import slugify
@@ -14,12 +16,28 @@ from apps.audit.models import AuditAction, AuditSource
 from apps.audit.services import AuditService
 from apps.resources.models import ResourceType
 from apps.resources.services import ResourceService
-from apps.resources.storage import get_storage
+from apps.resources.storage import get_storage, resolve_path
 
 from .frontmatter import parse_frontmatter
 from .models import ChangeSource, ChangeType, Document, DocumentStatus, DocumentVersion
 
+logger = logging.getLogger("brainbox.documents")
+
 _METADATA_KEYS = ("type", "domain", "owner", "tags", "source")
+
+_GIT_SOURCES = {ChangeSource.GIT, ChangeSource.IMPORT}
+
+
+def _autocommit(document: Document, *, user, request, message: str | None = None) -> None:
+    """Commit a Git-backed document back to its repository (best effort)."""
+    try:
+        from apps.git.services import GitService
+
+        GitService.autocommit_document(
+            document=document, user=user, request=request, message=message
+        )
+    except Exception:  # noqa: BLE001 - never break a document write because of Git
+        logger.exception("git autocommit failed for document %s", document.pk)
 
 
 def _title_from_body(content: str) -> str:
@@ -56,10 +74,9 @@ class DocumentService:
     # -- reads ---------------------------------------------------------------
     @staticmethod
     def storage_path(document: Document):
-        storage = get_storage()
-        return storage.path_for(
-            workspace_id=document.workspace_id,
-            project_id=document.project_id,
+        return resolve_path(
+            workspace=document.workspace,
+            project=document.project,
             kind="documents",
             rel_path=document.path,
         )
@@ -156,6 +173,8 @@ class DocumentService:
             version=1,
             detail={"type": "document", "path": rel_path, "title": title},
         )
+        if source not in _GIT_SOURCES:
+            _autocommit(document, user=created_by, request=request)
         return document
 
     @staticmethod
@@ -223,6 +242,8 @@ class DocumentService:
             git_commit=git_commit,
             detail={"type": "document", "path": document.path},
         )
+        if source not in _GIT_SOURCES:
+            _autocommit(document, user=user, request=request)
         return document
 
     @staticmethod

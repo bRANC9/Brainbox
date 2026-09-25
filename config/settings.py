@@ -62,6 +62,7 @@ LOCAL_APPS = [
     "apps.documents",
     "apps.files",
     "apps.links",
+    "apps.git",
     "apps.audit",
     "apps.api",
     "apps.web",
@@ -195,6 +196,13 @@ KNOWLEDGE_DATA_ROOT = os.environ.get(
 BRAINBOX_SECRET_KEY = os.environ.get("BRAINBOX_SECRET_KEY", "")
 
 BRAINBOX_API_KEY_PREFIX = env_list("BRAINBOX_API_KEY_PREFIX", "ck_live_")[0] or "ck_live_"
+
+# Git integration (Phase 2). A single shared token is used for HTTPS remotes;
+# per-repository credentials arrive with the Secret Vault (Phase 5).
+BRAINBOX_GIT_TOKEN = os.environ.get("BRAINBOX_GIT_TOKEN", "")
+BRAINBOX_GIT_AUTHOR_NAME = os.environ.get("BRAINBOX_GIT_AUTHOR_NAME", "Brainbox")
+BRAINBOX_GIT_AUTHOR_EMAIL = os.environ.get("BRAINBOX_GIT_AUTHOR_EMAIL", "brainbox@localhost")
+BRAINBOX_GIT_COMMAND_TIMEOUT = int(os.environ.get("BRAINBOX_GIT_COMMAND_TIMEOUT", "120"))
 
 
 # ---------------------------------------------------------------------------

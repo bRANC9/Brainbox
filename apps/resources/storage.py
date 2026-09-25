@@ -31,6 +31,10 @@ class LocalStorage:
             raise StorageError(f"Path escapes storage root: {path}")
         return resolved
 
+    def validate(self, path: str | Path) -> Path:
+        """Public wrapper around path validation (keeps paths under root)."""
+        return self._validate(Path(path))
+
     def path_for(
         self,
         *,
@@ -86,6 +90,44 @@ class LocalStorage:
             path.unlink()
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=8)
+def _storage_for(root: str) -> LocalStorage:
+    return LocalStorage(root)
+
+
 def get_storage() -> LocalStorage:
-    return LocalStorage(settings.KNOWLEDGE_DATA_ROOT)
+    """Storage adapter for the configured knowledge root (cached per root)."""
+    return _storage_for(str(settings.KNOWLEDGE_DATA_ROOT))
+
+
+def resolve_base(*, workspace, project=None) -> tuple[Path, bool]:
+    """Return ``(root, git_backed)`` for a resource's source-of-truth files.
+
+    A Project-level Git repository wins over a Workspace-level one. For
+    Git-backed resources the repository checkout is the storage root; otherwise
+    the local ``workspaces/<id>[/projects/<id>]`` layout is used.
+    """
+    from apps.git.models import GitRepository  # local import avoids a cycle
+
+    repository = None
+    if project is not None:
+        repository = GitRepository.objects.filter(project=project, is_active=True).first()
+    if repository is None:
+        repository = GitRepository.objects.filter(
+            workspace=workspace, project__isnull=True, is_active=True
+        ).first()
+    if repository is not None:
+        return Path(repository.directory), True
+
+    base = Path(settings.KNOWLEDGE_DATA_ROOT) / "workspaces" / str(workspace.pk)
+    if project is not None:
+        base = base / "projects" / str(project.pk)
+    return base, False
+
+
+def resolve_path(*, workspace, project, kind: str, rel_path: str = "") -> Path:
+    """Absolute path of a document/file in the correct storage backend."""
+    root, git_backed = resolve_base(workspace=workspace, project=project)
+    base = root if git_backed else root / kind
+    path = base / rel_path if rel_path else base
+    return get_storage().validate(path)

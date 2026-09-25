@@ -14,6 +14,7 @@ from django.views.decorators.http import require_http_methods
 from apps.documents.frontmatter import parse_frontmatter
 from apps.documents.models import ChangeSource, Document, DocumentStatus, DocumentVersion
 from apps.documents.services import DocumentService
+from apps.git.services import GitService
 from apps.permissions.constants import Permission
 from apps.permissions.services import PermissionService
 from apps.workspaces.models import Project, Workspace
@@ -28,6 +29,17 @@ def _can(user, resource, permission: str) -> bool:
 def _render_markdown(content: str) -> str:
     _frontmatter, body = parse_frontmatter(content)
     return md.markdown(body, extensions=MARKDOWN_EXTENSIONS)
+
+
+def _git_panel(workspace, project=None) -> dict:
+    repository = GitService.repository_for(workspace=workspace, project=project)
+    if repository is None:
+        return {"git_repository": None}
+    return {
+        "git_repository": repository,
+        "git_state": getattr(repository, "sync_state", None),
+        "git_commits": repository.commits.all()[:5],
+    }
 
 
 @login_required
@@ -67,16 +79,14 @@ def workspace_detail(request, workspace_slug):
         if _can(request.user, document.resource, Permission.READ)
     ]
     can_write = _can(request.user, workspace.resource, Permission.WRITE)
-    return render(
-        request,
-        "workspace_detail.html",
-        {
-            "workspace": workspace,
-            "projects": projects,
-            "documents": documents,
-            "can_write": can_write,
-        },
-    )
+    context = {
+        "workspace": workspace,
+        "projects": projects,
+        "documents": documents,
+        "can_write": can_write,
+        **_git_panel(workspace),
+    }
+    return render(request, "workspace_detail.html", context)
 
 
 @login_required
@@ -92,16 +102,14 @@ def project_detail(request, workspace_slug, project_slug):
         if _can(request.user, document.resource, Permission.READ)
     ]
     can_write = _can(request.user, project.resource, Permission.WRITE)
-    return render(
-        request,
-        "project_detail.html",
-        {
-            "workspace": workspace,
-            "project": project,
-            "documents": documents,
-            "can_write": can_write,
-        },
-    )
+    context = {
+        "workspace": workspace,
+        "project": project,
+        "documents": documents,
+        "can_write": can_write,
+        **_git_panel(workspace, project),
+    }
+    return render(request, "project_detail.html", context)
 
 
 @login_required
@@ -240,4 +248,43 @@ def document_history(request, pk):
         request,
         "document_history.html",
         {"document": document, "versions": versions, "diff": diff},
+    )
+
+
+@login_required
+@require_http_methods(["POST"])
+def workspace_git_pull(request, workspace_slug):
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    if not _can(request.user, workspace.resource, Permission.WRITE):
+        return HttpResponseForbidden("You do not have write access here.")
+    repository = GitService.repository_for(workspace=workspace)
+    if repository is None:
+        messages.error(request, "This workspace is not Git-backed.")
+    else:
+        try:
+            result = GitService.pull_repository(repository, user=request.user, request=request)
+            messages.success(request, f"Git sync complete: {result}")
+        except Exception as exc:  # noqa: BLE001 - surface the message in the UI
+            messages.error(request, f"Git sync failed: {exc}")
+    return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+
+
+@login_required
+@require_http_methods(["POST"])
+def project_git_pull(request, workspace_slug, project_slug):
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    project = get_object_or_404(Project, workspace=workspace, slug=project_slug)
+    if not _can(request.user, project.resource, Permission.WRITE):
+        return HttpResponseForbidden("You do not have write access here.")
+    repository = GitService.repository_for(workspace=workspace, project=project)
+    if repository is None:
+        messages.error(request, "This project is not Git-backed.")
+    else:
+        try:
+            result = GitService.pull_repository(repository, user=request.user, request=request)
+            messages.success(request, f"Git sync complete: {result}")
+        except Exception as exc:  # noqa: BLE001 - surface the message in the UI
+            messages.error(request, f"Git sync failed: {exc}")
+    return redirect(
+        "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug
     )

@@ -1,0 +1,37 @@
+{% if git_repository %}
+<section class="git-panel">
+  <h2>Git</h2>
+  <p class="meta">
+    <strong>{{ git_repository.name }}</strong>
+    &middot; {{ git_repository.scope_label }}
+    &middot; branch <code>{{ git_repository.default_branch }}</code>
+    &middot; {{ git_repository.get_workflow_display }}
+  </p>
+  {% if git_state %}
+    <p class="meta">
+      Status: <span class="badge">{{ git_state.get_status_display }}</span>
+      {% if git_state.branch %}&middot; {{ git_state.branch }}{% endif %}
+      {% if git_state.last_synced_sha %}&middot; <code>{{ git_state.last_synced_sha|slice:":10" }}</code>{% endif %}
+    </p>
+    {% if git_state.last_error %}<p class="error">{{ git_state.last_error }}</p>{% endif %}
+  {% endif %}
+  {% if can_write %}
+    {% if project %}
+      <form method="post" action="{% url 'web:project_git_pull' workspace.slug project.slug %}" class="inline">
+    {% else %}
+      <form method="post" action="{% url 'web:workspace_git_pull' workspace.slug %}" class="inline">
+    {% endif %}
+      {% csrf_token %}
+      <button class="button" type="submit">Sync from Git</button>
+    </form>
+  {% endif %}
+  {% if git_commits %}
+    <ul class="commits">
+      {% for commit in git_commits %}
+        <li><code>{{ commit.sha|slice:":10" }}</code> {{ commit.message }}
+          <span class="muted">{{ commit.created_at|date:"Y-m-d H:i" }}</span></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</section>
+{% endif %}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
 
 from django.core.exceptions import ValidationError
@@ -13,13 +14,28 @@ from apps.audit.services import AuditService
 from apps.documents.models import ChangeSource, ChangeType
 from apps.resources.models import ResourceType
 from apps.resources.services import ResourceService
-from apps.resources.storage import get_storage
+from apps.resources.storage import get_storage, resolve_path
 
 from .models import File, FileVersion
+
+logger = logging.getLogger("brainbox.files")
+
+_GIT_SOURCES = {ChangeSource.GIT, ChangeSource.IMPORT}
 
 
 def _checksum(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _autocommit(stored_file: File, *, user, request, message: str | None = None) -> None:
+    try:
+        from apps.git.services import GitService
+
+        GitService.autocommit_file(
+            stored_file=stored_file, user=user, request=request, message=message
+        )
+    except Exception:  # noqa: BLE001 - never break a file write because of Git
+        logger.exception("git autocommit failed for file %s", stored_file.pk)
 
 
 def _guess_mime(name: str, fallback: str = "") -> str:
@@ -35,9 +51,9 @@ def _normalize_path(path: str | None, name: str) -> str:
 class FileService:
     @staticmethod
     def storage_path(file: File):
-        return get_storage().path_for(
-            workspace_id=file.workspace_id,
-            project_id=file.project_id,
+        return resolve_path(
+            workspace=file.workspace,
+            project=file.project,
             kind="files",
             rel_path=file.path,
         )
@@ -109,6 +125,8 @@ class FileService:
             request=request,
             detail={"type": "file", "path": rel_path, "size": stored_file.size},
         )
+        if source not in _GIT_SOURCES:
+            _autocommit(stored_file, user=created_by, request=request)
         return stored_file
 
     @staticmethod
@@ -149,6 +167,8 @@ class FileService:
             version=stored_file.current_version,
             detail={"type": "file", "path": stored_file.path},
         )
+        if source not in _GIT_SOURCES:
+            _autocommit(stored_file, user=user, request=request)
         return stored_file
 
     @staticmethod
