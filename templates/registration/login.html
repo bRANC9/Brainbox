@@ -11,5 +11,8 @@
     <input type="hidden" name="next" value="{{ next }}">
     <button type="submit" class="button primary">Sign in</button>
   </form>
+  {% if oidc_enabled %}
+    <p><a class="button" href="{% url 'accounts:oidc_login' %}">Sign in with SSO</a></p>
+  {% endif %}
 </div>
 {% endblock %}

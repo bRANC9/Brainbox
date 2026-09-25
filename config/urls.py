@@ -10,6 +10,7 @@ from apps.api.health import healthz
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("healthz", healthz, name="healthz"),
+    path("accounts/", include("apps.accounts.urls")),
     path("accounts/", include("django.contrib.auth.urls")),
     path("api/v1/", include("apps.api.urls")),
     path("mcp", include("apps.mcp.urls")),

@@ -15,6 +15,9 @@
       <a href="/admin/">Admin</a>
       <a href="/api/v1/">API</a>
       {% if user.is_authenticated %}
+        <a href="{% url 'web:api_keys' %}">API keys</a>
+        {% if user.is_staff %}<a href="{% url 'web:groups_admin' %}">Groups</a>{% endif %}
+        <a href="{% url 'web:audit_dashboard' %}">Audit</a>
         <span class="user">{{ user }}</span>
         <form method="post" action="{% url 'logout' %}" class="inline">
           {% csrf_token %}

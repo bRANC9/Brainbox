@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Groups - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head"><h1>Groups</h1></section>
+
+<form method="post" class="form row">
+  {% csrf_token %}
+  <label style="flex:3">New group <input type="text" name="name" required></label>
+  <input type="hidden" name="action" value="create">
+  <button class="button primary" type="submit">Create</button>
+</form>
+
+{% for group in groups %}
+  <section class="git-panel">
+    <h2>{{ group.name }}</h2>
+    <ul>
+      {% for membership in group.memberships.all %}
+        <li>
+          {{ membership.user }} ({{ membership.get_role_display }})
+          <form method="post" class="inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="remove_member">
+            <input type="hidden" name="membership_id" value="{{ membership.pk }}">
+            <button class="link" type="submit">remove</button>
+          </form>
+        </li>
+      {% empty %}
+        <li class="muted">No members.</li>
+      {% endfor %}
+    </ul>
+    <form method="post" class="form row">
+      {% csrf_token %}
+      <label>Username <input type="text" name="username" required></label>
+      <input type="hidden" name="action" value="add_member">
+      <input type="hidden" name="group_id" value="{{ group.pk }}">
+      <button class="button" type="submit">Add member</button>
+    </form>
+  </section>
+{% empty %}
+  <p class="muted">No groups yet.</p>
+{% endfor %}
+{% endblock %}

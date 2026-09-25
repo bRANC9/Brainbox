@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}API keys - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head"><h1>API keys</h1></section>
+
+<form method="post" class="form row">
+  {% csrf_token %}
+  <label style="flex:3">Name <input type="text" name="name" placeholder="Claude - Company" required></label>
+  <input type="hidden" name="action" value="create">
+  <button class="button primary" type="submit">Create key</button>
+</form>
+
+<table class="table">
+  <thead><tr><th>Name</th><th>Prefix</th><th>Active</th><th>Last used</th><th></th></tr></thead>
+  <tbody>
+    {% for key in keys %}
+      <tr>
+        <td>{{ key.name }}</td>
+        <td><code>{{ key.key_prefix }}…</code></td>
+        <td>{{ key.is_active|yesno:"yes,no" }}</td>
+        <td>{{ key.last_used_at|date:"Y-m-d H:i"|default:"-" }}</td>
+        <td>
+          {% if key.is_active %}
+            <form method="post" class="inline">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="revoke">
+              <input type="hidden" name="key_id" value="{{ key.pk }}">
+              <button class="button" type="submit">Revoke</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5" class="muted">No keys yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -6,21 +6,28 @@ import difflib
 
 import markdown as md
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
-from apps.audit.models import AuditAction, AuditSource
+from apps.accounts.models import ApiKey
+from apps.accounts.services import ApiKeyService
+from apps.audit.models import AuditAction, AuditEvent, AuditSource
 from apps.audit.services import AuditService
 from apps.documents.frontmatter import parse_frontmatter
 from apps.documents.models import ChangeSource, Document, DocumentStatus, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.git.services import GitService
-from apps.permissions.constants import Permission
+from apps.groups.models import Group, GroupMembership
+from apps.permissions.constants import Effect, Permission, SubjectType
 from apps.permissions.services import PermissionService
+from apps.resources.models import Resource
 from apps.search.services import SearchService
 from apps.workspaces.models import Project, Workspace
+
+User = get_user_model()
 
 MARKDOWN_EXTENSIONS = ["fenced_code", "tables", "toc", "sane_lists", "codehilite", "nl2br"]
 
@@ -106,6 +113,7 @@ def workspace_detail(request, workspace_slug):
         "projects": projects,
         "documents": documents,
         "can_write": can_write,
+        "can_admin": _can(request.user, workspace.resource, Permission.ADMIN),
         **_git_panel(workspace),
     }
     return render(request, "workspace_detail.html", context)
@@ -161,6 +169,7 @@ def document_detail(request, pk):
             "outgoing_links": outgoing,
             "incoming_links": incoming,
             "can_write": _can(request.user, document.resource, Permission.WRITE),
+            "can_admin": _can(request.user, document.resource, Permission.ADMIN),
         },
     )
 
@@ -309,4 +318,135 @@ def project_git_pull(request, workspace_slug, project_slug):
             messages.error(request, f"Git sync failed: {exc}")
     return redirect(
         "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug
+    )
+
+
+# ---------------------------------------------------------------------------
+# Management UI (Phase 6)
+# ---------------------------------------------------------------------------
+@login_required
+def api_keys(request):
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "create":
+            name = request.POST.get("name", "").strip() or "key"
+            _key, raw_key = ApiKeyService.create(
+                user=request.user, name=name, actor=request.user, request=request
+            )
+            messages.success(request, f"API key created (copy it now): {raw_key}")
+        elif action == "revoke":
+            key = get_object_or_404(ApiKey, pk=request.POST.get("key_id"), user=request.user)
+            key.revoke()
+            messages.success(request, "API key revoked.")
+        return redirect("web:api_keys")
+
+    keys = ApiKey.objects.filter(user=request.user).prefetch_related("scopes")
+    return render(request, "api_keys.html", {"keys": keys})
+
+
+@login_required
+def audit_dashboard(request):
+    events = AuditEvent.objects.select_related("user", "resource")
+    if not request.user.is_superuser:
+        events = events.filter(user=request.user)
+    action = request.GET.get("action", "")
+    if action:
+        events = events.filter(action=action)
+    return render(
+        request,
+        "audit.html",
+        {"events": events[:200], "action": action, "actions": AuditAction.choices},
+    )
+
+
+@login_required
+def groups_admin(request):
+    if not request.user.is_staff:
+        return HttpResponseForbidden("Staff access required.")
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "create":
+            name = request.POST.get("name", "").strip()
+            if name:
+                Group.objects.get_or_create(name=name, defaults={"created_by": request.user})
+        elif action == "add_member":
+            group = get_object_or_404(Group, pk=request.POST.get("group_id"))
+            member = User.objects.filter(username=request.POST.get("username", "")).first()
+            if member is None:
+                messages.error(request, "No such user.")
+            else:
+                GroupMembership.objects.get_or_create(user=member, group=group)
+        elif action == "remove_member":
+            GroupMembership.objects.filter(pk=request.POST.get("membership_id")).delete()
+        return redirect("web:groups_admin")
+
+    groups = Group.objects.prefetch_related("memberships__user")
+    return render(request, "groups.html", {"groups": groups})
+
+
+def _resolve_subject(subject_type: str, value: str):
+    value = (value or "").strip()
+    if subject_type == SubjectType.GROUP:
+        group = Group.objects.filter(pk=value).first() if "-" in value else None
+        if group is None:
+            group = Group.objects.filter(name=value).first()
+        return group.id if group else None
+    user = User.objects.filter(pk=value).first() if "-" in value else None
+    if user is None:
+        user = User.objects.filter(username=value).first()
+    return user.id if user else None
+
+
+@login_required
+def resource_permissions(request, resource_id):
+    resource = get_object_or_404(Resource, pk=resource_id)
+    if not PermissionService.check(request.user, resource, Permission.ADMIN):
+        return HttpResponseForbidden("Admin permission required on this resource.")
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "grant":
+            subject_type = request.POST.get("subject_type", SubjectType.USER)
+            subject_id = _resolve_subject(subject_type, request.POST.get("subject_id", ""))
+            if subject_id is None:
+                messages.error(request, "Subject not found.")
+            else:
+                PermissionService.grant(
+                    resource,
+                    subject_type=subject_type,
+                    subject_id=subject_id,
+                    permission=request.POST.get("permission", Permission.READ),
+                    effect=request.POST.get("effect", Effect.ALLOW),
+                    inherit=request.POST.get("inherit") == "on",
+                    created_by=request.user,
+                )
+                AuditService.log(
+                    AuditAction.CHANGE_PERMISSION,
+                    user=request.user,
+                    resource=resource,
+                    source=AuditSource.WEB,
+                    request=request,
+                    detail={"action": "grant", "subject_type": subject_type},
+                )
+                messages.success(request, "Permission granted.")
+        elif action == "revoke":
+            PermissionService.revoke(
+                resource,
+                subject_type=request.POST.get("subject_type", SubjectType.USER),
+                subject_id=request.POST.get("subject_id"),
+                permission=request.POST.get("permission") or None,
+            )
+            messages.success(request, "Permission revoked.")
+        return redirect("web:resource_permissions", resource_id=resource.pk)
+
+    return render(
+        request,
+        "permissions.html",
+        {
+            "resource": resource,
+            "entries": resource.acl_entries.all(),
+            "permissions": Permission.choices,
+            "effects": Effect.choices,
+            "subject_types": SubjectType.choices,
+        },
     )

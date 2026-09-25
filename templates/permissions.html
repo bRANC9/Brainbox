@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Permissions - {{ resource.name }} - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="crumbs">{{ resource.resource_type }}: {{ resource.name }}</p>
+    <h1>Permissions</h1>
+  </div>
+</section>
+
+<table class="table">
+  <thead><tr><th>Subject</th><th>Type</th><th>Permission</th><th>Effect</th><th>Inherit</th><th></th></tr></thead>
+  <tbody>
+    {% for entry in entries %}
+      <tr>
+        <td><code>{{ entry.subject_id }}</code></td>
+        <td>{{ entry.get_subject_type_display }}</td>
+        <td>{{ entry.get_permission_display }}</td>
+        <td>{{ entry.get_effect_display }}</td>
+        <td>{{ entry.inherit|yesno:"yes,no" }}</td>
+        <td>
+          <form method="post" class="inline">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="revoke">
+            <input type="hidden" name="subject_type" value="{{ entry.subject_type }}">
+            <input type="hidden" name="subject_id" value="{{ entry.subject_id }}">
+            <input type="hidden" name="permission" value="{{ entry.permission }}">
+            <button class="link" type="submit">revoke</button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="muted">No explicit entries (inherited only).</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Grant</h2>
+<form method="post" class="form row">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="grant">
+  <label>Subject type
+    <select name="subject_type">
+      {% for value, label in subject_types %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Subject (username / group name) <input type="text" name="subject_id" required></label>
+  <label>Permission
+    <select name="permission">
+      {% for value, label in permissions %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Effect
+    <select name="effect">
+      {% for value, label in effects %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Inherit <input type="checkbox" name="inherit" checked></label>
+  <button class="button primary" type="submit">Grant</button>
+</form>
+{% endblock %}

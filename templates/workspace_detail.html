@@ -10,6 +10,9 @@
   {% if can_write %}
     <a class="button" href="{% url 'web:workspace_document_create' workspace.slug %}">New document</a>
   {% endif %}
+  {% if can_admin %}
+    <a class="button" href="{% url 'web:resource_permissions' workspace.resource_id %}">Permissions</a>
+  {% endif %}
 </section>
 
 {% include "_git_panel.html" %}

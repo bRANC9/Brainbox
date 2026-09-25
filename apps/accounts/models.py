@@ -17,12 +17,21 @@ class User(AbstractUser):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     display_name = models.CharField(max_length=255, blank=True)
+    oidc_subject = models.CharField(max_length=255, blank=True, default="")
+    oidc_issuer = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "accounts_user"
         ordering = ["username"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["oidc_issuer", "oidc_subject"],
+                condition=~models.Q(oidc_subject=""),
+                name="uniq_oidc_identity",
+            )
+        ]
 
     def __str__(self) -> str:
         return self.display_name or self.username

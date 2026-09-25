@@ -22,6 +22,9 @@
       {% if can_write %}
         <a class="button primary" href="{% url 'web:document_edit' document.pk %}">Edit</a>
       {% endif %}
+      {% if can_admin %}
+        <a class="button" href="{% url 'web:resource_permissions' document.resource_id %}">Permissions</a>
+      {% endif %}
     </p>
     {% if document.summary %}<p class="summary">{{ document.summary }}</p>{% endif %}
   </header>
