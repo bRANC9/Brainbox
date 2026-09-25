@@ -22,4 +22,7 @@ router.register("audit", views.AuditEventViewSet, basename="audit")
 
 urlpatterns = router.urls + [
     path("search/", views.SearchView.as_view(), name="search"),
+    path("discovery/", views.DiscoveryView.as_view(), name="discovery"),
+    path("quality/", views.QualityView.as_view(), name="quality"),
+    path("drafts/", views.DraftCreateView.as_view(), name="drafts"),
 ]

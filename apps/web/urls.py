@@ -9,6 +9,7 @@ app_name = "web"
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("search/", views.search, name="search"),
+    path("discover/", views.discovery, name="discovery"),
     path("workspaces/<slug:workspace_slug>/", views.workspace_detail, name="workspace_detail"),
     path(
         "workspaces/<slug:workspace_slug>/documents/new/",
@@ -45,5 +46,7 @@ urlpatterns = [
     ),
     path("documents/<uuid:pk>/", views.document_detail, name="document_detail"),
     path("documents/<uuid:pk>/edit/", views.document_edit, name="document_edit"),
+    path("documents/<uuid:pk>/approve/", views.document_approve, name="document_approve"),
+    path("documents/<uuid:pk>/reject/", views.document_reject, name="document_reject"),
     path("documents/<uuid:pk>/history/", views.document_history, name="document_history"),
 ]

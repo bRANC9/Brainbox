@@ -67,6 +67,7 @@ LOCAL_APPS = [
     "apps.search",
     "apps.secrets",
     "apps.mcp",
+    "apps.knowledge",
     "apps.audit",
     "apps.api",
     "apps.web",
@@ -230,6 +231,11 @@ QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "brainbox_chunks")
 
 # Secret vault (Phase 5)
 BRAINBOX_SECRET_SCAN_MODE = os.environ.get("BRAINBOX_SECRET_SCAN_MODE", "off")  # off|warn|reject
+
+# AI draft generation (Phase 7). Provider is `noop` (offline skeleton) by default.
+BRAINBOX_LLM_PROVIDER = os.environ.get("BRAINBOX_LLM_PROVIDER", "noop")
+BRAINBOX_LLM_MODEL = os.environ.get("BRAINBOX_LLM_MODEL", "gpt-4o-mini")
+BRAINBOX_STALE_DAYS = int(os.environ.get("BRAINBOX_STALE_DAYS", "180"))
 
 # OIDC (Phase 6) - fully optional, disabled unless OIDC_ENABLED is true
 OIDC_ENABLED = env_bool("OIDC_ENABLED", False)

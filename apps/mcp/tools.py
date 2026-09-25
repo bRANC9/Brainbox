@@ -16,11 +16,17 @@ from typing import Any, Callable
 
 from django.conf import settings
 
-from apps.documents.models import ChangeSource, Document
+from apps.documents.models import ChangeSource, Document, DocumentStatus
 from apps.documents.services import DocumentService
 from apps.git.git_cli import GitError
 from apps.git.models import GitRepository
 from apps.git.services import GitService
+from apps.knowledge.services import (
+    DiscoveryService,
+    DraftService,
+    GraphService,
+    QualityService,
+)
 from apps.permissions.constants import Permission
 from apps.permissions.services import PermissionService
 from apps.resources.models import Resource
@@ -702,3 +708,117 @@ def _get_secret(ctx: ToolContext, secret_id) -> Secret:
     if secret.owner_id != getattr(ctx.user, "id", None):
         raise ToolError("Secret not found.")
     return secret
+
+
+# ---------------------------------------------------------------------------
+# Knowledge intelligence (Phase 7)
+# ---------------------------------------------------------------------------
+@tool(
+    "knowledge_discover",
+    "Discover skills/patterns/conventions/decisions/examples relevant to a workspace.",
+    {
+        "type": "object",
+        "properties": {
+            "workspace": {"type": "string"},
+            "types": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "e.g. [skill, pattern, convention, decision, example]",
+            },
+        },
+    },
+)
+def tool_discover(ctx: ToolContext, args: dict) -> dict:
+    return DiscoveryService.discover(
+        ctx.user,
+        api_key=ctx.api_key,
+        types=args.get("types"),
+        workspace_id=args.get("workspace"),
+        limit=25,
+    )
+
+
+@tool(
+    "knowledge_related",
+    "Get related knowledge via the link graph around a resource (permission-filtered).",
+    {
+        "type": "object",
+        "properties": {
+            "resource_id": {"type": "string"},
+            "depth": {"type": "integer", "minimum": 1, "maximum": 3},
+        },
+        "required": ["resource_id"],
+    },
+)
+def tool_related(ctx: ToolContext, args: dict) -> dict:
+    try:
+        resource = Resource.objects.get(pk=args["resource_id"])
+    except (Resource.DoesNotExist, ValueError, TypeError) as exc:
+        raise ToolError("Resource not found.") from exc
+    _require(ctx, resource, Permission.READ)
+    results = GraphService.neighbors(
+        ctx.user, resource, api_key=ctx.api_key, depth=int(args.get("depth", 1))
+    )
+    return {"related": results, "count": len(results)}
+
+
+@tool(
+    "knowledge_generate_draft",
+    "Generate an AI draft document (always DRAFT) using company knowledge as context.",
+    {
+        "type": "object",
+        "properties": {
+            "workspace": {"type": "string"},
+            "project": {"type": "string"},
+            "title": {"type": "string"},
+            "prompt": {"type": "string"},
+        },
+        "required": ["workspace", "prompt"],
+    },
+)
+def tool_generate_draft(ctx: ToolContext, args: dict) -> dict:
+    workspace = _get_workspace(args["workspace"])
+    project = _get_project(args["project"]) if args.get("project") else None
+    target = project.resource if project else workspace.resource
+    _require(ctx, target, Permission.WRITE)
+    document = DraftService.generate_draft(
+        workspace=workspace,
+        project=project,
+        title=args.get("title") or "Untitled draft",
+        prompt=args["prompt"],
+        user=ctx.user,
+        request=ctx.request,
+    )
+    return _document_brief(document)
+
+
+@tool(
+    "knowledge_approve_document",
+    "Approve a draft document (human review workflow).",
+    {
+        "type": "object",
+        "properties": {"document_id": {"type": "string"}},
+        "required": ["document_id"],
+    },
+)
+def tool_approve(ctx: ToolContext, args: dict) -> dict:
+    document = _get_document(args["document_id"])
+    _require(ctx, document.resource, Permission.WRITE)
+    updated = DraftService.set_status(
+        document=document,
+        status=DocumentStatus.APPROVED,
+        user=ctx.user,
+        request=ctx.request,
+        api_key=ctx.api_key,
+    )
+    return _document_brief(updated)
+
+
+@tool(
+    "knowledge_quality_metrics",
+    "Knowledge quality metrics (staff only): status mix, orphans, stale docs.",
+)
+def tool_quality(ctx: ToolContext, args: dict) -> dict:
+    if not getattr(ctx.user, "is_staff", False):
+        raise ToolError("Staff access required.")
+    return QualityService.metrics()

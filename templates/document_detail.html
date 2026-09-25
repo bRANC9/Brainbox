@@ -25,6 +25,17 @@
       {% if can_admin %}
         <a class="button" href="{% url 'web:resource_permissions' document.resource_id %}">Permissions</a>
       {% endif %}
+      {% if can_write %}
+        {% if document.status == "approved" %}
+          <form method="post" action="{% url 'web:document_reject' document.pk %}" class="inline">
+            {% csrf_token %}<button class="button" type="submit">Move to draft</button>
+          </form>
+        {% else %}
+          <form method="post" action="{% url 'web:document_approve' document.pk %}" class="inline">
+            {% csrf_token %}<button class="button" type="submit">Approve</button>
+          </form>
+        {% endif %}
+      {% endif %}
     </p>
     {% if document.summary %}<p class="summary">{{ document.summary }}</p>{% endif %}
   </header>
@@ -42,6 +53,24 @@
     {% if incoming_links %}
       <ul>
         {% for link in incoming_links %}<li>[{{ link.link_type }}] {{ link.source.name }}</li>{% endfor %}
+      </ul>
+    {% else %}<p class="muted">None.</p>{% endif %}
+
+    <h2>Related knowledge</h2>
+    {% if related %}
+      <ul>
+        {% for item in related %}
+          <li>
+            {{ item.name }} <span class="muted">[{{ item.type }}]</span>
+            {% if item.accessible %}
+              <a href="{% url 'web:search' %}?q={{ item.name|urlencode }}">search</a>
+            {% elif item.summary_visible %}
+              <span class="muted">(summary only)</span>
+            {% else %}
+              <span class="muted">(restricted)</span>
+            {% endif %}
+          </li>
+        {% endfor %}
       </ul>
     {% else %}<p class="muted">None.</p>{% endif %}
   </section>

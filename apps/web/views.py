@@ -21,6 +21,7 @@ from apps.documents.models import ChangeSource, Document, DocumentStatus, Docume
 from apps.documents.services import DocumentService
 from apps.git.services import GitService
 from apps.groups.models import Group, GroupMembership
+from apps.knowledge.services import DiscoveryService, DraftService, GraphService
 from apps.permissions.constants import Effect, Permission, SubjectType
 from apps.permissions.services import PermissionService
 from apps.resources.models import Resource
@@ -168,6 +169,7 @@ def document_detail(request, pk):
             "rendered_html": _render_markdown(content),
             "outgoing_links": outgoing,
             "incoming_links": incoming,
+            "related": GraphService.neighbors(request.user, document.resource, depth=1),
             "can_write": _can(request.user, document.resource, Permission.WRITE),
             "can_admin": _can(request.user, document.resource, Permission.ADMIN),
         },
@@ -324,6 +326,46 @@ def project_git_pull(request, workspace_slug, project_slug):
 # ---------------------------------------------------------------------------
 # Management UI (Phase 6)
 # ---------------------------------------------------------------------------
+@login_required
+def discovery(request):
+    buckets = DiscoveryService.discover(
+        request.user, workspace_id=request.GET.get("workspace"), limit=50
+    )
+    return render(request, "discovery.html", {"buckets": buckets})
+
+
+@login_required
+@require_http_methods(["POST"])
+def document_approve(request, pk):
+    document = get_object_or_404(Document.objects.select_related("resource"), pk=pk)
+    if not _can(request.user, document.resource, Permission.WRITE):
+        return HttpResponseForbidden("You do not have write access to this document.")
+    DraftService.set_status(
+        document=document,
+        status=DocumentStatus.APPROVED,
+        user=request.user,
+        request=request,
+    )
+    messages.success(request, "Document approved.")
+    return redirect("web:document_detail", pk=document.pk)
+
+
+@login_required
+@require_http_methods(["POST"])
+def document_reject(request, pk):
+    document = get_object_or_404(Document.objects.select_related("resource"), pk=pk)
+    if not _can(request.user, document.resource, Permission.WRITE):
+        return HttpResponseForbidden("You do not have write access to this document.")
+    DraftService.set_status(
+        document=document,
+        status=DocumentStatus.DRAFT,
+        user=request.user,
+        request=request,
+    )
+    messages.success(request, "Document moved back to draft.")
+    return redirect("web:document_detail", pk=document.pk)
+
+
 @login_required
 def api_keys(request):
     if request.method == "POST":

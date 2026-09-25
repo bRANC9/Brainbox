@@ -19,7 +19,7 @@ from apps.accounts.models import ApiKey
 from apps.accounts.services import ApiKeyService
 from apps.audit.models import AuditAction, AuditEvent, AuditSource
 from apps.audit.services import AuditService
-from apps.documents.models import Document, DocumentVersion
+from apps.documents.models import Document, DocumentStatus, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File
 from apps.files.services import FileService
@@ -27,6 +27,7 @@ from apps.git.git_cli import GitError
 from apps.git.models import GitRepository
 from apps.git.services import GitService
 from apps.groups.models import Group
+from apps.knowledge.services import DiscoveryService, DraftService, GraphService, QualityService
 from apps.links.models import ResourceLink
 from apps.links.services import LinkService
 from apps.permissions.constants import Permission
@@ -55,6 +56,13 @@ class CreatePermissionMixin:
 
     def get_create_target(self, validated_data):
         return None
+
+    def _require_write(self, obj, request, permission=Permission.WRITE):
+        resource = getattr(obj, "resource", None) or obj
+        if not PermissionService.check(
+            request.user, resource, permission, api_key=api_key_from_request(request)
+        ):
+            raise PermissionDenied("Write permission required on this resource.")
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -254,6 +262,41 @@ class DocumentViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
                 "diff": "\n".join(diff_lines),
             }
         )
+
+    @action(detail=True, methods=["get"])
+    def related(self, request, pk=None):
+        document = self.get_object()
+        try:
+            depth = int(request.query_params.get("depth", 1))
+        except (TypeError, ValueError):
+            depth = 1
+        results = GraphService.neighbors(
+            request.user,
+            document.resource,
+            api_key=api_key_from_request(request),
+            depth=depth,
+        )
+        return Response({"related": results, "count": len(results)})
+
+    def _set_status(self, request, status):
+        document = self.get_object()
+        self._require_write(document, request)
+        updated = DraftService.set_status(
+            document=document,
+            status=status,
+            user=request.user,
+            request=request,
+            api_key=api_key_from_request(request),
+        )
+        return Response(self.get_serializer(updated).data)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        return self._set_status(request, DocumentStatus.APPROVED)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        return self._set_status(request, DocumentStatus.DRAFT)
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +682,61 @@ class SearchView(APIView):
             detail={"q": query, "mode": mode, "count": len(results)},
         )
         return Response({"query": query, "mode": mode, "count": len(results), "results": results})
+
+
+class DiscoveryView(APIView):
+    """Agent-facing skill/pattern/convention/decision/example discovery."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        buckets = DiscoveryService.discover(
+            request.user,
+            api_key=api_key_from_request(request),
+            types=request.query_params.getlist("type") or None,
+            workspace_id=request.query_params.get("workspace"),
+            limit=25,
+        )
+        return Response(buckets)
+
+
+class QualityView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        return Response(QualityService.metrics())
+
+
+class DraftCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        workspace = get_object_or_404(Workspace, pk=request.data.get("workspace"))
+        project = (
+            get_object_or_404(Project, pk=request.data["project"])
+            if request.data.get("project")
+            else None
+        )
+        target = project.resource if project else workspace.resource
+        if not PermissionService.check(
+            request.user, target, Permission.WRITE, api_key=api_key_from_request(request)
+        ):
+            raise PermissionDenied("Write permission required.")
+        prompt = request.data.get("prompt")
+        if not prompt:
+            raise ValidationError({"prompt": "This field is required."})
+        document = DraftService.generate_draft(
+            workspace=workspace,
+            project=project,
+            title=request.data.get("title") or "Untitled draft",
+            prompt=prompt,
+            user=request.user,
+            request=request,
+        )
+        return Response(
+            s.DocumentSerializer(document, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ---------------------------------------------------------------------------
