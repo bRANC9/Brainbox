@@ -32,6 +32,15 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Optional vector store. Enable by setting QDRANT_URL=http://qdrant:6333
+  # in .env. Left disabled by default (empty QDRANT_URL = built-in local store).
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    profiles: ["vector"]
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
   web:
     image: ghcr.io/branc9/brainbox:${BRAINBOX_TAG:-latest}
     depends_on:
@@ -48,6 +57,34 @@ services:
       BRAINBOX_GIT_TOKEN: ${BRAINBOX_GIT_TOKEN:-}
       BRAINBOX_GIT_AUTHOR_NAME: ${BRAINBOX_GIT_AUTHOR_NAME:-Brainbox}
       BRAINBOX_GIT_AUTHOR_EMAIL: ${BRAINBOX_GIT_AUTHOR_EMAIL:-brainbox@localhost}
+      BRAINBOX_GITHUB_TOKEN: ${BRAINBOX_GITHUB_TOKEN:-}
+      BRAINBOX_EMBEDDING_PROVIDER: ${BRAINBOX_EMBEDDING_PROVIDER:-deterministic}
+      BRAINBOX_EMBEDDING_MODEL: ${BRAINBOX_EMBEDDING_MODEL:-text-embedding-3-small}
+      BRAINBOX_EMBEDDING_DIM: ${BRAINBOX_EMBEDDING_DIM:-256}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      BRAINBOX_CHUNK_SIZE: ${BRAINBOX_CHUNK_SIZE:-1200}
+      BRAINBOX_CHUNK_OVERLAP: ${BRAINBOX_CHUNK_OVERLAP:-150}
+      BRAINBOX_AUTO_INDEX: ${BRAINBOX_AUTO_INDEX:-1}
+      BRAINBOX_SEARCH_BACKEND: ${BRAINBOX_SEARCH_BACKEND:-simple}
+      QDRANT_URL: ${QDRANT_URL:-}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-brainbox_chunks}
+      BRAINBOX_SECRET_SCAN_MODE: ${BRAINBOX_SECRET_SCAN_MODE:-off}
+      BRAINBOX_LLM_PROVIDER: ${BRAINBOX_LLM_PROVIDER:-noop}
+      BRAINBOX_LLM_MODEL: ${BRAINBOX_LLM_MODEL:-gpt-4o-mini}
+      BRAINBOX_STALE_DAYS: ${BRAINBOX_STALE_DAYS:-180}
+      OIDC_ENABLED: ${OIDC_ENABLED:-0}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid email profile}
+      OIDC_AUTHORIZE_ENDPOINT: ${OIDC_AUTHORIZE_ENDPOINT:-}
+      OIDC_TOKEN_ENDPOINT: ${OIDC_TOKEN_ENDPOINT:-}
+      OIDC_USERINFO_ENDPOINT: ${OIDC_USERINFO_ENDPOINT:-}
+      OIDC_AUTO_CREATE_USERS: ${OIDC_AUTO_CREATE_USERS:-1}
+      OIDC_DEFAULT_GROUPS: ${OIDC_DEFAULT_GROUPS:-}
       BRAINBOX_ADMIN_USERNAME: ${BRAINBOX_ADMIN_USERNAME:-}
       BRAINBOX_ADMIN_EMAIL: ${BRAINBOX_ADMIN_EMAIL:-}
       BRAINBOX_ADMIN_PASSWORD: ${BRAINBOX_ADMIN_PASSWORD:-}
@@ -84,6 +121,11 @@ services:
       BRAINBOX_GIT_TOKEN: ${BRAINBOX_GIT_TOKEN:-}
       BRAINBOX_GIT_AUTHOR_NAME: ${BRAINBOX_GIT_AUTHOR_NAME:-Brainbox}
       BRAINBOX_GIT_AUTHOR_EMAIL: ${BRAINBOX_GIT_AUTHOR_EMAIL:-brainbox@localhost}
+      BRAINBOX_EMBEDDING_PROVIDER: ${BRAINBOX_EMBEDDING_PROVIDER:-deterministic}
+      BRAINBOX_EMBEDDING_DIM: ${BRAINBOX_EMBEDDING_DIM:-256}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      QDRANT_URL: ${QDRANT_URL:-}
+      BRAINBOX_AUTO_INDEX: ${BRAINBOX_AUTO_INDEX:-1}
     volumes:
       - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
     restart: unless-stopped
@@ -92,3 +134,4 @@ volumes:
   pgdata:
   knowledge_data:
   static_data:
+  qdrant_data:

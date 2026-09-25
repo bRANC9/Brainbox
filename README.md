@@ -1,17 +1,17 @@
 # Brainbox — Knowledge Platform
 
 Self-hosted, AI-native engineering knowledge platform (Django + PostgreSQL).
-A `terv.md` architektúra **Phase 1 (Core)** megvalósítása, a TrueNAS-os
+A `terv.md` architektúra **teljes MVP-ja (Phase 1–7)**, TrueNAS-os
 deploymenthez igazított build/pull folyamattal.
 
 > **Fájl a source of truth.** A tudás a lemezen lévő fájlokban él, a PostgreSQL
-> metaadatot, ACL-t, verzió-indexet és auditot tárol. A REST API és a jelenlegi
-> UI minden művelete a központi `PermissionService`-en megy keresztül; a
-> vector/search réteg (Phase 3) később sem kerülheti meg.
+> metaadatot, ACL-t, verzió-indexet és auditot tárol. A REST API, a Web UI és az
+> MCP szerver minden művelete a központi `PermissionService`-en megy keresztül —
+> a keresés és a vector store sem kerülheti meg.
 
 ---
 
-## Mi van kész (Phase 1 + 2)
+## Mi van kész (Phase 1–7)
 
 - **Resource Identity**: minden objektum egy `Resource` (UUID, `parent` lánc).
 - **Workspace / Project** létrehozás, listázás, ACL.
@@ -30,18 +30,29 @@ deploymenthez igazított build/pull folyamattal.
   auto-commit (+ push), `direct_commit` / `branch_pr` workflow, branch/commit/diff.
 - **Obsidian import**: meglévő vault Git repóból, frontmatter + `[[wikilink]]` →
   `ResourceLink`, nem-markdown fájlok → `File` (checksum/verzió).
-- **Docker** image GitHub Actions-ből (GHCR), TrueNAS compose pull-al.
-- **CI**: ruff + Django check + migration check + tests (PostgreSQL service).
+- **Search (Phase 3)**: full-text + semantic + hybrid keresés, chunkolás, embedding
+  (offline `deterministic` vagy OpenAI-kompatibilis provider), vector store
+  (beépített local, opcionális **Qdrant** REST), **permission filtering a retrieval
+  után**, approved/priority ranking, `reindex` parancs.
+- **MCP server (Phase 4)**: JSON-RPC 2.0 `/mcp` endpoint, ~30 permission-aware tool
+  (keresés, lekérés, lista, link-követés, írás, git, secret, discovery).
+- **Secret Vault (Phase 5)**: user-owned, titkosított (Fernet) secret, workspace/project
+  attachment, használat-auditalva (érték soha nem kerül logba), redacting secret scanner.
+- **Enterprise/auth (Phase 6)**: opcionális OIDC/SSO login, permission/API key/group/audit
+  kezelő UI.
+- **Advanced AI (Phase 7)**: skill/pattern/convention/decision/example discovery,
+  link-gráf alapú „related knowledge", AI draft generálás (minden AI által létrehozott
+  tudás **DRAFT**), human approve/reject workflow, knowledge quality metrikák.
 
-Nem része ennek a körnek (a terv Phase 3–7): Qdrant/embedding, MCP server,
-Secret Vault, OIDC, haladó AI.
+A terv **Definition of Done** tételeinek megfelelően az első verzió használható;
+a Qdrant/embedding külső szolgáltatás opcionális (beépített local store a default).
 
 ---
 
 ## Architektúra röviden
 
 ```text
-Web UI / REST API / (MCP később)
+Web UI / REST API / MCP  (apps/web, apps/api, apps/mcp)
         │
         ▼
 Application services  (apps/*/services.py)
@@ -50,12 +61,15 @@ Application services  (apps/*/services.py)
 PermissionService     (apps/permissions/services.py)
         │
         ▼
-Resource ACL · Storage adapter (LocalFilesystem)
+Resource ACL · Storage adapter (LocalFilesystem | Git checkout)
+        │
+        ▼
+Search / Chunking / Vector store (apps/search, apps/embeddings)
 ```
 
 Minden írás/olvasás a service rétegen és a permission engine-en megy át.
-A `StorageAdapter` (`apps/resources/storage.py`) mögött később Git- vagy
-S3-alapú implementáció tehető anélkül, hogy az üzleti logika változna.
+A `StorageAdapter` (`apps/resources/storage.py`) mögött később S3-alapú
+implementáció tehető anélkül, hogy az üzleti logika változna.
 
 ---
 
@@ -93,6 +107,7 @@ docker compose up -d
 ```
 
 Ez elindítja: `db` (Postgres), `web` (gunicorn), `worker` (idle háttér-loop).
+Opcionálisan a `qdrant` szolgáltatás is (`--profile vector`, lásd a keresés fejezetet).
 
 - A `web` a `${BRAINBOX_PORT:-8000}` portra publikál; a Pangolin reverse proxy
   erre/pro erre a konténerre irányítson.
@@ -150,7 +165,8 @@ Főbb végpontok (`/api/v1/`):
 
 ```text
 workspaces/  projects/  resources/  documents/  files/
-links/  git/  users/  groups/  permissions/  api-keys/  audit/
+links/  git/  secrets/  users/  groups/  permissions/  api-keys/  audit/
+search/  discovery/  quality/  drafts/
 ```
 
 Néhány hasznos művelet:
@@ -229,7 +245,101 @@ válnak. A `.git`, `.obsidian`, `node_modules` és dotfile-ok kimaradnak.
 
 ---
 
+## Keresés, chunkolás, embedding (Phase 3)
+
+Minden dokumentum íráskor automatikusan chunkokra bomlik és embeddinget kap
+(`BRAINBOX_AUTO_INDEX=0`-val kikapcsolható, utólag: `python manage.py reindex`).
+
+```text
+GET /api/v1/search/?q=azure+bicep&mode=hybrid&workspace=<uuid>&limit=10
+```
+
+- `mode=text` – DB-független contains keresés a chunkokon;
+- `mode=semantic` – embedding-alapú koszinusz hasonlóság;
+- `mode=hybrid` – a kettő kombinációja (default).
+- `BRAINBOX_SEARCH_BACKEND=postgres` – PostgreSQL full-text (`SearchVector/SearchRank`).
+
+**Permission filtering a retrieval után kötelező**: a vector találat önmagában nem
+ad hozzáférést. A ranking az `approved` státuszt és a `priority` mezőt is súlyozza.
+
+Embedding provider: `BRAINBOX_EMBEDDING_PROVIDER=deterministic` (offline, nulla
+függőség — default) vagy `openai` (OpenAI-kompatibilis `/embeddings` endpoint).
+
+Vector store: `QDRANT_URL` üres = beépített local store (embedding a DB-ben);
+`QDRANT_URL=http://qdrant:6333` + `docker compose --profile vector up -d` = Qdrant
+(Qdrant **REST** API-n, extra Python csomag nélkül).
+
+---
+
+## MCP szerver (Phase 4)
+
+JSON-RPC 2.0 over HTTP POST: `POST /mcp` (a `GET /mcp` a szerver infókat adja).
+Hitelesítés API key-jel (`Authorization: ApiKey <key>` vagy `X-API-Key`).
+
+Támogatott metódusok: `initialize`, `notifications/initialized`, `ping`,
+`tools/list`, `tools/call` (batch is).
+
+Példa:
+
+```bash
+curl -s https://brainbox.example.com/mcp \
+  -H "Authorization: ApiKey $BRAINBOX_KEY" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+        "name":"knowledge_search","arguments":{"query":"azure bicep","limit":5}}}'
+```
+
+Tool-kATEGÓRIák: `knowledge_search` / `knowledge_get` / `knowledge_get_summary` /
+`knowledge_list_*` / `knowledge_get_skill|pattern|convention|decision|example` /
+`knowledge_follow_link` / `knowledge_create|update|delete_document` /
+`knowledge_create|update_project` / `knowledge_get_git_status` /
+`knowledge_create_branch|commit|pull_request` / `secret_list|get_metadata|use` /
+`knowledge_discover|related|generate_draft|approve_document|quality_metrics`.
+
+Minden tool a `PermissionService`-en megy át, és a hívás `MCP_REQUEST` audit eseményt
+ generál. Claude Code / OpenCode / Codex stb. MCP klienssel használható.
+
+---
+
+## Secret Vault (Phase 5)
+
+A secret **user-owned**, a value titkosítva tárolódik (Fernet; kulcs:
+`BRAINBOX_SECRET_KEY`, hiányában `DJANGO_SECRET_KEY` — élesben mindenképpen
+állítsd be a `BRAINBOX_SECRET_KEY`-t, mert a kulcscsere a meglévő secret-eket
+olvashatatlanná teszi).
+
+```text
+POST   /api/v1/secrets/                 # létrehozás (payload csak egyszer látszik)
+POST   /api/v1/secrets/<id>/rotate/     # érték cseréje
+POST   /api/v1/secrets/<id>/attach/     # {"workspace": "<uuid>"} vagy {"project": "..."}
+POST   /api/v1/secrets/<id>/detach/
+POST   /api/v1/secrets/<id>/use/        # érték visszaadása (auditált)
+```
+
+A `use` csak a tulajdonosnak működik, és csak ott, ahová a secret fel van
+csatolva (vagy ahol nincs attachment → bárhol). A secret **értéke soha nem kerül
+audit logba**. `BRAINBOX_SECRET_SCAN_MODE=warn|reject` esetén a dokumentum írás
+ellenőrzi, tartalmaz-e valószínű credentialt (`manage.py scan_secrets`).
+
+---
+
+## Advanced AI (Phase 7)
+
+- **Discovery** (`/discover/`, `GET /api/v1/discovery/`): skill/pattern/convention/
+  decision/example dokumentumok, approved-előnye, permission-szűrve.
+- **Related knowledge**: link-gráf BFS (`GET /api/v1/documents/<id>/related/?depth=2`),
+  a dokumentum oldalon is látszik; inaccessible szomszédnál „restricted" jelzés.
+- **AI draft** (`POST /api/v1/drafts/`): prompt + releváns céges tudás kontextusban;
+  a provider abstraction (`BRAINBOX_LLM_PROVIDER=noop|openai`). Az AI-generált
+  dokumentum **mindig DRAFT** státuszú, emberi jóváhagyásig.
+- **Approve / Reject**: web gombok + `POST /api/v1/documents/<id>/approve|reject/`
+  + MCP `knowledge_approve_document`; státuszváltás auditált.
+- **Quality** (`GET /api/v1/quality/`, staff): státusz-mix, approved arány, orphan
+  (link nélküli) és stale (> `BRAINBOX_STALE_DAYS`) dokumentumok.
+
+---
+
 ## Könyvtárszerkezet
+
 
 ```text
 config/                 Django projekt (settings/urls/wsgi/asgi)
@@ -243,8 +353,13 @@ apps/
   files/                File, FileVersion (+ services)
   links/                ResourceLink (+ LinkService)
   git/                  GitRepository, GitSyncState, GitCommitReference, GitClient, GitService
+  embeddings/           KnowledgeChunk, EmbeddingIndexState, providers, chunking, vector stores
+  search/               SearchService (text + semantic + hybrid)
+  knowledge/            graph, AI drafts, discovery, quality metrics (+ LLM provider)
+  secrets/              Secret, SecretAttachment, crypto, scanner
+  mcp/                  JSON-RPC MCP szerver + tool registry
   audit/                AuditEvent (+ AuditService)
-  api/                  DRF serializers/viewsets/urls/health
+  api/                  DRF serializers/viewsets/urls/search/health
   web/                  Web UI views
 templates/              Django templates
 static/                 CSS
@@ -257,10 +372,17 @@ terv.md                 eredeti architektúra terv
 
 ---
 
-## Következő lépések (a terv szerint)
+## Következő lépések
 
-Phase 3 full-text + Qdrant + embedding · Phase 4 MCP server · Phase 5 Secret Vault ·
-Phase 6 OIDC/enterprise · Phase 7 advanced AI.
+A terv mind a 7 fázisa megvan. Célszerű következő lépések üzemeltetési oldalon:
 
-Phase 2 maradék finomítás (opcionális): valódi PR nyitás a GitHub API-val,
-webhook-alapú pull, ütemezett háttér-sync a `worker`-ben.
+1. **TrueNAS deploy** – GHCR csomag nyilvánossá tétele (vagy PAT), `.env` kitöltése,
+   `docker compose up -d`, első bejelentkezés.
+2. **Opcionális Qdrant**: `QDRANT_URL=http://qdrant:6333` + `docker compose --profile
+   vector up -d`, majd `python manage.py reindex`.
+3. **SSO bekapcsolás**: `OIDC_ENABLED=1` + issuer/client adatok.
+4. **Valódi PR nyitás**: `BRAINBOX_GITHUB_TOKEN` beállítása (MCP
+   `knowledge_create_pull_request`).
+5. **Ütemezett Git sync**: a `worker` szolgáltatás jelenleg idle loop; a
+   `requeue/sync` feladat ütemezése a következő iteráció.
+6. Embedding/keresés finomhangolása valós modellel (`BRAINBOX_EMBEDDING_PROVIDER=openai`).
