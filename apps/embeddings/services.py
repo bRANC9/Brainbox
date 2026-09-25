@@ -68,7 +68,9 @@ class IndexingService:
 
         state.provider = provider.name
         state.model = getattr(provider, "model", "")
-        state.dimension = provider.dimension
+        # Record the *measured* dimension: local providers (Ollama) may return
+        # 768/1024 while the configured default is a different value.
+        state.dimension = len(vectors[0]) if vectors else provider.dimension
         state.backend = store.name
         state.chunks_count = len(chunks)
         state.content_hash = content_hash

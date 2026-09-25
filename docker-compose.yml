@@ -94,6 +94,8 @@ services:
     volumes:
       - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
       - static_data:/app/staticfiles
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${BRAINBOX_PORT:-8000}:8000"
     healthcheck:
@@ -131,6 +133,8 @@ services:
       BRAINBOX_AUTO_INDEX: ${BRAINBOX_AUTO_INDEX:-1}
     volumes:
       - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   # Scheduler: single owner (DB lease) fires due jobs. Safe to scale to 2+

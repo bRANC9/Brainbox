@@ -263,7 +263,28 @@ GET /api/v1/search/?q=azure+bicep&mode=hybrid&workspace=<uuid>&limit=10
 ad hozzáférést. A ranking az `approved` státuszt és a `priority` mezőt is súlyozza.
 
 Embedding provider: `BRAINBOX_EMBEDDING_PROVIDER=deterministic` (offline, nulla
-függőség — default) vagy `openai` (OpenAI-kompatibilis `/embeddings` endpoint).
+függőség — default) vagy `ollama` / `openai` (OpenAI-kompatibilis `/v1/embeddings`).
+
+**Lokális Ollama** (a Docker hoston futó modell-szerver):
+
+```bash
+# .env
+BRAINBOX_EMBEDDING_PROVIDER=ollama
+OPENAI_BASE_URL=http://host.docker.internal:11434/v1   # konténerből nem localhost!
+BRAINBOX_EMBEDDING_MODEL=nomic-embed-text              # dimenzió: 768
+BRAINBOX_EMBEDDING_DIM=768                             # a mért érték
+BRAINBOX_LLM_PROVIDER=ollama
+BRAINBOX_LLM_MODEL=llama3.1
+# OPENAI_API_KEY üresen hagyható – az Ollama figyelmen kívül hagyja
+
+python manage.py provider_check    # elérhetőség + mért dimenzió ellenőrzése
+python manage.py reindex           # áraindexelés az új modellel
+```
+
+A `compose` a `web` és `worker` service-nek ad `host.docker.internal:host-gateway`
+mappinget, hogy TrueNAS-on/Linuxon is elérje a hoszton futó Ollamát. A Qdrant
+collection méretét az indexelés a **mért** vektorhosszból állítja be, így a
+dimenzió-eltérés nem töri el a tárolást.
 
 Vector store: `QDRANT_URL` üres = beépített local store (embedding a DB-ben);
 `QDRANT_URL=http://qdrant:6333` + `docker compose --profile vector up -d` = Qdrant

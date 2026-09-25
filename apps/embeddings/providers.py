@@ -29,6 +29,7 @@ class EmbeddingProvider(ABC):
 
     def __init__(self, dimension: int):
         self.dimension = dimension
+        self.timeout = 120
 
     @abstractmethod
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -66,39 +67,61 @@ class DeterministicEmbeddingProvider(EmbeddingProvider):
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
+    """Any OpenAI-compatible ``/embeddings`` endpoint.
+
+    This is also what talks to a local Ollama server
+    (``OPENAI_BASE_URL=http://host.docker.internal:11434/v1``). Ollama ignores
+    the API key, so it may be empty - a key is only sent when configured.
+    """
+
     name = "openai"
 
     def __init__(self, dimension: int, model: str, api_key: str, base_url: str):
         super().__init__(dimension)
         self.model = model
-        self.api_key = api_key
+        self.api_key = api_key or ""
         self.base_url = base_url.rstrip("/")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        if not self.api_key:
-            raise EmbeddingError("OPENAI_API_KEY is not configured.")
         payload = json.dumps({"model": self.model, "input": texts}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         request = urllib.request.Request(
             f"{self.base_url}/embeddings",
             data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
+            headers=headers,
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 data = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
-            raise EmbeddingError(f"Embedding request failed: {exc}") from exc
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")[:300]
+            except Exception:  # noqa: BLE001
+                pass
+            raise EmbeddingError(f"Embedding request failed ({exc.code}): {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            raise EmbeddingError(
+                f"Embedding endpoint '{self.base_url}' unreachable: {exc}. "
+                "If it runs on the Docker host, use host.docker.internal, not localhost."
+            ) from exc
         rows = sorted(data.get("data", []), key=lambda row: row.get("index", 0))
+        if not rows:
+            raise EmbeddingError(f"Empty embedding response from '{self.base_url}'.")
         return [row["embedding"] for row in rows]
 
 
 def get_embedding_provider() -> EmbeddingProvider:
+    """Instantiate the configured provider.
+
+    ``ollama`` is accepted as an alias of ``openai``: a local Ollama server
+    exposes the same OpenAI-compatible ``/v1/embeddings`` endpoint.
+    """
     provider = (settings.BRAINBOX_EMBEDDING_PROVIDER or "deterministic").lower()
-    if provider == "openai":
+    if provider in {"openai", "ollama", "openai-compatible"}:
         return OpenAIEmbeddingProvider(
             settings.BRAINBOX_EMBEDDING_DIM,
             settings.BRAINBOX_EMBEDDING_MODEL,

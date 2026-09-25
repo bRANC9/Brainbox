@@ -129,21 +129,26 @@ class QdrantVectorStore(VectorStore):
         except urllib.error.URLError as exc:
             raise VectorStoreError(f"Qdrant unreachable: {exc}") from exc
 
-    def ensure_collection(self) -> None:
+    def ensure_collection(self, dimension: int | None = None) -> None:
         existing = self._request("GET", f"/collections/{self.collection}")
         if existing.get("result"):
             return
+        size = int(dimension or self.dimension or 0)
+        if not size:
+            raise VectorStoreError(
+                "Cannot create the Qdrant collection without a vector size; "
+                "index at least one document first."
+            )
         self._request(
             "PUT",
             f"/collections/{self.collection}",
-            {"vectors": {"size": self.dimension, "distance": "Cosine"}},
+            {"vectors": {"size": size, "distance": "Cosine"}},
         )
 
     # -- VectorStore ---------------------------------------------------------
     def upsert(self, chunks) -> None:
         if not chunks:
             return
-        self.ensure_collection()
         points = []
         for chunk in chunks:
             if not chunk.embedding:
@@ -164,10 +169,15 @@ class QdrantVectorStore(VectorStore):
                     },
                 }
             )
-        if points:
-            self._request(
-                "PUT", f"/collections/{self.collection}/points?wait=true", {"points": points}
-            )
+        if not points:
+            return
+        # Size the collection from the vectors themselves: local Ollama
+        # embedding models return e.g. 768 or 1024 dims, which rarely matches
+        # the configured BRAINBOX_EMBEDDING_DIM default.
+        self.ensure_collection(dimension=len(points[0]["vector"]))
+        self._request(
+            "PUT", f"/collections/{self.collection}/points?wait=true", {"points": points}
+        )
 
     def delete_document(self, document_id) -> None:
         self._request(

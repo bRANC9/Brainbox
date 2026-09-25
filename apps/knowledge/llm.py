@@ -58,16 +58,21 @@ class NoopLLMProvider(LLMProvider):
 
 
 class OpenAILLMProvider(LLMProvider):
+    """Any OpenAI-compatible ``/chat/completions`` endpoint.
+
+    Also used for a local Ollama server
+    (``OPENAI_BASE_URL=http://host.docker.internal:11434/v1``); Ollama ignores
+    the API key, so ``OPENAI_API_KEY`` may be empty.
+    """
+
     name = "openai"
 
     def __init__(self, api_key: str, base_url: str, model: str):
-        self.api_key = api_key
+        self.api_key = api_key or ""
         self.base_url = base_url.rstrip("/")
         self.model = model
 
     def generate(self, *, title: str, prompt: str, context: str = "") -> str:
-        if not self.api_key:
-            raise LLMError("OPENAI_API_KEY is not configured.")
         system = (
             "You draft engineering knowledge for an internal platform. "
             "Return concise Markdown that follows company conventions when provided."
@@ -84,26 +89,36 @@ class OpenAILLMProvider(LLMProvider):
                 ],
             }
         ).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
+            headers=headers,
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=120) as response:
                 data = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, urllib.error.HTTPError, ValueError) as exc:
-            raise LLMError(f"LLM request failed: {exc}") from exc
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")[:300]
+            except Exception:  # noqa: BLE001
+                pass
+            raise LLMError(f"LLM request failed ({exc.code}): {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as exc:
+            raise LLMError(
+                f"LLM endpoint '{self.base_url}' unreachable: {exc}. "
+                "If it runs on the Docker host, use host.docker.internal, not localhost."
+            ) from exc
         return data["choices"][0]["message"]["content"]
 
 
 def get_llm_provider() -> LLMProvider:
     provider = (getattr(settings, "BRAINBOX_LLM_PROVIDER", "noop") or "noop").lower()
-    if provider == "openai":
+    if provider in {"openai", "ollama", "openai-compatible"}:
         return OpenAILLMProvider(
             settings.OPENAI_API_KEY,
             settings.OPENAI_BASE_URL,
