@@ -13,10 +13,12 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.accounts.models import ApiKey
 from apps.accounts.services import ApiKeyService
-from apps.audit.models import AuditEvent
+from apps.audit.models import AuditAction, AuditEvent, AuditSource
+from apps.audit.services import AuditService
 from apps.documents.models import Document, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File
@@ -31,6 +33,7 @@ from apps.permissions.constants import Permission
 from apps.permissions.models import ResourceACL
 from apps.permissions.services import PermissionService
 from apps.resources.models import Resource
+from apps.search.services import SearchService
 from apps.workspaces.models import Project, Workspace
 
 from . import serializers as s
@@ -501,6 +504,43 @@ class GitRepositoryViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
         if not from_ref:
             raise ValidationError({"from": "This query parameter is required."})
         return Response({"diff": GitService.diff_repository(repository, from_ref, request.query_params.get("to", ""))})
+
+
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+class SearchView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        params = request.query_params
+        query = params.get("q", "")
+        mode = params.get("mode", "hybrid")
+        try:
+            limit = max(1, min(int(params.get("limit", 10)), 50))
+        except (TypeError, ValueError):
+            limit = 10
+
+        api_key = api_key_from_request(request)
+        results = SearchService.search(
+            request.user,
+            query,
+            mode=mode,
+            workspace_id=params.get("workspace"),
+            project_id=params.get("project"),
+            status=params.get("status"),
+            limit=limit,
+            api_key=api_key,
+        )
+        AuditService.log(
+            AuditAction.SEARCH,
+            user=request.user,
+            api_key=api_key,
+            source=AuditSource.API,
+            request=request,
+            detail={"q": query, "mode": mode, "count": len(results)},
+        )
+        return Response({"query": query, "mode": mode, "count": len(results), "results": results})
 
 
 # ---------------------------------------------------------------------------

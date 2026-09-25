@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Search - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <h1>Search</h1>
+</section>
+
+<form method="get" class="form row">
+  <label style="flex:3">Query
+    <input type="text" name="q" value="{{ query }}" autofocus>
+  </label>
+  <label>Mode
+    <select name="mode">
+      <option value="hybrid" {% if mode == "hybrid" %}selected{% endif %}>Hybrid</option>
+      <option value="text" {% if mode == "text" %}selected{% endif %}>Full-text</option>
+      <option value="semantic" {% if mode == "semantic" %}selected{% endif %}>Semantic</option>
+    </select>
+  </label>
+  <button type="submit" class="button primary">Search</button>
+</form>
+
+{% if query %}
+  <p class="meta">{{ results|length }} result(s) for &ldquo;{{ query }}&rdquo; ({{ mode }})</p>
+  {% if results %}
+    <ol class="results">
+      {% for result in results %}
+        <li>
+          <a href="{% url 'web:document_detail' result.document_id %}">{{ result.title }}</a>
+          <span class="badge badge-{{ result.status }}">{{ result.status }}</span>
+          <span class="muted">score {{ result.score }}</span>
+          <p class="muted">{{ result.snippet }}</p>
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p class="muted">No results.</p>
+  {% endif %}
+{% endif %}
+{% endblock %}

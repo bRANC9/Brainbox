@@ -1,5 +1,6 @@
 """REST API v1 routes."""
 
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from . import views
@@ -18,4 +19,6 @@ router.register("permissions", views.ResourceACLViewSet, basename="permission")
 router.register("api-keys", views.ApiKeyViewSet, basename="api-key")
 router.register("audit", views.AuditEventViewSet, basename="audit")
 
-urlpatterns = router.urls
+urlpatterns = router.urls + [
+    path("search/", views.SearchView.as_view(), name="search"),
+]

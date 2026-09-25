@@ -8,6 +8,7 @@ app_name = "web"
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
+    path("search/", views.search, name="search"),
     path("workspaces/<slug:workspace_slug>/", views.workspace_detail, name="workspace_detail"),
     path(
         "workspaces/<slug:workspace_slug>/documents/new/",

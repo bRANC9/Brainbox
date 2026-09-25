@@ -157,6 +157,10 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
 
 .auth { max-width: 360px; margin: 4rem auto; }
 
+.results { padding-left: 1.2rem; }
+.results li { margin-bottom: 1rem; }
+.results p { margin: 0.2rem 0 0; }
+
 .git-panel {
   background: var(--panel);
   border: 1px solid var(--border);

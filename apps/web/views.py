@@ -11,12 +11,15 @@ from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
 
+from apps.audit.models import AuditAction, AuditSource
+from apps.audit.services import AuditService
 from apps.documents.frontmatter import parse_frontmatter
 from apps.documents.models import ChangeSource, Document, DocumentStatus, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.git.services import GitService
 from apps.permissions.constants import Permission
 from apps.permissions.services import PermissionService
+from apps.search.services import SearchService
 from apps.workspaces.models import Project, Workspace
 
 MARKDOWN_EXTENSIONS = ["fenced_code", "tables", "toc", "sane_lists", "codehilite", "nl2br"]
@@ -59,6 +62,25 @@ def dashboard(request):
         request,
         "dashboard.html",
         {"workspaces": workspaces, "recent_documents": recent_documents},
+    )
+
+
+@login_required
+def search(request):
+    query = request.GET.get("q", "").strip()
+    mode = request.GET.get("mode", "hybrid")
+    results = []
+    if query:
+        results = SearchService.search(request.user, query, mode=mode, limit=25)
+        AuditService.log(
+            AuditAction.SEARCH,
+            user=request.user,
+            source=AuditSource.WEB,
+            request=request,
+            detail={"q": query, "mode": mode, "count": len(results)},
+        )
+    return render(
+        request, "search.html", {"query": query, "mode": mode, "results": results}
     )
 
 

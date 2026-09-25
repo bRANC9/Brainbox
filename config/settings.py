@@ -63,6 +63,10 @@ LOCAL_APPS = [
     "apps.files",
     "apps.links",
     "apps.git",
+    "apps.embeddings",
+    "apps.search",
+    "apps.secrets",
+    "apps.mcp",
     "apps.audit",
     "apps.api",
     "apps.web",
@@ -203,6 +207,48 @@ BRAINBOX_GIT_TOKEN = os.environ.get("BRAINBOX_GIT_TOKEN", "")
 BRAINBOX_GIT_AUTHOR_NAME = os.environ.get("BRAINBOX_GIT_AUTHOR_NAME", "Brainbox")
 BRAINBOX_GIT_AUTHOR_EMAIL = os.environ.get("BRAINBOX_GIT_AUTHOR_EMAIL", "brainbox@localhost")
 BRAINBOX_GIT_COMMAND_TIMEOUT = int(os.environ.get("BRAINBOX_GIT_COMMAND_TIMEOUT", "120"))
+
+# GitHub token used for optional PR creation from Git-backed resources.
+BRAINBOX_GITHUB_TOKEN = os.environ.get("BRAINBOX_GITHUB_TOKEN", "")
+
+# Embeddings / chunking / vector search (Phase 3)
+BRAINBOX_EMBEDDING_PROVIDER = os.environ.get("BRAINBOX_EMBEDDING_PROVIDER", "deterministic")
+BRAINBOX_EMBEDDING_MODEL = os.environ.get("BRAINBOX_EMBEDDING_MODEL", "text-embedding-3-small")
+BRAINBOX_EMBEDDING_DIM = int(os.environ.get("BRAINBOX_EMBEDDING_DIM", "256"))
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+BRAINBOX_CHUNK_SIZE = int(os.environ.get("BRAINBOX_CHUNK_SIZE", "1200"))
+BRAINBOX_CHUNK_OVERLAP = int(os.environ.get("BRAINBOX_CHUNK_OVERLAP", "150"))
+BRAINBOX_AUTO_INDEX = env_bool("BRAINBOX_AUTO_INDEX", True)
+BRAINBOX_SEARCH_BACKEND = os.environ.get("BRAINBOX_SEARCH_BACKEND", "simple")
+
+QDRANT_URL = os.environ.get("QDRANT_URL", "").rstrip("/")
+QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
+QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "brainbox_chunks")
+
+# Secret vault (Phase 5)
+BRAINBOX_SECRET_SCAN_MODE = os.environ.get("BRAINBOX_SECRET_SCAN_MODE", "off")  # off|warn|reject
+
+# OIDC (Phase 6) - fully optional, disabled unless OIDC_ENABLED is true
+OIDC_ENABLED = env_bool("OIDC_ENABLED", False)
+OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "").rstrip("/")
+OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "")
+OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
+OIDC_REDIRECT_URI = os.environ.get("OIDC_REDIRECT_URI", "")
+OIDC_SCOPES = os.environ.get("OIDC_SCOPES", "openid email profile")
+OIDC_AUTHORIZE_ENDPOINT = os.environ.get("OIDC_AUTHORIZE_ENDPOINT", "")
+OIDC_TOKEN_ENDPOINT = os.environ.get("OIDC_TOKEN_ENDPOINT", "")
+OIDC_USERINFO_ENDPOINT = os.environ.get("OIDC_USERINFO_ENDPOINT", "")
+OIDC_AUTO_CREATE_USERS = env_bool("OIDC_AUTO_CREATE_USERS", True)
+OIDC_DEFAULT_GROUPS = env_list("OIDC_DEFAULT_GROUPS", "")
+
+# Optional authentication backend wired in only when OIDC is enabled.
+if OIDC_ENABLED:
+    AUTHENTICATION_BACKENDS = [
+        "apps.accounts.oidc.OIDCBackend",
+        "django.contrib.auth.backends.ModelBackend",
+    ]
 
 
 # ---------------------------------------------------------------------------

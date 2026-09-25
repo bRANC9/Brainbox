@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils.text import slugify
@@ -38,6 +39,51 @@ def _autocommit(document: Document, *, user, request, message: str | None = None
         )
     except Exception:  # noqa: BLE001 - never break a document write because of Git
         logger.exception("git autocommit failed for document %s", document.pk)
+
+
+def _reindex(document: Document) -> None:
+    """Keep the vector index in sync with the source-of-truth file."""
+    if not settings.BRAINBOX_AUTO_INDEX:
+        return
+    try:
+        from apps.embeddings.services import IndexingService
+
+        IndexingService.index_document(document)
+    except Exception:  # noqa: BLE001 - indexing must never break a write
+        logger.exception("embedding index failed for document %s", document.pk)
+
+
+def _deindex(document: Document) -> None:
+    try:
+        from apps.embeddings.services import IndexingService
+
+        IndexingService.remove_document(document)
+    except Exception:  # noqa: BLE001
+        logger.exception("embedding de-index failed for document %s", document.pk)
+
+
+def _scan_for_secrets(content: str) -> None:
+    """Optionally warn/reject when content looks like it contains credentials."""
+    mode = (settings.BRAINBOX_SECRET_SCAN_MODE or "off").lower()
+    if mode not in {"warn", "reject"}:
+        return
+    try:
+        from apps.secrets.scanner import scan_document_content
+
+        findings = scan_document_content(content)
+    except Exception:  # noqa: BLE001
+        logger.exception("secret scan failed")
+        return
+    if not findings:
+        return
+    if mode == "reject":
+        raise ValidationError(
+            {"content": "Potential secrets detected. Store them in the Secret Vault instead."}
+        )
+    logger.warning(
+        "potential secrets detected (%s); prefer the Secret Vault",
+        ", ".join(finding["type"] for finding in findings),
+    )
 
 
 def _title_from_body(content: str) -> str:
@@ -105,6 +151,7 @@ class DocumentService:
         api_key=None,
     ) -> Document:
         content = content or ""
+        _scan_for_secrets(content)
         frontmatter, _body = parse_frontmatter(content)
 
         meta = dict(metadata or {})
@@ -175,6 +222,7 @@ class DocumentService:
         )
         if source not in _GIT_SOURCES:
             _autocommit(document, user=created_by, request=request)
+        _reindex(document)
         return document
 
     @staticmethod
@@ -196,6 +244,7 @@ class DocumentService:
         git_commit: str = "",
     ) -> Document:
         content = content or ""
+        _scan_for_secrets(content)
         frontmatter, _body = parse_frontmatter(content)
 
         get_storage().write_text(DocumentService.storage_path(document), content)
@@ -244,6 +293,7 @@ class DocumentService:
         )
         if source not in _GIT_SOURCES:
             _autocommit(document, user=user, request=request)
+        _reindex(document)
         return document
 
     @staticmethod
@@ -278,5 +328,6 @@ class DocumentService:
             request=request,
             detail={"type": "document", "path": document.path},
         )
+        _deindex(document)
         storage.delete(path)
         document.resource.delete()
