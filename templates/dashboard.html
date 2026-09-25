@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <h1>Workspaces</h1>
+</section>
+
+{% if workspaces %}
+  <div class="grid">
+    {% for workspace in workspaces %}
+      <a class="card" href="{% url 'web:workspace_detail' workspace.slug %}">
+        <h2>{{ workspace.name }}</h2>
+        <p class="muted">{{ workspace.description|default:"No description" }}</p>
+        <p class="meta">{{ workspace.project_count }} projects &middot; {{ workspace.document_count }} documents</p>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="muted">No workspaces available. Create one via the <a href="/api/v1/workspaces/">API</a> or the <a href="/admin/">admin</a>.</p>
+{% endif %}
+
+<section class="page-head">
+  <h1>Recent documents</h1>
+</section>
+{% if recent_documents %}
+  <table class="table">
+    <thead><tr><th>Title</th><th>Workspace</th><th>Status</th><th>Updated</th></tr></thead>
+    <tbody>
+      {% for document in recent_documents %}
+        <tr>
+          <td><a href="{% url 'web:document_detail' document.pk %}">{{ document.title }}</a></td>
+          <td>{{ document.workspace.name }}{% if document.project %} / {{ document.project.name }}{% endif %}</td>
+          <td><span class="badge badge-{{ document.status }}">{{ document.get_status_display }}</span></td>
+          <td>{{ document.updated_at|date:"Y-m-d H:i" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="muted">No documents yet.</p>
+{% endif %}
+{% endblock %}

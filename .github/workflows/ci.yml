@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: brainbox
+          POSTGRES_USER: brainbox
+          POSTGRES_PASSWORD: brainbox
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U brainbox -d brainbox"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DJANGO_SECRET_KEY: ci-insecure-secret-key
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: "*"
+      DATABASE_URL: postgres://brainbox:brainbox@localhost:5432/brainbox
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Django system check
+        run: python manage.py check --deploy || python manage.py check
+
+      - name: Ensure migrations are committed
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Tests
+        run: python manage.py test -v 2

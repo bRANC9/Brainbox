@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% if document %}{% block title %}Edit {{ document.title }} - Brainbox{% endblock %}{% else %}{% block title %}New document - Brainbox{% endblock %}{% endif %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="crumbs">
+      <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
+      {% if project %} / <a href="{% url 'web:project_detail' workspace.slug project.slug %}">{{ project.name }}</a>{% endif %}
+    </p>
+    <h1>{% if document %}Edit document{% else %}New document{% endif %}</h1>
+  </div>
+</section>
+
+<form method="post" class="form">
+  {% csrf_token %}
+  <div class="row">
+    <label>Title
+      <input type="text" name="title" value="{{ document.title|default:'' }}" required>
+    </label>
+    {% if not document %}
+      <label>Path (optional)
+        <input type="text" name="path" placeholder="skills/azure-bicep/SKILL.md">
+      </label>
+    {% endif %}
+  </div>
+  <div class="row">
+    <label>Status
+      <select name="status">
+        {% for value, label in statuses %}
+          <option value="{{ value }}" {% if document and document.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Priority
+      <input type="number" name="priority" value="{{ document.priority|default:0 }}">
+    </label>
+  </div>
+  <label>Summary
+    <input type="text" name="summary" value="{{ document.summary|default:'' }}">
+  </label>
+
+  <label>Content (Markdown, YAML frontmatter supported)
+    <textarea name="content" id="editor" rows="20">{{ content }}</textarea>
+  </label>
+
+  <div class="row">
+    <button type="submit" class="button primary">Save</button>
+    {% if document %}
+      <a class="button" href="{% url 'web:document_detail' document.pk %}">Cancel</a>
+    {% else %}
+      <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Cancel</a>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

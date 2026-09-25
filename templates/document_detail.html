@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ document.title }} - Brainbox{% endblock %}
+{% block content %}
+<article class="document">
+  <header class="document-head">
+    <p class="crumbs">
+      <a href="{% url 'web:dashboard' %}">Dashboard</a> /
+      <a href="{% url 'web:workspace_detail' document.workspace.slug %}">{{ document.workspace.name }}</a>
+      {% if document.project %} /
+        <a href="{% url 'web:project_detail' document.workspace.slug document.project.slug %}">{{ document.project.name }}</a>
+      {% endif %}
+    </p>
+    <h1>{{ document.title }}</h1>
+    <p class="meta">
+      <span class="badge badge-{{ document.status }}">{{ document.get_status_display }}</span>
+      &middot; v{{ document.current_version }}
+      &middot; {{ document.path }}
+      &middot; updated {{ document.updated_at|date:"Y-m-d H:i" }}
+    </p>
+    <p class="actions">
+      <a class="button" href="{% url 'web:document_history' document.pk %}">History</a>
+      {% if can_write %}
+        <a class="button primary" href="{% url 'web:document_edit' document.pk %}">Edit</a>
+      {% endif %}
+    </p>
+    {% if document.summary %}<p class="summary">{{ document.summary }}</p>{% endif %}
+  </header>
+
+  <div class="markdown">{{ rendered_html|safe }}</div>
+
+  <section class="links">
+    <h2>Outgoing links</h2>
+    {% if outgoing_links %}
+      <ul>
+        {% for link in outgoing_links %}<li>[{{ link.link_type }}] {{ link.target.name }}</li>{% endfor %}
+      </ul>
+    {% else %}<p class="muted">None.</p>{% endif %}
+    <h2>Backlinks</h2>
+    {% if incoming_links %}
+      <ul>
+        {% for link in incoming_links %}<li>[{{ link.link_type }}] {{ link.source.name }}</li>{% endfor %}
+      </ul>
+    {% else %}<p class="muted">None.</p>{% endif %}
+  </section>
+</article>
+{% endblock %}

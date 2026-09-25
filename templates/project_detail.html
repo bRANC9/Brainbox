@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="crumbs">
+      <a href="{% url 'web:dashboard' %}">Dashboard</a> /
+      <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a> /
+      {{ project.name }}
+    </p>
+    <h1>{{ project.name }}</h1>
+    <p class="muted">{{ project.description|default:"No description" }}</p>
+  </div>
+  {% if can_write %}
+    <a class="button" href="{% url 'web:project_document_create' workspace.slug project.slug %}">New document</a>
+  {% endif %}
+</section>
+
+{% if documents %}
+  <table class="table">
+    <thead><tr><th>Title</th><th>Status</th><th>Priority</th><th>Updated</th></tr></thead>
+    <tbody>
+      {% for document in documents %}
+        <tr>
+          <td><a href="{% url 'web:document_detail' document.pk %}">{{ document.title }}</a></td>
+          <td><span class="badge badge-{{ document.status }}">{{ document.get_status_display }}</span></td>
+          <td>{{ document.priority }}</td>
+          <td>{{ document.updated_at|date:"Y-m-d H:i" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="muted">No documents in this project.</p>
+{% endif %}
+{% endblock %}

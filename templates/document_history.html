@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}History - {{ document.title }} - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="crumbs"><a href="{% url 'web:document_detail' document.pk %}">{{ document.title }}</a></p>
+    <h1>Version history</h1>
+  </div>
+</section>
+
+<table class="table">
+  <thead><tr><th>Version</th><th>Change</th><th>Source</th><th>Author</th><th>When</th></tr></thead>
+  <tbody>
+    {% for version in versions %}
+      <tr>
+        <td>v{{ version.version }}</td>
+        <td>{{ version.get_change_type_display }}</td>
+        <td>{{ version.get_source_display }}</td>
+        <td>{{ version.created_by|default:"-" }}</td>
+        <td>{{ version.created_at|date:"Y-m-d H:i" }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Compare versions</h2>
+<form method="get" class="form row">
+  <label>From <input type="number" name="from" min="1" value="{{ request.GET.from }}"></label>
+  <label>To <input type="number" name="to" min="1" value="{{ request.GET.to }}"></label>
+  <button type="submit" class="button">Diff</button>
+</form>
+
+{% if diff %}
+  <pre class="diff">{{ diff }}</pre>
+{% endif %}
+{% endblock %}

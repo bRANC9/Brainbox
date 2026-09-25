@@ -1,0 +1,88 @@
+# ---------------------------------------------------------------------------
+# Brainbox - Knowledge Platform
+# PRODUCTION / TrueNAS compose file.
+#
+# This file does NOT build anything. It pulls a prebuilt image from GitHub
+# Container Registry (built by .github/workflows/build-push.yml), because
+# TrueNAS can only read/run a compose file, it cannot build images.
+#
+# Usage on TrueNAS (Custom App / docker compose):
+#   1. Put your .env next to this file (see .env.example).
+#   2. docker compose up -d
+#
+# Pin BRAINBOX_TAG to a version or sha for reproducible deploys.
+# ---------------------------------------------------------------------------
+name: brainbox
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-brainbox}
+      POSTGRES_USER: ${POSTGRES_USER:-brainbox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-brainbox} -d ${POSTGRES_DB:-brainbox}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/branc9/brainbox:${BRAINBOX_TAG:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set}
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+      DATABASE_URL: postgres://${POSTGRES_USER:-brainbox}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-brainbox}
+      BRAINBOX_DATA_ROOT: ${BRAINBOX_DATA_ROOT:-/data/knowledge}
+      BRAINBOX_SECRET_KEY: ${BRAINBOX_SECRET_KEY:-}
+      BRAINBOX_ADMIN_USERNAME: ${BRAINBOX_ADMIN_USERNAME:-}
+      BRAINBOX_ADMIN_EMAIL: ${BRAINBOX_ADMIN_EMAIL:-}
+      BRAINBOX_ADMIN_PASSWORD: ${BRAINBOX_ADMIN_PASSWORD:-}
+    volumes:
+      - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
+      - static_data:/app/staticfiles
+    ports:
+      - "${BRAINBOX_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5).status == 200 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # Background worker role. Reserved for Phase 3+ jobs (git sync, chunking,
+  # embedding, re-index). Safe to keep running; it idles until jobs exist.
+  worker:
+    image: ghcr.io/branc9/brainbox:${BRAINBOX_TAG:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "manage.py", "worker"]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set}
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      DATABASE_URL: postgres://${POSTGRES_USER:-brainbox}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-brainbox}
+      BRAINBOX_DATA_ROOT: ${BRAINBOX_DATA_ROOT:-/data/knowledge}
+      BRAINBOX_SECRET_KEY: ${BRAINBOX_SECRET_KEY:-}
+    volumes:
+      - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  knowledge_data:
+  static_data:
