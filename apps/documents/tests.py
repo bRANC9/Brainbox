@@ -6,6 +6,7 @@ from apps.accounts.models import User
 from apps.documents.frontmatter import parse_frontmatter
 from apps.documents.models import DocumentStatus
 from apps.documents.services import DocumentService
+from apps.links.models import ResourceLink
 from apps.workspaces.services import ProjectService, WorkspaceService
 
 
@@ -43,6 +44,27 @@ class DocumentServiceTests(TestCase):
         self.assertEqual(document.metadata["type"], "skill")
         self.assertEqual(document.current_version, 1)
         self.assertIn("Content here", DocumentService.read_content(document))
+
+    def test_wikilinks_become_resource_links(self):
+        first = DocumentService.create(
+            workspace=self.workspace,
+            title="First",
+            content="See [[Second]] for details.",
+            path="first.md",
+            created_by=self.user,
+        )
+        second = DocumentService.create(
+            workspace=self.workspace,
+            title="Second",
+            content="# Second\n",
+            path="second.md",
+            created_by=self.user,
+        )
+        link = ResourceLink.objects.filter(
+            source=first.resource, target=second.resource
+        ).first()
+        self.assertIsNotNone(link)
+        self.assertEqual(link.link_type, "wikilink")
 
     def test_update_creates_new_version_and_keeps_history(self):
         project = ProjectService.create(workspace=self.workspace, name="Azure", created_by=self.user)

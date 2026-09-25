@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import posixpath
 import re
 import shutil
 from pathlib import Path
@@ -28,7 +27,6 @@ from apps.documents.models import ChangeSource, ChangeType, Document
 from apps.documents.services import DocumentService
 from apps.files.models import File
 from apps.files.services import FileService
-from apps.links.models import LinkType, ResourceLink
 from apps.links.services import LinkService
 from apps.resources.models import ResourceType
 from apps.resources.services import ResourceService
@@ -117,7 +115,11 @@ class GitService:
             request=request,
             detail={"type": "git_repository", "remote_url": remote_url},
         )
-        return repository
+        # Re-fetch so the response exposes a fresh sync_state (the reverse
+        # one-to-one cache would otherwise hold the pre-clone snapshot).
+        return GitRepository.objects.select_related(
+            "resource", "workspace", "project", "sync_state"
+        ).get(pk=repository.pk)
 
     @classmethod
     @transaction.atomic
@@ -376,70 +378,10 @@ class GitService:
 
     @classmethod
     def rebuild_links(cls, *, workspace, project=None, user=None) -> int:
-        documents = list(Document.objects.filter(workspace=workspace, project=project))
-        if not documents:
-            return 0
-
-        by_path: dict[str, Document] = {}
-        by_base: dict[str, Document] = {}
-        by_title: dict[str, Document] = {}
-        for document in documents:
-            key = document.path.lower()
-            if key.endswith(".md"):
-                key = key[:-3]
-            by_path[key] = document
-            by_base.setdefault(Path(key).name, document)
-            by_title.setdefault(document.title.strip().lower(), document)
-
-        created = 0
-        for document in documents:
-            ResourceLink.objects.filter(
-                source=document.resource, link_type=LinkType.WIKILINK
-            ).delete()
-            content = DocumentService.read_content(document)
-            for ref, link_type in cls.extract_links(content):
-                target = cls.resolve_link(ref, document, by_path, by_base, by_title)
-                if target is None or target.pk == document.pk:
-                    continue
-                LinkService.create(
-                    source=document.resource,
-                    target=target.resource,
-                    link_type=link_type,
-                    created_by=user,
-                )
-                created += 1
-        return created
-
-    @classmethod
-    def extract_links(cls, content: str) -> list[tuple[str, str]]:
-        links: list[tuple[str, str]] = []
-        for match in WIKILINK_RE.finditer(content):
-            links.append((match.group(1), LinkType.WIKILINK))
-        for match in MDLINK_RE.finditer(content):
-            links.append((match.group(1), LinkType.REFERENCE))
-        return links
-
-    @classmethod
-    def resolve_link(cls, ref, source_document, by_path, by_base, by_title):
-        ref = ref.split("|", 1)[0]
-        ref = ref.split("#", 1)[0].strip()
-        if not ref or "://" in ref:
-            return None
-        ref = ref.replace("\\", "/").strip()
-
-        if ref.lower().endswith(".md"):
-            if ref.startswith("/"):
-                key = ref.lstrip("/")[:-3].lower()
-            else:
-                base = posixpath.dirname(source_document.path)
-                key = posixpath.normpath(posixpath.join(base, ref)).lower()[:-3]
-            return by_path.get(key) or by_base.get(Path(key).name)
-
-        key = ref.lstrip("/")
-        if key.lower().endswith(".md"):
-            key = key[:-3]
-        key = key.lower()
-        return by_path.get(key) or by_base.get(Path(key).name) or by_title.get(ref.lower())
+        """Rebuild outgoing links for every document in the repository scope."""
+        return LinkService.rebuild_all(
+            workspace=workspace, project=project, user=user
+        )
 
     # -- auto commit (platform -> Git) --------------------------------------
     @classmethod

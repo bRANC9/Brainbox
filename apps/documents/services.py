@@ -62,6 +62,25 @@ def _deindex(document: Document) -> None:
         logger.exception("embedding de-index failed for document %s", document.pk)
 
 
+def _rebuild_links(document: Document, *, user, request) -> None:
+    """Keep [[wikilink]] / relative markdown links in sync with the content.
+
+    The whole workspace/project scope is re-resolved so forward references
+    (a link written before its target existed) also materialise.
+    """
+    try:
+        from apps.links.services import LinkService
+
+        LinkService.rebuild_all(
+            workspace=document.workspace,
+            project=document.project,
+            user=user,
+            request=request,
+        )
+    except Exception:  # noqa: BLE001 - link resolution must never break a write
+        logger.exception("link rebuild failed for document %s", document.pk)
+
+
 def _scan_for_secrets(content: str) -> None:
     """Optionally warn/reject when content looks like it contains credentials."""
     mode = (settings.BRAINBOX_SECRET_SCAN_MODE or "off").lower()
@@ -222,6 +241,7 @@ class DocumentService:
         )
         if source not in _GIT_SOURCES:
             _autocommit(document, user=created_by, request=request)
+        _rebuild_links(document, user=created_by, request=request)
         _reindex(document)
         return document
 
@@ -293,6 +313,7 @@ class DocumentService:
         )
         if source not in _GIT_SOURCES:
             _autocommit(document, user=user, request=request)
+        _rebuild_links(document, user=user, request=request)
         _reindex(document)
         return document
 
