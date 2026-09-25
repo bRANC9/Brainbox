@@ -6,10 +6,13 @@ from .scheduling import compute_next_run, describe_schedule, validate_schedule_c
 
 
 class ScheduleKind(models.TextChoices):
+    ONCE = "once", "Once"
     INTERVAL = "interval", "Interval"
+    HOURLY = "hourly", "Hourly"
     DAILY = "daily", "Daily"
     WEEKLY = "weekly", "Weekly"
     MONTHLY = "monthly", "Monthly"
+    CRON = "cron", "Cron"
 
 
 class JobRunStatus(models.TextChoices):
@@ -41,6 +44,9 @@ class Job(models.Model):
     max_retries = models.IntegerField(default=0)
     next_run_at = models.DateTimeField(null=True, blank=True, db_index=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    exhausted = models.BooleanField(
+        default=False, help_text="Set for one-shot ('once') jobs after they have fired."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -54,8 +60,16 @@ class Job(models.Model):
 
     def save(self, *args, **kwargs):
         # First save: prime next_run_at so a fresh deployment starts working.
+        # For one-shot jobs an 'at' in the past is intentionally kept (so the
+        # scheduler fires it on the next tick and then marks it exhausted).
         if self._state.adding and self.enabled and self.next_run_at is None:
-            self.next_run_at = self.compute_next_run()
+            computed = self.compute_next_run()
+            if self.schedule_kind == ScheduleKind.ONCE:
+                from .scheduling import parse_iso
+
+                self.next_run_at = parse_iso(self.schedule_config.get("at"))
+            else:
+                self.next_run_at = computed
         super().save(*args, **kwargs)
 
     @property

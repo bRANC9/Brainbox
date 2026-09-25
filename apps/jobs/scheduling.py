@@ -1,16 +1,18 @@
 """Pure schedule math: config validation, next-run computation, description.
 
 All datetimes are timezone-aware UTC unless ``schedule_config["timezone"]``
-carries an IANA zone name (the ai-handler scheduler flagged this as a future
-addition; it is included here).
+carries an IANA zone name.
 
 Config shapes (stored as JSON):
+- once:     {"at": "2026-09-25T18:30:00"}  (fires once, then stops)
+- interval: {"every_minutes": 30}           (fixed delay between runs)
+- hourly:   {"minutes": [0, 30]}            (fixed minutes past the hour)
 - daily:    {"hours": [1, 5], "minute": 0}
 - weekly:   {"weekdays": [1, 3], "hours": [4], "minute": 0}   # 1=Mon .. 7=Sun
 - monthly:  {"days_of_month": [1, 15], "hours": [4], "minute": 0}
-- interval: {"every_minutes": 30}
-- every one may carry {"timezone": "Europe/Budapest"}
+- cron:     {"cron": "0 3 * * 0"}           (requires the optional `croniter` extra)
 
+Every shape may carry {"timezone": "Europe/Budapest"}.
 Out-of-range values are ignored (never raise) and reported by the validator, so
 a bad config can never crash the tick loop.
 """
@@ -24,7 +26,7 @@ from datetime import timezone as dt_timezone
 
 logger = logging.getLogger("brainbox.jobs")
 
-SCHEDULE_KINDS = ("interval", "daily", "weekly", "monthly")
+SCHEDULE_KINDS = ("once", "interval", "hourly", "daily", "weekly", "monthly", "cron")
 
 
 def _as_int_list(value) -> list[int]:
@@ -50,6 +52,28 @@ def _first_int(value, default: int) -> int:
     return values[0] if values else default
 
 
+def parse_iso(value) -> datetime | None:
+    """Parse an ISO-8601 timestamp into an aware datetime (UTC if naive)."""
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt_timezone.utc)
+
+
+def _parse_iso(value) -> datetime | None:
+    return parse_iso(value)
+
+
+def _croniter_available() -> bool:
+    try:
+        import croniter  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def _zone(config: dict):
     name = (config or {}).get("timezone")
     if not name:
@@ -68,6 +92,14 @@ def normalize_schedule_config(kind: str, config: dict | None) -> dict:
     config = dict(config or {})
     zone = config.get("timezone")
 
+    if kind == "once":
+        return {"at": config.get("at"), "timezone": zone}
+    if kind == "cron":
+        return {"cron": (config.get("cron") or "").strip(), "timezone": zone}
+    if kind == "interval":
+        return {"every_minutes": _first_int(config.get("every_minutes"), 0), "timezone": zone}
+    if kind == "hourly":
+        return {"minutes": _as_int_list(config.get("minutes")), "timezone": zone}
     if kind == "daily":
         return {"hours": _as_int_list(config.get("hours")), "minute": _first_int(config.get("minute"), 0), "timezone": zone}
     if kind == "weekly":
@@ -117,6 +149,35 @@ def validate_schedule_config(kind: str, config: dict | None) -> list[str]:
             errors.append("Interval schedules need 'every_minutes' >= 1.")
         return errors
 
+    if kind == "once":
+        if not config.get("at"):
+            errors.append("'once' schedules need an 'at' timestamp (ISO 8601).")
+        elif _parse_iso(config.get("at")) is None:
+            errors.append(f"Invalid 'at' timestamp: {config.get('at')!r}.")
+        return errors
+
+    if kind == "cron":
+        expression = (config.get("cron") or "").strip()
+        if not expression:
+            errors.append("Cron schedules need a 'cron' expression.")
+        elif not _croniter_available():
+            errors.append("Cron schedules require the 'croniter' package (pip install brainbox-jobs[cron]).")
+        else:
+            import croniter
+
+            if not croniter.croniter.is_valid(expression):
+                errors.append(f"Invalid cron expression: {expression!r} (expected 5 fields).")
+        return errors
+
+    if kind == "hourly":
+        minutes = _as_int_list(config.get("minutes"))
+        if not minutes:
+            errors.append("Hourly schedules need at least one 'minutes' entry (0-59).")
+        invalid = [m for m in minutes if not 0 <= m <= 59]
+        if invalid:
+            errors.append(f"Invalid minutes values: {invalid} (0-59).")
+        return errors
+
     if kind == "monthly":
         days = _as_int_list(config.get("days_of_month"))
         if not days:
@@ -153,11 +214,37 @@ def compute_next_run(kind: str, config: dict | None, after: datetime | None = No
         base = after if after.tzinfo else after.replace(tzinfo=dt_timezone.utc)
     base_utc = base.astimezone(dt_timezone.utc)
 
+    if kind == "once":
+        at = _parse_iso(normalized.get("at"))
+        if at is None:
+            return None
+        return at.astimezone(dt_timezone.utc) if at.astimezone(dt_timezone.utc) > base_utc else None
+
+    if kind == "cron":
+        expression = normalized.get("cron")
+        if not expression or not _croniter_available():
+            return None
+        import croniter
+
+        try:
+            zone = _zone(normalized)
+            local = base_utc.astimezone(zone)
+            nxt = croniter.croniter(expression, local).get_next(datetime)
+        except Exception:  # noqa: BLE001 - bad expression must not crash the loop
+            logger.warning("Could not compute next run for cron '%s'", expression)
+            return None
+        return nxt.astimezone(dt_timezone.utc)
+
     if kind == "interval":
         every_minutes = int(normalized.get("every_minutes") or 0)
         if every_minutes < 1:
             return None
         return base_utc + timedelta(minutes=every_minutes)
+
+    if kind == "hourly":
+        zone = _zone(normalized)
+        local = base_utc.astimezone(zone)
+        return _next_hourly(normalized.get("minutes") or [], local, zone)
 
     zone = _zone(normalized)
     local = base_utc.astimezone(zone)
@@ -170,6 +257,20 @@ def compute_next_run(kind: str, config: dict | None, after: datetime | None = No
         return _next_weekly(normalized.get("weekdays") or [], hour_list, minute, local, zone)
     if kind == "monthly":
         return _next_monthly(normalized.get("days_of_month") or [], hour_list, minute, local, zone)
+    return None
+
+
+def _next_hourly(minutes: list[int], local, zone):
+    if not minutes:
+        return None
+    for hour_offset in range(2):
+        hour = local + timedelta(hours=hour_offset)
+        for minute in minutes:
+            if not 0 <= minute <= 59:
+                continue
+            candidate = datetime(hour.year, hour.month, hour.day, hour.hour, minute, tzinfo=zone)
+            if candidate.astimezone(dt_timezone.utc) > local.astimezone(dt_timezone.utc):
+                return candidate.astimezone(dt_timezone.utc)
     return None
 
 
@@ -239,6 +340,14 @@ def describe_schedule(kind: str, config: dict | None) -> str:
         if minutes >= 60 and minutes % 60 == 0:
             return f"every {minutes // 60} hour(s){suffix}"
         return f"every {minutes} minute(s){suffix}"
+    if kind == "once":
+        at = normalized.get("at")
+        return f"once at {at}{suffix}" if at else f"once{suffix}"
+    if kind == "cron":
+        return f"cron {normalized.get('cron')}{suffix}"
+    if kind == "hourly":
+        minutes = ", ".join(f":{m:02d}" for m in normalized.get("minutes") or [])
+        return f"hourly at {minutes}{suffix}"
     if kind == "daily":
         return f"daily at {clock(normalized.get('hours') or [], normalized.get('minute', 0))}{suffix}"
     if kind == "weekly":

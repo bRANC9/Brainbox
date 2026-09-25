@@ -1,0 +1,31 @@
+# Packaging metadata for the extractable jobs framework.
+#
+# The framework-only core of apps/jobs (registry, schedule math, Job/JobRun,
+# SchedulerState, engine, admin, REST API, management commands) is designed to
+# be lifted into a standalone Django distribution. This file encodes that
+# intent: swap the package path to `src/brainbox_jobs/` when you extract, keep
+# the version in lockstep with the app, and drop in your own metadata.
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brainbox-jobs"
+version = "0.1.0"
+description = "Database-backed scheduler and worker for Django (framework-only core)."
+readme = "README-jobs.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Brainbox" }]
+keywords = ["django", "scheduler", "background-jobs", "worker", "cron"]
+dependencies = ["django>=5.2"]
+
+[project.optional-dependencies]
+cron = ["croniter>=2.0,<7"]
+
+[tool.setuptools.packages.find]
+where = ["apps"]
+include = ["jobs*"]
+
+[tool.setuptools.package-data]
+jobs = ["py.typed", "templates/jobs/*.html"]

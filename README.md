@@ -350,9 +350,9 @@ scheduler konténer ──lease──▶ tick() ──▶ waiting run sorok ─�
                                    (skip-if-busy, retry, orphan recovery)
 ```
 
-- **Ütemezés**: `interval` / `daily` / `weekly` / `monthly`, `schedule_config`
-  JSON + opcionális `{"timezone": "Europe/Budapest"}` (a minta ezt még hiányzónak
-  jelölte).
+- **Ütemezés**: `once` / `interval` / `hourly` / `daily` / `weekly` / `monthly` / **`cron`**,
+  `schedule_config` JSON + opcionális `{"timezone": "Europe/Budapest"}` (a minta ezt még
+  hiányzónak jelölte). A `cron` típus a `croniter`-t használja (alap függőség).
 - **Lock**: DB-lease (`jobs_scheduler_state`) heartbeat-tel – több replika esetén
   is csak egy scheduler tickel (a minta /tmp lock fájlt használt, skálázásnál
   cserélni kellett volna).
@@ -378,8 +378,10 @@ REST (`/api/v1/jobs/`, staff): `run_now`, `registry`, `scheduler_status`, `runs`
 
 > **pip-csomag lehetőség:** a `apps/jobs` magja (registry, schedule-matematika,
 > modellek, engine, admin, API) **framework-only**, nincs benne Brainbox-specifikus
-> import → szinte 1:1 kiemelhető önálló Django csomaggá. A Brainbox-függő taskok
-> külön modulban vannak, így kivétel nélkül.
+> import → szinte 1:1 kiemelhető önálló Django csomaggá. Az `apps/jobs/pyproject.toml`
+> már a kivitelhez kész (név `brainbox-jobs`, opcionális `[cron]` extra). A Brainbox-függő
+> taskok külön modulban vannak, így kivétel nélkül. Kivitelkor: a `src/brainbox_jobs/`
+> útvonalra másolás + a brainbox-specifikus taskok kihagyása.
 
 ---
 

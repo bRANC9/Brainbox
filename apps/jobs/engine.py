@@ -124,7 +124,14 @@ def _dedupe_key(task_key: str, payload: dict | None) -> str:
     if not field or not payload:
         return ""
     value = payload.get(field)
-    return f"{task_key}:{field}:{value}" if value not in (None, "") else ""
+    if value in (None, ""):
+        return ""
+    # Normalise dict/list payloads so semantically equal values dedupe equally.
+    if isinstance(value, (dict, list)):
+        import json
+
+        value = json.dumps(value, sort_keys=True, default=str)
+    return f"{task_key}:{field}:{value}"
 
 
 def enqueue_run(task_key: str, *, trigger: str = JobTrigger.SYSTEM, payload: dict | None = None) -> JobRun | None:
@@ -175,16 +182,19 @@ def tick(now=None) -> int:
     )
 
     enqueued = 0
-    for job in Job.objects.filter(enabled=True):
+    for job in Job.objects.filter(enabled=True, exhausted=False):
         errors = job.config_errors
         if errors:
             logger.warning("Job %s has invalid schedule, skipping: %s", job.name, "; ".join(errors))
             continue
 
         if job.next_run_at is None:
-            computed = job.compute_next_run(now)
-            if computed:
-                Job.objects.filter(pk=job.pk).update(next_run_at=computed)
+            if job.schedule_kind == "once":
+                Job.objects.filter(pk=job.pk).update(exhausted=True)
+            else:
+                computed = job.compute_next_run(now)
+                if computed:
+                    Job.objects.filter(pk=job.pk).update(next_run_at=computed)
             continue
 
         next_run = job.next_run_at
@@ -206,9 +216,11 @@ def tick(now=None) -> int:
             attempt=1,
             dedupe_key=_dedupe_key(job.task_key, {}),
         )
-        Job.objects.filter(pk=job.pk).update(
-            last_run_at=now, next_run_at=job.compute_next_run(now)
-        )
+        following = job.compute_next_run(now)
+        update = {"last_run_at": now, "next_run_at": following}
+        if following is None and job.schedule_kind == "once":
+            update["exhausted"] = True  # one-shot: never recompute
+        Job.objects.filter(pk=job.pk).update(**update)
         enqueued += 1
         logger.info("Scheduled %s as run %s", job.name, run.run_id)
 
@@ -236,23 +248,35 @@ def recover_stuck_runs(grace_sec: int | None = None) -> int:
 # ---------------------------------------------------------------------------
 def claim_next_run(worker: str) -> JobRun | None:
     """Atomically claim the oldest waiting run (waiting -> running)."""
+    claimed = claim_runs(worker, limit=1)
+    return claimed[0] if claimed else None
+
+
+def claim_runs(worker: str, limit: int = 10) -> list[JobRun]:
+    """Atomically claim up to ``limit`` waiting runs in one pass (bulk dequeue).
+
+    Mirrors the broker "bulk dequeue" concept: one transaction, one
+    select_for_update + N status flips, so a worker grabbing a backlog does not
+    pay a round-trip per run. Losers of the race simply see fewer rows.
+    """
+    limit = max(1, min(limit, 100))
+    claimed_ids: list = []
     with transaction.atomic():
-        candidate = (
+        candidates = list(
             JobRun.objects.select_for_update(skip_locked=True)
             .filter(status=JobRunStatus.WAITING)
-            .order_by("created_at")
-            .first()
+            .order_by("created_at")[:limit]
         )
-        if candidate is None:
-            return None
-        claimed = JobRun.objects.filter(pk=candidate.pk, status=JobRunStatus.WAITING).update(
-            status=JobRunStatus.RUNNING,
-            started_at=timezone.now(),
-            worker=worker[:100],
-        )
-        if claimed == 0:
-            return None  # another worker won the race
-    return JobRun.objects.get(pk=candidate.pk)
+        now = timezone.now()
+        for candidate in candidates:
+            flipped = JobRun.objects.filter(
+                pk=candidate.pk, status=JobRunStatus.WAITING
+            ).update(status=JobRunStatus.RUNNING, started_at=now, worker=worker[:100])
+            if flipped:
+                claimed_ids.append(candidate.pk)
+    if not claimed_ids:
+        return []
+    return list(JobRun.objects.filter(pk__in=claimed_ids).order_by("created_at"))
 
 
 @contextmanager

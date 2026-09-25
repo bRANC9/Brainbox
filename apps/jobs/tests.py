@@ -42,6 +42,56 @@ class ScheduleMathTests(TestCase):
         self.assertIn("daily", describe_schedule("daily", {"hours": [3], "minute": 0}))
 
 
+class CronAndOneShotTests(TestCase):
+    def test_cron_next_run(self):
+        base = timezone.now()
+        nxt = compute_next_run("cron", {"cron": "0 3 * * 0"}, base)
+        self.assertIsNotNone(nxt)
+        self.assertGreater(nxt, base)
+        self.assertEqual(nxt.hour, 3)
+        self.assertEqual(nxt.minute, 0)
+
+    def test_cron_with_timezone(self):
+        base = timezone.now()
+        nxt = compute_next_run("cron", {"cron": "0 4 * * *", "timezone": "Europe/Budapest"}, base)
+        self.assertIsNotNone(nxt)
+        self.assertGreater(nxt, base)
+
+    def test_cron_validation(self):
+        self.assertTrue(validate_schedule_config("cron", {"cron": ""}))
+        self.assertTrue(validate_schedule_config("cron", {"cron": "not a cron"}))
+        self.assertEqual(validate_schedule_config("cron", {"cron": "0 3 * * 0"}), [])
+
+    def test_cron_describe(self):
+        self.assertIn("cron", describe_schedule("cron", {"cron": "0 3 * * 0"}))
+
+    def test_once_next_run(self):
+        at = timezone.now() + timedelta(hours=1)
+        nxt = compute_next_run("once", {"at": at.isoformat()}, timezone.now())
+        self.assertIsNotNone(nxt)
+        self.assertGreater(nxt, timezone.now())
+        # past 'at' -> None (exhausted)
+        past = timezone.now() - timedelta(hours=1)
+        self.assertIsNone(compute_next_run("once", {"at": past.isoformat()}, timezone.now()))
+
+    def test_once_validation(self):
+        self.assertTrue(validate_schedule_config("once", {}))
+        self.assertTrue(validate_schedule_config("once", {"at": "nope"}))
+        self.assertEqual(validate_schedule_config("once", {"at": timezone.now().isoformat()}), [])
+
+    def test_hourly(self):
+        base = timezone.now()
+        nxt = compute_next_run("hourly", {"minutes": [0, 30]}, base)
+        self.assertIsNotNone(nxt)
+        self.assertGreater(nxt, base)
+        self.assertIn(nxt.minute, {0, 30})
+
+    def test_hourly_validation(self):
+        self.assertTrue(validate_schedule_config("hourly", {"minutes": []}))
+        self.assertTrue(validate_schedule_config("hourly", {"minutes": [99]}))
+        self.assertEqual(validate_schedule_config("hourly", {"minutes": [15]}), [])
+
+
 class SchedulerEngineTests(TestCase):
     def setUp(self):
         self.job = Job.objects.create(
@@ -113,6 +163,39 @@ class SchedulerEngineTests(TestCase):
         self.assertIsNotNone(first)
         second = engine.enqueue_run("dedupe_test", payload={"document_id": 1})
         self.assertIsNone(second)  # active run for same dedupe key
+
+    def test_bulk_claim(self):
+        for _ in range(3):
+            JobRun.objects.create(job=self.job, task_key="test_task", status=JobRunStatus.WAITING)
+        claimed = engine.claim_runs("bulk-worker", limit=10)
+        self.assertEqual(len(claimed), 3)
+        self.assertEqual(JobRun.objects.filter(status=JobRunStatus.RUNNING).count(), 3)
+
+    def test_once_job_is_exhausted_after_firing(self):
+        once = Job.objects.create(
+            name="once job",
+            task_key="test_task",
+            schedule_kind="once",
+            schedule_config={"at": (timezone.now() - timedelta(minutes=5)).isoformat()},
+            enabled=True,
+        )
+        Job.objects.filter(pk=once.pk).update(next_run_at=timezone.now() - timedelta(minutes=1))
+        engine.tick()
+        once.refresh_from_db()
+        self.assertTrue(once.exhausted)
+        self.assertIsNone(once.next_run_at)
+        # A second tick must not re-fire it
+        self.assertEqual(engine.tick(), 0)
+
+    def test_dedupe_normalises_dict_payloads(self):
+        @register_job("dict_dedupe", "test", dedupe_key="params")
+        def _dict_dedupe(context):
+            return {}
+
+        first = engine.enqueue_run("dict_dedupe", payload={"params": {"a": 1, "b": 2}})
+        self.assertIsNotNone(first)
+        second = engine.enqueue_run("dict_dedupe", payload={"params": {"b": 2, "a": 1}})
+        self.assertIsNone(second)  # same semantics -> deduped
 
     def test_recover_stuck_runs(self):
         old_waiting = JobRun.objects.create(job=self.job, task_key="test_task", status=JobRunStatus.WAITING)
