@@ -97,10 +97,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     labels:
-      # Only these services are auto-updated by Watchtower (scoped, so other
-      # containers on the host are never touched).
+      # Picked up by the host's Watchtower. The scheduler/worker services carry
+      # the same label so all three roles update to the same image version.
+      # Only these are labelled -> db and qdrant are never auto-upgraded.
       com.centurylinklabs.watchtower.enable: "true"
-      com.centurylinklabs.watchtower.monitor-only: "false"
     ports:
       - "${BRAINBOX_PORT:-8000}:8000"
     healthcheck:
@@ -167,29 +167,6 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
     restart: unless-stopped
-
-  # Auto-update: pulls new ghcr.io/branc9/brainbox tags and restarts only the
-  # services labelled com.centurylinklabs.watchtower.enable=true (web, worker,
-  # scheduler). Other containers on the host are never touched.
-  #
-  # ghcr.io is PRIVATE by default, so either
-  #   A) make the package public (GitHub -> Your packages -> brainbox -> Public), or
-  #   B) mount a docker config holding the GHCR login and point WATCHTOWER at it:
-  #      /mnt/docker/configs/brainbox/ghcr-config.json
-  watchtower:
-    image: containrrr/watchtower:latest
-    restart: unless-stopped
-    environment:
-      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-300}
-      WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_ROLLING_RESTART: "true"
-      WATCHTOWER_INCLUDE_STOPPED: "false"
-      WATCHTOWER_LABEL_ENABLE: "true"
-      WATCHTOWER_NO_PULL: "false"
-      WATCHTOWER_CONFIG_FILE: ${WATCHTOWER_CONFIG_FILE:-}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /mnt/docker/configs/brainbox/ghcr-config.json:/config.json:ro
 
 volumes:
   pgdata:
