@@ -382,9 +382,7 @@ class UserViewSet(viewsets.ModelViewSet):
     ordering_fields = ["username", "date_joined"]
 
     def get_queryset(self):
-        if self.request.user.is_superuser:
-            return User.objects.all()
-        return User.objects.filter(pk=self.request.user.pk)
+        return User.objects.all()
 
     def get_serializer_class(self):
         if self.request.user.is_superuser:
@@ -395,6 +393,23 @@ class UserViewSet(viewsets.ModelViewSet):
         if self.action in {"create", "destroy"} and not self.request.user.is_superuser:
             return [IsAdminUser()]
         return [IsAuthenticated()]
+
+    def get_serializer(self, *args, **kwargs):
+        # Directory callers (write/admin on some resource) may look up users
+        # to grant them access, but not edit them.
+        serializer_class = self.get_serializer_class()
+        kwargs.setdefault("context", self.get_serializer_context())
+        return serializer_class(*args, **kwargs)
+
+    def list(self, request, *args, **kwargs):
+        # Non-superusers get a read-only directory (id/username/display_name)
+        # only when they search; a full list is staff-only.
+        if not request.user.is_superuser and not request.query_params.get("q"):
+            return Response(
+                {"detail": "Provide ?q=<term> to search the user directory, or log in as staff to list all."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().list(request, *args, **kwargs)
 
 
 class GroupViewSet(viewsets.ModelViewSet):

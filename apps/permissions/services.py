@@ -112,6 +112,38 @@ class PermissionService:
             return True
         return False
 
+    # -- who may hand out access --------------------------------------------
+    @classmethod
+    def max_grantable(cls, user, resource) -> str | None:
+        """The strongest permission the caller may grant on this resource.
+
+        ADMIN may grant anything; a writer may only *share* the resource
+        (grant READ); a reader may not grant anything.
+        """
+        if PermissionService.check(user, resource, Permission.ADMIN):
+            return Permission.ADMIN
+        if PermissionService.check(user, resource, Permission.WRITE):
+            return Permission.WRITE
+        if PermissionService.check(user, resource, Permission.READ):
+            return Permission.READ
+        return None
+
+    @classmethod
+    def can_grant(cls, user, resource, permission: str, effect: str = Effect.ALLOW) -> bool:
+        """Whether the caller may create this ACL entry.
+
+        A writer can add collaborators with READ (sharing) but cannot escalate
+        anyone (including themselves) to write/admin, and only an ADMIN may
+        create DENY entries.
+        """
+        if effect == Effect.DENY:
+            return PermissionService.check(user, resource, Permission.ADMIN)
+        if PermissionService.check(user, resource, Permission.ADMIN):
+            return True
+        if PermissionService.check(user, resource, Permission.WRITE):
+            return permission == Permission.READ
+        return False
+
     # -- mutations -----------------------------------------------------------
     @classmethod
     def grant(

@@ -1,0 +1,104 @@
+{% comment %}
+Shared access (ACL) panel. Works inline on a workspace/project page and on the
+standalone /resources/<id>/permissions/ page. 'access_url' is where grant/revoke
+forms post; 'standalone' shows the heading.
+{% endcomment %}
+<div class="git-panel" id="access-panel">
+  <h2>Tagok és hozzáférés</h2>
+
+  <table class="table">
+    <thead><tr><th>Tag / csoport</th><th>Tipus</th><th>Jogosultság</th><th>Hatás</th><th>Öröklik</th>{% if can_admin %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+      {% for row in entry_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td>{{ row.entry.get_subject_type_display }}</td>
+          <td>{{ row.entry.get_permission_display }}</td>
+          <td>{{ row.entry.get_effect_display }}</td>
+          <td>{{ row.entry.inherit|yesno:"igen,no" }}</td>
+          {% if can_admin %}
+            <td>
+              <form method="post" action="{{ access_url }}" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="revoke">
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <input type="hidden" name="subject_type" value="{{ row.entry.subject_type }}">
+                <input type="hidden" name="subject_id" value="{{ row.entry.subject_id }}">
+                <input type="hidden" name="permission" value="{{ row.entry.permission }}">
+                <button class="link" type="submit">elvétel</button>
+              </form>
+            </td>
+          {% endif %}
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="muted">Nincs külön bejegyzés (minden öröklött).</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if can_share %}
+    <h3>Uj tag vagy csoport</h3>
+    <form method="get" class="form row">
+      <label style="flex:3">Keresés (felhasználó vagy csoport)
+        <input type="text" name="q" value="{{ request.GET.q|default:'' }}" autofocus>
+      </label>
+      <button class="button" type="submit">Keresés</button>
+    </form>
+
+    {% if search.users or search.groups %}
+      <form method="post" action="{{ access_url }}" class="form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="grant">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <label>Tag kiválasztása
+          <select name="subject_id" required>
+            <optgroup label="Felhasználók">
+              {% for u in search.users %}<option value="user:{{ u.id }}">{{ u.label }}</option>{% endfor %}
+            </optgroup>
+            {% if search.groups %}
+              <optgroup label="Csoportok">
+                {% for g in search.groups %}<option value="group:{{ g.id }}">{{ g.label }}</option>{% endfor %}
+              </optgroup>
+            {% endif %}
+          </select>
+        </label>
+        <div class="row">
+          <label>Jogosultság
+            <select name="permission">
+              <option value="read">Olvasás</option>
+              {% if can_admin %}
+                <option value="write">Írás</option>
+                <option value="delete">Törlés</option>
+                <option value="admin">Admin</option>
+              {% endif %}
+            </select>
+          </label>
+          <label>Hatás
+            <select name="effect">
+              {% if can_admin %}<option value="allow">Engedélyez</option>{% endif %}
+              <option value="allow">Engedélyez</option>
+              {% if can_admin %}<option value="deny">Tiltás</option>{% endif %}
+            </select>
+          </label>
+          <label>Öröklődik <input type="checkbox" name="inherit" checked></label>
+        </div>
+        <button type="submit" class="button primary">Hozzáadás</button>
+      </form>
+    {% endif %}
+
+    {% if can_admin %}
+      <details>
+        <summary>Uj csoport létrehozása (read joggal)</summary>
+        <form method="post" action="{{ access_url }}" class="form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="create_group">
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <label>Csoport neve <input type="text" name="group_name" required></label>
+          <button type="submit" class="button">Létrehozás és hozzáadás</button>
+        </form>
+      </details>
+    {% endif %}
+  {% else %}
+    <p class="muted">Ehhez a resource-hez nincs írási jogod, így nem oszthatod meg.</p>
+  {% endif %}
+</div>

@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 from apps.accounts.models import ApiKey
@@ -92,6 +93,32 @@ def search(request):
     )
 
 
+def _access_context(request, resource) -> dict:
+    """Context for the shared access (ACL) panel, or {} when not permitted."""
+    can_admin = PermissionService.check(request.user, resource, Permission.ADMIN)
+    can_share = PermissionService.check(request.user, resource, Permission.WRITE)
+    if not (can_admin or can_share):
+        return {}
+    entries = resource.acl_entries.all()
+    entry_rows = []
+    for entry in entries:
+        label = entry.subject_id
+        if entry.subject_type == SubjectType.GROUP:
+            group = Group.objects.filter(pk=entry.subject_id).first()
+            label = group.name if group else "(törölt csoport)"
+        else:
+            subject = User.objects.filter(pk=entry.subject_id).first()
+            label = subject.username if subject else "(törölt user)"
+        entry_rows.append({"entry": entry, "label": label})
+    return {
+        "access_entries": entry_rows,
+        "access_can_admin": can_admin,
+        "access_can_share": can_share,
+        "access_url": reverse("web:resource_permissions", args=[resource.pk]),
+        "access_search": _subject_matches(request.GET.get("access_q", "")),
+    }
+
+
 @login_required
 def workspace_detail(request, workspace_slug):
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
@@ -116,6 +143,7 @@ def workspace_detail(request, workspace_slug):
         "can_write": can_write,
         "can_admin": _can(request.user, workspace.resource, Permission.ADMIN),
         **_git_panel(workspace),
+        **_access_context(request, workspace.resource),
     }
     return render(request, "workspace_detail.html", context)
 
@@ -139,6 +167,7 @@ def project_detail(request, workspace_slug, project_slug):
         "documents": documents,
         "can_write": can_write,
         **_git_panel(workspace, project),
+        **_access_context(request, project.resource),
     }
     return render(request, "project_detail.html", context)
 
@@ -439,26 +468,57 @@ def _resolve_subject(subject_type: str, value: str):
     return user.id if user else None
 
 
+def _subject_matches(query: str, limit: int = 8) -> dict:
+    """Directory search for the access panel (users + groups by name)."""
+    query = (query or "").strip()
+    if not query:
+        return {"users": [], "groups": []}
+    users = list(
+        User.objects.filter(username__icontains=query)[:limit]
+    ) + list(User.objects.filter(display_name__icontains=query)[:limit])
+    seen, user_rows = set(), []
+    for user in users:
+        if user.pk in seen:
+            continue
+        seen.add(user.pk)
+        user_rows.append({"id": str(user.pk), "label": f"{user.username} ({user.display_name or user.email})" if (user.display_name or user.email) else user.username})
+    groups = [
+        {"id": str(group.pk), "label": f"{group.name} (csoport)"}
+        for group in Group.objects.filter(name__icontains=query)[:limit]
+    ]
+    return {"users": user_rows[:limit], "groups": groups[:limit]}
+
+
 @login_required
 def resource_permissions(request, resource_id):
     resource = get_object_or_404(Resource, pk=resource_id)
-    if not PermissionService.check(request.user, resource, Permission.ADMIN):
-        return HttpResponseForbidden("Admin permission required on this resource.")
+    can_admin = PermissionService.check(request.user, resource, Permission.ADMIN)
+    can_share = PermissionService.check(request.user, resource, Permission.WRITE)
+    if not (can_admin or can_share):
+        return HttpResponseForbidden("Write access required on this resource.")
 
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "grant":
-            subject_type = request.POST.get("subject_type", SubjectType.USER)
-            subject_id = _resolve_subject(subject_type, request.POST.get("subject_id", ""))
+            raw = request.POST.get("subject_id", "")
+            if ":" in raw:
+                subject_type, subject_value = raw.split(":", 1)
+            else:
+                subject_type, subject_value = SubjectType.USER, raw
+            permission = request.POST.get("permission", Permission.READ)
+            effect = request.POST.get("effect", Effect.ALLOW)
+            subject_id = _resolve_subject(subject_type, subject_value)
             if subject_id is None:
                 messages.error(request, "Subject not found.")
+            elif not PermissionService.can_grant(request.user, resource, permission, effect):
+                messages.error(request, "You cannot grant that permission here.")
             else:
                 PermissionService.grant(
                     resource,
                     subject_type=subject_type,
                     subject_id=subject_id,
-                    permission=request.POST.get("permission", Permission.READ),
-                    effect=request.POST.get("effect", Effect.ALLOW),
+                    permission=permission,
+                    effect=effect,
                     inherit=request.POST.get("inherit") == "on",
                     created_by=request.user,
                 )
@@ -468,27 +528,67 @@ def resource_permissions(request, resource_id):
                     resource=resource,
                     source=AuditSource.WEB,
                     request=request,
-                    detail={"action": "grant", "subject_type": subject_type},
+                    detail={"action": "grant", "subject_type": subject_type, "permission": permission, "effect": effect},
                 )
-                messages.success(request, "Permission granted.")
+                messages.success(request, "Access granted.")
         elif action == "revoke":
-            PermissionService.revoke(
-                resource,
-                subject_type=request.POST.get("subject_type", SubjectType.USER),
-                subject_id=request.POST.get("subject_id"),
-                permission=request.POST.get("permission") or None,
-            )
-            messages.success(request, "Permission revoked.")
-        return redirect("web:resource_permissions", resource_id=resource.pk)
+            if not can_admin:
+                messages.error(request, "Only an admin can revoke access.")
+            else:
+                raw = request.POST.get("subject_id", "")
+                _, subject_id = raw.split(":", 1) if ":" in raw else (None, raw)
+                PermissionService.revoke(
+                    resource,
+                    subject_type=request.POST.get("subject_type", SubjectType.USER),
+                    subject_id=subject_id,
+                    permission=request.POST.get("permission") or None,
+                )
+                messages.success(request, "Access revoked.")
+        elif action == "create_group":
+            if not can_admin:
+                messages.error(request, "Only an admin can create groups here.")
+            else:
+                name = request.POST.get("group_name", "").strip()
+                if name:
+                    group, _ = Group.objects.get_or_create(name=name, defaults={"created_by": request.user})
+                    PermissionService.grant(
+                        resource,
+                        subject_type=SubjectType.GROUP,
+                        subject_id=group.id,
+                        permission=Permission.READ,
+                        created_by=request.user,
+                    )
+                    messages.success(request, f"Group '{group.name}' created and granted read.")
+                else:
+                    messages.error(request, "Group name is required.")
+        return redirect(f"{request.POST.get('next') or request.get_full_path()}")
+
+    # Decorate entries with a readable label + honour the grant ceiling.
+    entries = resource.acl_entries.all().select_related("created_by")
+    entry_rows = []
+    for entry in entries:
+        label = entry.subject_id
+        if entry.subject_type == SubjectType.GROUP:
+            group = Group.objects.filter(pk=entry.subject_id).first()
+            label = group.name if group else "(törölt csoport)"
+        else:
+            subject = User.objects.filter(pk=entry.subject_id).first()
+            label = subject.username if subject else "(törölt user)"
+        entry_rows.append({"entry": entry, "label": label})
 
     return render(
         request,
         "permissions.html",
         {
             "resource": resource,
-            "entries": resource.acl_entries.all(),
+            "entry_rows": entry_rows,
             "permissions": Permission.choices,
             "effects": Effect.choices,
             "subject_types": SubjectType.choices,
+            "can_admin": can_admin,
+            "can_share": can_share,
+            "search": _subject_matches(request.GET.get("q", "")),
+            "access_url": reverse("web:resource_permissions", args=[resource.pk]),
+            "standalone": True,
         },
     )
