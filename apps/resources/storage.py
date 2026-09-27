@@ -125,9 +125,22 @@ def resolve_base(*, workspace, project=None) -> tuple[Path, bool]:
     return base, False
 
 
+def _allowed_roots() -> list[Path]:
+    """Roots a knowledge path may live under (knowledge root + optional git root)."""
+    roots = [Path(settings.KNOWLEDGE_DATA_ROOT).resolve()]
+    git_root = getattr(settings, "BRAINBOX_GIT_ROOT", "")
+    if git_root:
+        roots.append(Path(git_root).resolve())
+    return roots
+
+
 def resolve_path(*, workspace, project, kind: str, rel_path: str = "") -> Path:
     """Absolute path of a document/file in the correct storage backend."""
     root, git_backed = resolve_base(workspace=workspace, project=project)
     base = root if git_backed else root / kind
     path = base / rel_path if rel_path else base
-    return get_storage().validate(path)
+
+    resolved = path.resolve()
+    if not any(resolved == root or root in resolved.parents for root in _allowed_roots()):
+        raise StorageError(f"Path escapes the configured storage roots: {path}")
+    return resolved

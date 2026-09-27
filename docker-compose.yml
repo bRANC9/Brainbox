@@ -96,6 +96,11 @@ services:
       - static_data:/app/staticfiles
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    labels:
+      # Only these services are auto-updated by Watchtower (scoped, so other
+      # containers on the host are never touched).
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.monitor-only: "false"
     ports:
       - "${BRAINBOX_PORT:-8000}:8000"
     healthcheck:
@@ -122,6 +127,8 @@ services:
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
       DATABASE_URL: postgres://${POSTGRES_USER:-brainbox}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-brainbox}
       BRAINBOX_DATA_ROOT: ${BRAINBOX_DATA_ROOT:-/data/knowledge}
+      BRAINBOX_GIT_ROOT: ${BRAINBOX_GIT_ROOT:-}
+      BRAINBOX_RUN_MIGRATIONS: "0"
       BRAINBOX_SECRET_KEY: ${BRAINBOX_SECRET_KEY:-}
       BRAINBOX_GIT_TOKEN: ${BRAINBOX_GIT_TOKEN:-}
       BRAINBOX_GIT_AUTHOR_NAME: ${BRAINBOX_GIT_AUTHOR_NAME:-Brainbox}
@@ -135,6 +142,8 @@ services:
       - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     restart: unless-stopped
 
   # Scheduler: single owner (DB lease) fires due jobs. Safe to scale to 2+
@@ -152,7 +161,35 @@ services:
       BRAINBOX_SCHEDULER_ENABLED: ${BRAINBOX_SCHEDULER_ENABLED:-1}
       BRAINBOX_SCHEDULER_TICK_SEC: ${BRAINBOX_SCHEDULER_TICK_SEC:-30}
       BRAINBOX_JOB_LOCK_TTL_SEC: ${BRAINBOX_JOB_LOCK_TTL_SEC:-120}
+      BRAINBOX_RUN_MIGRATIONS: "0"
+      BRAINBOX_DATA_ROOT: ${BRAINBOX_DATA_ROOT:-/data/knowledge}
+      BRAINBOX_GIT_ROOT: ${BRAINBOX_GIT_ROOT:-}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     restart: unless-stopped
+
+  # Auto-update: pulls new ghcr.io/branc9/brainbox tags and restarts only the
+  # services labelled com.centurylinklabs.watchtower.enable=true (web, worker,
+  # scheduler). Other containers on the host are never touched.
+  #
+  # ghcr.io is PRIVATE by default, so either
+  #   A) make the package public (GitHub -> Your packages -> brainbox -> Public), or
+  #   B) mount a docker config holding the GHCR login and point WATCHTOWER at it:
+  #      /mnt/docker/configs/brainbox/ghcr-config.json
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-300}
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_ROLLING_RESTART: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_NO_PULL: "false"
+      WATCHTOWER_CONFIG_FILE: ${WATCHTOWER_CONFIG_FILE:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /mnt/docker/configs/brainbox/ghcr-config.json:/config.json:ro
 
 volumes:
   pgdata:

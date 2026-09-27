@@ -5,16 +5,20 @@
 set -e
 
 echo "[brainbox] waiting for database and applying migrations..."
-attempt=0
-until python manage.py migrate --noinput; do
-    attempt=$((attempt + 1))
-    if [ "$attempt" -ge 15 ]; then
-        echo "[brainbox] database did not become ready in time, giving up." >&2
-        exit 1
-    fi
-    echo "[brainbox] database not ready yet (attempt $attempt/15), retrying in 3s..."
-    sleep 3
-done
+if [ "${BRAINBOX_RUN_MIGRATIONS:-1}" = "0" ]; then
+    echo "[brainbox] BRAINBOX_RUN_MIGRATIONS=0, skipping migrate (another role owns it)."
+else
+    attempt=0
+    until python manage.py migrate --noinput; do
+        attempt=$((attempt + 1))
+        if [ "$attempt" -ge 15 ]; then
+            echo "[brainbox] database did not become ready in time, giving up." >&2
+            exit 1
+        fi
+        echo "[brainbox] database not ready yet (attempt $attempt/15), retrying in 3s..."
+        sleep 3
+    done
+fi
 
 echo "[brainbox] collecting static files..."
 python manage.py collectstatic --noinput

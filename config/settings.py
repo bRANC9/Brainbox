@@ -203,6 +203,10 @@ KNOWLEDGE_DATA_ROOT = os.environ.get(
     "BRAINBOX_DATA_ROOT", str(BASE_DIR / "data" / "knowledge")
 )
 
+# Entrypoint: only the web role should apply migrations (avoids three
+# containers racing on `migrate` at boot). Set to 0 for worker/scheduler.
+BRAINBOX_RUN_MIGRATIONS = env_bool("BRAINBOX_RUN_MIGRATIONS", True)
+
 # Master key for the (Phase 5) secret vault. Kept as raw base64 text for now.
 BRAINBOX_SECRET_KEY = os.environ.get("BRAINBOX_SECRET_KEY", "")
 
@@ -211,6 +215,9 @@ BRAINBOX_API_KEY_PREFIX = env_list("BRAINBOX_API_KEY_PREFIX", "ck_live_")[0] or 
 # Git integration (Phase 2). A single shared token is used for HTTPS remotes;
 # per-repository credentials arrive with the Secret Vault (Phase 5).
 BRAINBOX_GIT_TOKEN = os.environ.get("BRAINBOX_GIT_TOKEN", "")
+# Optional: keep repository checkouts outside the knowledge root (useful when
+# the knowledge dataset should hold only documents, e.g. a shared storage).
+BRAINBOX_GIT_ROOT = os.environ.get("BRAINBOX_GIT_ROOT", "")
 BRAINBOX_GIT_AUTHOR_NAME = os.environ.get("BRAINBOX_GIT_AUTHOR_NAME", "Brainbox")
 BRAINBOX_GIT_AUTHOR_EMAIL = os.environ.get("BRAINBOX_GIT_AUTHOR_EMAIL", "brainbox@localhost")
 BRAINBOX_GIT_COMMAND_TIMEOUT = int(os.environ.get("BRAINBOX_GIT_COMMAND_TIMEOUT", "120"))

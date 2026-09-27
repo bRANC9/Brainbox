@@ -71,7 +71,12 @@ class GitRepository(models.Model):
 
     @property
     def directory(self) -> Path:
-        return Path(settings.KNOWLEDGE_DATA_ROOT) / "git" / str(self.pk)
+        root = (
+            Path(settings.BRAINBOX_GIT_ROOT)
+            if settings.BRAINBOX_GIT_ROOT
+            else Path(settings.KNOWLEDGE_DATA_ROOT) / "git"
+        )
+        return root / str(self.pk)
 
     @property
     def scope_label(self) -> str:
