@@ -125,20 +125,30 @@ class GitClient:
         self.run("init", "-b", branch)
         return self
 
-    def clone(self, url: str, branch: str | None = None) -> "GitClient":
+    def clone(self, url: str, branch: str | None = None, reset_url: str | None = None) -> "GitClient":
+        """Clone ``url``. If ``reset_url`` is given, the stored remote is set to it.
+
+        Used to clone with a credential-injected URL and then immediately store
+        the clean one, so no token ever lands in ``.git/config`` on disk.
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists() and any(self.path.iterdir()):
             raise GitError(f"Target directory is not empty: {self.path}")
         self.run("clone", url, str(self.path), cwd=self.path.parent)
+        if reset_url:
+            self.run("remote", "set-url", "origin", reset_url)
         if branch and self.current_branch() != branch:
             self.run("checkout", branch, check=False)
         return self
 
-    def fetch(self) -> None:
-        self.run("fetch", "--all", "--prune", "--tags")
+    def fetch(self, url: str | None = None) -> None:
+        if url:
+            self.run("fetch", "--prune", "--tags", url)
+        else:
+            self.run("fetch", "--all", "--prune", "--tags")
 
-    def pull_rebase(self, branch: str) -> None:
-        self.run("pull", "--rebase", "--autostash", "origin", branch)
+    def pull_rebase(self, branch: str, url: str | None = None) -> None:
+        self.run("pull", "--rebase", "--autostash", url or "origin", branch)
 
     def add_all(self) -> None:
         self.run("add", "-A")

@@ -513,6 +513,12 @@ class GitRepositorySerializer(serializers.ModelSerializer):
     scope_label = serializers.CharField(read_only=True)
     sync_state = GitSyncStateSerializer(read_only=True)
     commits = GitCommitReferenceSerializer(many=True, read_only=True)
+    secret = serializers.PrimaryKeyRelatedField(
+        queryset=Secret.objects.filter(is_active=True),
+        required=False,
+        allow_null=True,
+        help_text="Optional Secret Vault credential for this repository.",
+    )
 
     class Meta:
         model = GitRepository
@@ -523,6 +529,7 @@ class GitRepositorySerializer(serializers.ModelSerializer):
             "project",
             "name",
             "remote_url",
+            "secret",
             "default_branch",
             "workflow",
             "auto_sync",
@@ -557,12 +564,21 @@ class GitRepositorySerializer(serializers.ModelSerializer):
             name=validated_data.get("name", ""),
             default_branch=validated_data.get("default_branch", "main"),
             workflow=validated_data.get("workflow", "direct_commit"),
+            secret=validated_data.get("secret"),
             created_by=_actor(self),
             request=self.context.get("request"),
         )
 
     def update(self, instance, validated_data):
-        for field in ("name", "remote_url", "default_branch", "workflow", "auto_sync", "is_active"):
+        for field in (
+            "name",
+            "remote_url",
+            "secret",
+            "default_branch",
+            "workflow",
+            "auto_sync",
+            "is_active",
+        ):
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
         instance.save()

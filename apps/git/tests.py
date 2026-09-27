@@ -116,3 +116,38 @@ class GitImportTests(TestCase):
             "updated from platform",
             (repository.directory / "bicep.md").read_text(encoding="utf-8"),
         )
+
+    def test_token_is_not_persisted_in_git_config(self):
+        from django.test import override_settings
+
+        with override_settings(BRAINBOX_GIT_TOKEN="supersecrettoken"):
+            repository = GitService.attach_repository(
+                workspace=self.workspace, remote_url=str(self.remote), created_by=self.user
+            )
+        config = (repository.directory / ".git" / "config").read_text(encoding="utf-8")
+        self.assertNotIn("supersecrettoken", config)
+        # The clean remote is stored (git escapes path separators on Windows).
+        self.assertIn(self.remote.name, config)
+
+    def test_per_repository_secret_credential(self):
+        from apps.secrets.models import SecretType
+        from apps.secrets.services import SecretService
+
+        secret = SecretService.create(
+            owner=self.user,
+            name="repo-token",
+            secret_type=SecretType.BEARER_TOKEN,
+            payload="ghp_repotoken123",
+        )
+        SecretService.attach(secret=secret, workspace=self.workspace)
+        repository = GitService.attach_repository(
+            workspace=self.workspace,
+            remote_url=str(self.remote),
+            secret=secret,
+            created_by=self.user,
+        )
+        self.assertEqual(repository.secret_id, secret.pk)
+        self.assertEqual(GitService._auth_token(repository), "ghp_repotoken123")
+        # config must stay clean even with a per-repo secret
+        config = (repository.directory / ".git" / "config").read_text(encoding="utf-8")
+        self.assertNotIn("ghp_repotoken123", config)

@@ -12,7 +12,7 @@ class GitSyncStateInline(admin.StackedInline):
 
 @admin.register(GitRepository)
 class GitRepositoryAdmin(admin.ModelAdmin):
-    list_display = ("name", "workspace", "project", "default_branch", "workflow", "is_active")
+    list_display = ("name", "workspace", "project", "secret", "default_branch", "workflow", "is_active")
     list_filter = ("workflow", "is_active")
     search_fields = ("name", "remote_url")
     readonly_fields = ("resource", "created_at", "updated_at")

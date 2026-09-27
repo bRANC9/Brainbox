@@ -62,6 +62,7 @@ class GitService:
         name: str = "",
         default_branch: str = "main",
         workflow: str = GitWorkflow.DIRECT_COMMIT,
+        secret=None,
         created_by=None,
         request=None,
         import_now: bool = True,
@@ -83,6 +84,7 @@ class GitService:
             project=project,
             name=display_name,
             remote_url=remote_url,
+            secret=secret,
             default_branch=default_branch,
             workflow=workflow,
             created_by=created_by,
@@ -92,9 +94,12 @@ class GitService:
         client = cls._client(repository)
         try:
             if remote_url:
+                # Clone with the credential, then store the CLEAN remote so no
+                # token is persisted in .git/config on disk.
                 client.clone(
-                    authenticated_url(remote_url, settings.BRAINBOX_GIT_TOKEN),
+                    authenticated_url(remote_url, cls._auth_token(repository)),
                     branch=default_branch,
+                    reset_url=remote_url,
                 )
             else:
                 client.init(default_branch)
@@ -159,8 +164,9 @@ class GitService:
             raise GitError("Repository has no remote to pull from.")
 
         try:
-            client.fetch()
-            client.pull_rebase(repository.default_branch)
+            auth_url = cls._auth_url(repository)
+            client.fetch(url=auth_url)
+            client.pull_rebase(repository.default_branch, url=auth_url)
             result = cls.scan_repository(repository, user=user, request=request)
             head = client.head_sha()
             if head:
@@ -215,8 +221,7 @@ class GitService:
         pushed = False
         if repository.remote_url:
             try:
-                url = authenticated_url(repository.remote_url, settings.BRAINBOX_GIT_TOKEN)
-                client.push(branch, url=url)
+                client.push(branch, url=cls._auth_url(repository))
                 pushed = True
             except GitError as exc:
                 # A failed push must not break the platform write that triggered it.
@@ -253,7 +258,7 @@ class GitService:
         if not repository.remote_url:
             raise GitError("Repository has no remote to push to.")
         branch = client.current_branch() or repository.default_branch
-        client.push(branch, url=authenticated_url(repository.remote_url, settings.BRAINBOX_GIT_TOKEN))
+        client.push(branch, url=cls._auth_url(repository))
         cls.update_sync_state(repository, pushed=True)
         AuditService.log(
             AuditAction.GIT_PUSH,
@@ -439,6 +444,45 @@ class GitService:
     @classmethod
     def _client(cls, repository: GitRepository) -> GitClient:
         return GitClient(repository.directory, timeout=settings.BRAINBOX_GIT_COMMAND_TIMEOUT)
+
+    @classmethod
+    def _auth_token(cls, repository: GitRepository) -> str:
+        """Credential for this repository: its Vault secret, else the global token.
+
+        A per-repository secret must be owned by the user who created the
+        repository (that user delegated the credential to the resource) and must
+        be attached to the repository's workspace/project. The reveal is audited
+        and the value is only ever passed to git on the command line.
+        """
+        if not repository.secret_id:
+            return settings.BRAINBOX_GIT_TOKEN or ""
+
+        from django.core.exceptions import PermissionDenied
+
+        from apps.secrets.services import SecretService
+
+        secret = repository.secret
+        owner = repository.created_by or secret.owner
+        if secret.owner_id != getattr(owner, "id", None):
+            raise GitError(
+                "The repository credential is not owned by the user who created the repository."
+            )
+        try:
+            return SecretService.reveal(
+                secret,
+                user=secret.owner,
+                workspace_id=str(repository.workspace_id),
+                project_id=str(repository.project_id) if repository.project_id else None,
+            )
+        except PermissionDenied as exc:
+            raise GitError(
+                f"Credential '{secret.name}' is not usable here ({exc}). "
+                "Attach it to the repository's workspace/project."
+            ) from exc
+
+    @classmethod
+    def _auth_url(cls, repository: GitRepository) -> str:
+        return authenticated_url(repository.remote_url, cls._auth_token(repository))
 
     @staticmethod
     def _author(user) -> tuple[str, str]:

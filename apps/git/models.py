@@ -43,6 +43,16 @@ class GitRepository(models.Model):
     )
     name = models.CharField(max_length=255)
     remote_url = models.CharField(max_length=1024, blank=True)
+    secret = models.ForeignKey(
+        "secrets.Secret",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="git_repositories",
+        help_text="Optional Secret Vault credential used for this repository "
+        "(overrides BRAINBOX_GIT_TOKEN). The secret must be owned by the user "
+        "who created the repository and attached to its workspace/project.",
+    )
     default_branch = models.CharField(max_length=255, default="main")
     workflow = models.CharField(
         max_length=16, choices=GitWorkflow.choices, default=GitWorkflow.DIRECT_COMMIT
