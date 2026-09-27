@@ -197,3 +197,106 @@ class GitImportTests(TestCase):
         # config must stay clean even with a per-repo secret
         config = (repository.directory / ".git" / "config").read_text(encoding="utf-8")
         self.assertNotIn("ghp_repotoken123", config)
+
+
+class CommitAuthorshipTests(TestCase):
+    """Author = the writer; credential = whose PAT; co-author when shared."""
+
+    def setUp(self):
+        self.work = Path(tempfile.mkdtemp())
+        self.remote = self._make_remote(self.work / "vault")
+        self.data_root = Path(tempfile.mkdtemp())
+        self.override = override_settings(KNOWLEDGE_DATA_ROOT=str(self.data_root))
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+
+        self.owner = User.objects.create_user(
+            "owner", "owner@example.com", "pw", display_name="Repo Owner"
+        )
+        self.writer = User.objects.create_user(
+            "writer", "writer@example.com", "pw", display_name="Doc Writer"
+        )
+        self.workspace = WorkspaceService.create(name="Company", created_by=self.owner)
+        self.repository = GitService.attach_repository(
+            workspace=self.workspace, remote_url=str(self.remote), created_by=self.owner
+        )
+
+    def _make_remote(self, path: Path) -> Path:
+        path.mkdir(parents=True)
+        (path / "note.md").write_text("# Note\n", encoding="utf-8")
+        _git(path, "init", "-b", "main")
+        _commit_remote(path, "init")
+        return path
+
+    def _last_commit(self):
+        client = GitService._client(self.repository)
+        # Full message (subject + body) so Co-authored-by trailers are visible.
+        result = client.run(
+            "log", "-n1", "--pretty=format:%H%x1f%an%x1f%ae%x1f%B", check=False
+        )
+        sha, name, email, message = (result.stdout.strip().split("\x1f") + [""] * 4)[:4]
+        return {
+            "sha": sha,
+            "author_name": name,
+            "author_email": email,
+            "message": message,
+        }
+
+    def test_author_is_the_acting_user(self):
+        document = DocumentService.create(
+            workspace=self.workspace, title="Shared", content="x", path="shared.md",
+            created_by=self.owner,
+        )
+        GitService.commit_repository(
+            repository=self.repository, message="t1", user=self.writer
+        )
+        # force a change so a commit exists
+        DocumentService.update_content(
+            document=document, content="changed", user=self.writer
+        )
+        commit = self._last_commit()
+        self.assertEqual(commit["author_email"], "writer@example.com")
+        self.assertEqual(commit["author_name"], "Doc Writer")
+
+    def test_co_author_trailer_when_shared_credential_used(self):
+        with override_settings(BRAINBOX_GIT_TOKEN="sharedpat"):
+            document = DocumentService.create(
+                workspace=self.workspace, title="S2", content="x", path="s2.md",
+                created_by=self.owner,
+            )
+            DocumentService.update_content(
+                document=document, content="changed by writer", user=self.writer
+            )
+        commit = self._last_commit()
+        self.assertEqual(commit["author_email"], "writer@example.com")
+        self.assertIn("Co-authored-by:", commit["message"])
+        self.assertIn("owner@example.com", commit["message"])
+    def test_own_credential_used_and_no_co_author(self):
+        from apps.secrets.models import SecretType
+        from apps.secrets.services import SecretService
+
+        secret = SecretService.create(
+            owner=self.writer, name="my-pat", secret_type=SecretType.BEARER_TOKEN,
+            payload="mypat",
+        )
+        SecretService.attach(secret=secret, workspace=self.workspace)
+        GitService.set_user_credential(
+            repository=self.repository, user=self.writer, secret=secret
+        )
+        with override_settings(BRAINBOX_GIT_TOKEN="sharedpat"):
+            document = DocumentService.create(
+                workspace=self.workspace, title="S3", content="x", path="s3.md",
+                created_by=self.owner,
+            )
+            DocumentService.update_content(
+                document=document, content="changed with own pat", user=self.writer
+            )
+        commit = self._last_commit()
+        self.assertEqual(commit["author_email"], "writer@example.com")
+        self.assertNotIn("Co-authored-by", commit["message"])
+
+    def test_identity_falls_back_to_username_email(self):
+        user = User.objects.create_user("noemail", display_name="")
+        name, email = GitService._identity(user)
+        self.assertIn("@brainbox.local", email)
+        self.assertTrue(name)

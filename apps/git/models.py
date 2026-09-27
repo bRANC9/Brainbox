@@ -95,6 +95,41 @@ class GitRepository(models.Model):
         return self.workspace.name
 
 
+class GitCredential(models.Model):
+    """A user's own credential for a repository (their own PAT/SSH secret).
+
+    Resolution order when pushing: the acting user's credential here, then the
+    repository-level secret, then the global BRAINBOX_GIT_TOKEN. When a shared
+    credential is used, the commit gets a ``Co-authored-by`` trailer naming its
+    owner, so the git history stays (half) traceable out of the box.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repository = models.ForeignKey(
+        GitRepository, on_delete=models.CASCADE, related_name="credentials"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="git_credentials"
+    )
+    secret = models.ForeignKey(
+        "secrets.Secret", on_delete=models.CASCADE, related_name="git_credentials"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "git_credential"
+        ordering = ["user"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["repository", "user"], name="uniq_git_credential_per_user"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} -> {self.repository_id} ({self.secret.name})"
+
+
 class GitSyncState(models.Model):
     repository = models.OneToOneField(
         GitRepository, on_delete=models.CASCADE, related_name="sync_state"

@@ -230,6 +230,28 @@ GET    /api/v1/git/<id>/branches/
 GET    /api/v1/git/<id>/diff/?from=<ref>&to=<ref>
 ```
 
+### Ki írta, ki hitelesített (félig visszakövethető)
+
+A platformon keresztül történő módosításnál:
+- **author = aki írta** (a platform user `display_name` + e-mailje; ha nincs
+  e-mailje, `username@brainbox.local`),
+- **a push-t az az PAT küldi, aki az adott repóhoz rendelkezik**:
+  1. **a cselekvő user saját credentialje** (ha regisztrált) → nincs co-author,
+  2. egyébként a **repo-szintű Vault secret**,
+  3. egyébként a **globális `BRAINBOX_GIT_TOKEN`**.
+
+Ha 2. vagy 3. eset forgat (nem a saját PAT-val ment), a commit
+`Co-authored-by: <tulajdonos>` trailerrel jelöli, **akin a credentialen keresztül
+ment ki** – így a git history önmagában is visszavezethető, ki írta és ki
+fiókjával ment. Az audit eseményben is szerepel (`author` + `credential_owner`).
+
+Saját PAT regisztrálása egy repóhoz:
+```text
+PUT  /api/v1/git/<repo-id>/credential/    {"secret": "<vault-secret-id>"}
+GET  /api/v1/git/<repo-id>/credentials/  # ki kinek van credentialje
+DELETE /api/v1/git/<repo-id>/credential/
+```
+
 ### Hitelesítés (GitHub / Azure DevOps / Gitea)
 
 - **Publikus repo** → nem kell semmi.

@@ -24,7 +24,7 @@ from apps.documents.services import DocumentService
 from apps.files.models import File
 from apps.files.services import FileService
 from apps.git.git_cli import GitError
-from apps.git.models import GitRepository
+from apps.git.models import GitCredential, GitRepository
 from apps.git.services import GitService
 from apps.groups.models import Group
 from apps.knowledge.services import DiscoveryService, DraftService, GraphService, QualityService
@@ -531,6 +531,74 @@ class GitRepositoryViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
             GitService.scan_repository, repository, user=request.user, request=request
         )
         return Response(result)
+
+    @action(detail=True, methods=["get", "put", "delete"], url_path="credential")
+    def credential(self, request, pk=None):
+        """Register the caller's own PAT for this repository.
+
+        A user may always manage their own credential; staff can pass
+        ``?user=<uuid>`` to manage someone else's. With a personal credential the
+        push uses the caller's own PAT (no co-author trailer); without it the
+        repository/global credential is used and its owner is recorded as a
+        co-author.
+        """
+        from apps.accounts.models import User as UserModel
+        from apps.secrets.models import Secret as SecretModel
+
+        repository = self.get_object()
+        if not PermissionService.check(
+            request.user, repository.resource, Permission.WRITE
+        ):
+            raise PermissionDenied("Write access required on the repository.")
+
+        target_user = request.user
+        if request.query_params.get("user"):
+            if not request.user.is_staff:
+                raise PermissionDenied("Only staff can set another user's credential.")
+            target_user = get_object_or_404(UserModel, pk=request.query_params["user"])
+
+        if request.method == "DELETE":
+            GitCredential.objects.filter(repository=repository, user=target_user).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        secret_id = (request.data or {}).get("secret")
+        if not secret_id:
+            raise ValidationError({"secret": "This field is required."})
+        secret = get_object_or_404(SecretModel, pk=secret_id, owner=target_user)
+        credential = GitService.set_user_credential(
+            repository=repository, user=target_user, secret=secret
+        )
+        return Response(
+            {
+                "id": str(credential.pk),
+                "user": str(credential.user_id),
+                "repository": str(repository.pk),
+                "secret": str(credential.secret_id),
+                "secret_name": credential.secret.name,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["get"], url_path="credentials")
+    def credentials(self, request, pk=None):
+        repository = self.get_object()
+        rows = GitCredential.objects.filter(repository=repository).select_related(
+            "user", "secret"
+        )
+        return Response(
+            {
+                "credentials": [
+                    {
+                        "id": str(row.pk),
+                        "user": str(row.user_id),
+                        "username": row.user.username,
+                        "secret": str(row.secret_id),
+                        "secret_name": row.secret.name,
+                    }
+                    for row in rows
+                ]
+            }
+        )
 
     @action(detail=True, methods=["get"])
     def status(self, request, pk=None):

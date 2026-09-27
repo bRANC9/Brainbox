@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import GitCommitReference, GitRepository, GitSyncState
+from .models import GitCommitReference, GitCredential, GitRepository, GitSyncState
+
+
+class GitCredentialInline(admin.TabularInline):
+    model = GitCredential
+    extra = 0
+    autocomplete_fields = ("user", "secret")
 
 
 class GitSyncStateInline(admin.StackedInline):
@@ -16,7 +22,15 @@ class GitRepositoryAdmin(admin.ModelAdmin):
     list_filter = ("workflow", "is_active")
     search_fields = ("name", "remote_url")
     readonly_fields = ("resource", "created_at", "updated_at")
-    inlines = [GitSyncStateInline]
+    inlines = [GitSyncStateInline, GitCredentialInline]
+
+
+@admin.register(GitCredential)
+class GitCredentialAdmin(admin.ModelAdmin):
+    list_display = ("user", "repository", "secret", "created_at")
+    list_filter = ("repository",)
+    search_fields = ("user__username", "repository__name", "secret__name")
+    autocomplete_fields = ("user", "secret")
 
 
 @admin.register(GitCommitReference)

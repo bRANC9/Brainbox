@@ -34,6 +34,7 @@ from apps.resources.services import ResourceService
 from .git_cli import GitClient, GitError, authenticated_url
 from .models import (
     GitCommitReference,
+    GitCredential,
     GitRepository,
     GitSyncState,
     GitSyncStatus,
@@ -207,7 +208,10 @@ class GitService:
         if not client.is_repo():
             return None
 
-        author_name, author_email = cls._author(user)
+        # Author = who wrote the change; credential = whose PAT pushed it.
+        author_name, author_email = cls._identity(user)
+        push_url, credential_owner = cls._resolve_credential(repository, user)
+
         branch = client.current_branch() or repository.default_branch
         if repository.workflow == GitWorkflow.BRANCH_PR:
             feature = cls._feature_branch(user)
@@ -215,14 +219,20 @@ class GitService:
                 client.ensure_branch(feature)
             branch = feature
 
-        sha = client.commit_all(message, author_name, author_email)
+        full_message = message
+        if credential_owner and credential_owner != f"{author_name} <{author_email}>":
+            # Shared credential was used: name its owner so the history stays
+            # traceable (git/GitHub render Co-authored-by natively).
+            full_message = f"{message}\n\nCo-authored-by: {credential_owner}"
+
+        sha = client.commit_all(full_message, author_name, author_email)
         if sha is None:
             return None
 
         pushed = False
         if repository.remote_url:
             try:
-                client.push(branch, url=cls._auth_url(repository))
+                client.push(branch, url=push_url)
                 pushed = True
             except GitError as exc:
                 # A failed push must not break the platform write that triggered it.
@@ -233,23 +243,26 @@ class GitService:
             repository=repository,
             sha=sha,
             branch=branch,
-            message=message,
+            message=full_message,
             author_name=author_name,
             author_email=author_email,
             direction=GitCommitReference.Direction.EXPORT,
-            created_by=user,
+            created_by=user if getattr(user, "is_authenticated", False) else None,
         )
         cls.update_sync_state(repository, pushed=pushed)
         AuditService.log(
             AuditAction.GIT_COMMIT,
             user=user,
-            resource=repository.resource,
-            workspace=repository.workspace,
-            project=repository.project,
             source=AuditSource.API if request is not None else AuditSource.SYSTEM,
             request=request,
             git_commit=sha,
-            detail={"branch": branch, "pushed": pushed, "message": message},
+            detail={
+                "branch": branch,
+                "pushed": pushed,
+                "message": message,
+                "author": f"{author_name} <{author_email}>",
+                "credential_owner": credential_owner,
+            },
         )
         return sha
 
@@ -502,13 +515,107 @@ class GitService:
         token, style, username = cls._auth_spec(repository)
         return authenticated_url(repository.remote_url, token, style=style, username=username)
 
+    # -- per-user credentials + authorship -----------------------------------
+    @classmethod
+    def _user_credential(cls, repository: GitRepository, user):
+        """The acting user's own credential for this repository, if any."""
+        if user is None or not getattr(user, "is_authenticated", False):
+            return None
+        credential = (
+            GitCredential.objects.select_related("secret", "secret__owner")
+            .filter(repository=repository, user=user, secret__is_active=True)
+            .first()
+        )
+        return credential
+
+    @classmethod
+    def _resolve_credential(cls, repository: GitRepository, user):
+        """Resolve the credential to push with.
+
+        Returns ``(url, owner_label)`` where ``owner_label`` identifies whose
+        credential was used (``None`` = no auth needed, e.g. a public repo).
+        """
+        own = cls._user_credential(repository, user)
+        if own is not None:
+            value = cls._reveal_for(own.secret, user, repository)
+            style, username = cls._style_of(own.secret)
+            return (
+                authenticated_url(
+                    repository.remote_url, value, style=style, username=username
+                ),
+                None,  # their own credential -> no co-author needed
+            )
+
+        if repository.secret_id:
+            token, style, username = cls._auth_spec(repository)
+            return (
+                authenticated_url(
+                    repository.remote_url, token, style=style, username=username
+                ),
+                cls._label_for(repository.secret.owner),
+            )
+
+        token = settings.BRAINBOX_GIT_TOKEN or ""
+        if not token:
+            return (repository.remote_url, None)
+        return (
+            authenticated_url(repository.remote_url, token, style="auto"),
+            cls._label_for(repository.created_by) if repository.created_by else None,
+        )
+
     @staticmethod
-    def _author(user) -> tuple[str, str]:
-        if user is not None and getattr(user, "is_authenticated", False):
-            name = user.display_name or user.get_full_name() or user.username
-            email = user.email or settings.BRAINBOX_GIT_AUTHOR_EMAIL
-            return name, email
-        return settings.BRAINBOX_GIT_AUTHOR_NAME, settings.BRAINBOX_GIT_AUTHOR_EMAIL
+    def _label_for(user) -> str | None:
+        if user is None or not getattr(user, "is_authenticated", False):
+            return None
+        return GitService._identity(user)[1]
+
+    @staticmethod
+    def _style_of(secret) -> tuple[str, str]:
+        metadata = getattr(secret, "metadata", None) or {}
+        return (
+            str(metadata.get("auth_style") or "auto"),
+            str(metadata.get("username") or ""),
+        )
+
+    @staticmethod
+    def _identity(user) -> tuple[str, str]:
+        """Git author name/email for a user (email is mandatory for git)."""
+        if user is None or not getattr(user, "is_authenticated", False):
+            return settings.BRAINBOX_GIT_AUTHOR_NAME, settings.BRAINBOX_GIT_AUTHOR_EMAIL
+        name = (
+            user.display_name
+            or user.get_full_name()
+            or user.username
+            or settings.BRAINBOX_GIT_AUTHOR_NAME
+        )
+        email = user.email or f"{user.username}@brainbox.local"
+        return name, email
+
+    @staticmethod
+    def _reveal_for(secret, user, repository: GitRepository) -> str:
+        from django.core.exceptions import PermissionDenied
+
+        from apps.secrets.services import SecretService
+
+        try:
+            return SecretService.reveal(
+                secret,
+                user=user if getattr(user, "is_authenticated", False) else secret.owner,
+                workspace_id=str(repository.workspace_id),
+                project_id=str(repository.project_id) if repository.project_id else None,
+            )
+        except PermissionDenied as exc:
+            raise GitError(
+                f"Credential '{secret.name}' is not usable here ({exc})."
+            ) from exc
+
+    @classmethod
+    def set_user_credential(cls, *, repository: GitRepository, user, secret):
+        """Register/refresh a user's own credential for a repository."""
+        credential, _created = GitCredential.objects.update_or_create(
+            repository=repository, user=user, defaults={"secret": secret}
+        )
+        return credential
 
     @staticmethod
     def _feature_branch(user) -> str:
