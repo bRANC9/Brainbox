@@ -5,7 +5,11 @@ from django.db import models
 
 
 class Group(models.Model):
-    """Platform group, usable as an ACL subject at any resource level."""
+    """Platform group, usable as an ACL subject at any resource level.
+
+    Distinct from ``django.contrib.auth.models.Group`` (which only carries
+    per-model admin permissions). ACLs in Brainbox use *this* group.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=150, unique=True)
@@ -30,6 +34,8 @@ class Group(models.Model):
     class Meta:
         db_table = "groups_group"
         ordering = ["name"]
+        verbose_name = "knowledge group"
+        verbose_name_plural = "knowledge groups"
 
     def __str__(self) -> str:
         return self.name
@@ -53,6 +59,8 @@ class GroupMembership(models.Model):
 
     class Meta:
         db_table = "groups_membership"
+        verbose_name = "knowledge group membership"
+        verbose_name_plural = "knowledge group memberships"
         constraints = [
             models.UniqueConstraint(fields=["user", "group"], name="uniq_group_membership")
         ]

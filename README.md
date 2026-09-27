@@ -473,6 +473,47 @@ provider (terv 20):
 
 ---
 
+## Userek, csoportok, jogosultságok
+
+> ⚠️ **Kétféle "Group" van!** Az ACL-ek (Brainbox jogosultságok) kizárólag a
+> **„Knowledge groups"**-ot használják (`/manage/groups/`, `apps.groups.Group`).
+> A Django saját „Groups" (admin/site jogosultságok) **nem számít** az ACL-ben.
+
+**1. User felvétele** – Django admin (`/admin/`, staff kell):
+`Authentication → Users → Add user` (username, email, display_name). Az első
+superuser-t a `BRAINBOX_ADMIN_*` env-ből hozza létre a rendszer bootkor.
+
+**2. Csoport létrehozás + tagok** – bármelyik úton:
+- Web UI: `/manage/groups/` (staff) – csoport + tagok hozzáadása,
+- Admin: `Knowledge groups` (a `description` + tag inline a kulcs).
+
+**3. Jogosultság kiosztása** (ACL) – ahol a user **admin** a resource-ön:
+
+- **Web UI (ajánlott)**: a Workspace/Project/Document oldalon a
+  **Permissions** gomb → `/resources/<id>/permissions/`. Itt lehet
+  subject=user **vagy** group, permission=read/write/delete/admin/use,
+  effect=allow/deny, és az `inherit` (öröklik-e a gyerekekre).
+- **Admin**: a Workspace/Project szerkesztőoldalon a **„Manage permissions →"**
+  link ugyanoda visz.
+
+**Öröklés:** a workspace-en (vagy projekten) adott jog **lefelé öröklődik**
+(document/file). Ha egy gyereken explicit DENY-t adsz, az felülírja az öröklést.
+Egy API key **szűkítheti** a felhasználó jogát (scope), de nem bővítheti.
+
+**Példa (céges tudástár):**
+1. Csoport: „Engineering"
+2. Tagok: alice, bob
+3. Workspace-en: subject=group(Engineering), permission=read, effect=allow, inherit=on
+4. Ha kell írni egy külön csapatnak: külön csoport + `write` jog a workspace-en.
+5. Egy konkrét dokumentumot elzárni: ugyanaz a form, de a **document** resource-en
+   `effect=deny` + `inherit` kikapcsolva, vagy a `public_summary` metaflag
+   (csak cím/összefoglaló látszik).
+
+**Audit:** minden változtatás `change_permission` eseményként kerül az
+`/manage/audit/`-ba (és `/api/v1/audit/`).
+
+---
+
 ## Könyvtárszerkezet
 
 
