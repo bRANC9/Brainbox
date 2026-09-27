@@ -230,6 +230,29 @@ GET    /api/v1/git/<id>/branches/
 GET    /api/v1/git/<id>/diff/?from=<ref>&to=<ref>
 ```
 
+### Hitelesítés (GitHub / Azure DevOps / Gitea)
+
+- **Publikus repo** → nem kell semmi.
+- **Privát HTTPS repo** → PAT a `BRAINBOX_GIT_TOKEN`-ben (egy shared token), vagy
+  **repónkénti secret** a Vaultból (`"secret": "<id>"` a csatolásnál).
+- A hitelesítés stílusa a **host alapján** dől el: Azure DevOps
+  (`dev.azure.com` / `*.visualstudio.com`) → HTTP Basic (`username:PAT`, a
+  felhasználónév ADO-ban elhanyagolható), GitHub/Gitea → `x-access-token:PAT`.
+  Felülírható a secret metadata-jával: `{"auth_style": "basic", "username": "ci"}`.
+- **A credential soha nem kerül lemezre**: a clone hitelesített URL-lel fut, de a
+  tárolt remote a tiszta URL (`git remote set-url`), így a `.git/config` ban
+  nincs token. A fetch/pull/push a hitelesített URL-t kapja parancssorból.
+- Az Azure DevOps PAT-hez a *Code: Read & write* scope kell (a push miatt).
+  Ha **SSH** remote-t használsz (`git@ssh.dev.azure.com:…`), a PAT nem
+  alkalmazható – akkor HTTPS-re kell váltani (vagy SSH-kulcs támogatás kellene).
+
+A Vault-secret használata a repóhoz (a `secret` a kulcs, amit a fenti
+`"secret": "<id>"` hivatkozik):
+```text
+POST /api/v1/secrets/                # payload = a PAT (titkosítva tárolódik)
+POST /api/v1/secrets/<id>/attach/    # {"workspace": "<uuid>"}  ← KÖTELEZŐ
+```
+
 Web UI-n a Workspace/Project oldalon Git panel mutatja az állapotot és az utolsó
 commitokat; a **Sync from Git** gomb `pull` + import a `require_write` joggal.
 

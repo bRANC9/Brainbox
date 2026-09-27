@@ -39,6 +39,52 @@ def _commit_remote(path: Path, message: str) -> None:
     )
 
 
+class AuthUrlStyleTests(TestCase):
+    """Azure DevOps needs Basic auth, GitHub needs the x-access-token form."""
+
+    def test_github_uses_x_access_token(self):
+        from apps.git.git_cli import authenticated_url
+
+        url = authenticated_url("https://github.com/acme/knowledge.git", "ghp_x")
+        self.assertTrue(url.startswith("https://x-access-token:ghp_x@github.com/"))
+
+    def test_azure_devops_uses_basic_auth(self):
+        from apps.git.git_cli import authenticated_url
+
+        url = authenticated_url("https://dev.azure.com/acme/Infra/_git/ops", "pat123")
+        self.assertIn("@dev.azure.com", url)
+        self.assertIn("pat123@", url)
+        self.assertNotIn("x-access-token", url)
+
+    def test_legacy_visualstudio_com_host(self):
+        from apps.git.git_cli import authenticated_url
+
+        url = authenticated_url("https://acme.visualstudio.com/Infra/_git/ops", "pat123")
+        self.assertIn("@acme.visualstudio.com", url)
+        self.assertNotIn("x-access-token", url)
+
+    def test_style_can_be_forced(self):
+        from apps.git.git_cli import authenticated_url
+
+        url = authenticated_url(
+            "https://git.example.com/acme/ops.git", "tok", style="basic", username="ci"
+        )
+        self.assertIn("ci:tok@git.example.com", url)
+
+    def test_gitea_keeps_github_style_by_default(self):
+        from apps.git.git_cli import authenticated_url
+
+        url = authenticated_url("https://git.true.local:3000/acme/ops.git", "tok")
+        self.assertIn("x-access-token:tok@git.true.local", url)
+
+    def test_no_token_leaves_url_untouched(self):
+        from apps.git.git_cli import authenticated_url
+
+        for url in ("https://github.com/a/b.git", "git@github.com:a/b.git", "ssh://git@host/a.git"):
+            self.assertEqual(authenticated_url(url, ""), url)
+            self.assertEqual(authenticated_url(url, None), url)
+
+
 @override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
 class GitImportTests(TestCase):
     def setUp(self):

@@ -12,19 +12,49 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+# Azure DevOps expects HTTP Basic auth (PAT as password, username is ignored),
+# while GitHub expects the `x-access-token` form. Detect by host so a single
+# BRAINBOX_GIT_TOKEN / Vault secret can serve both.
+_BASIC_AUTH_HOSTS = ("dev.azure.com", "visualstudio.com")
+
 
 class GitError(RuntimeError):
     pass
 
 
-def authenticated_url(url: str, token: str | None) -> str:
-    """Inject an `x-access-token` credential into an HTTPS remote URL."""
+def _uses_basic_auth(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return any(host.endswith(suffix) for suffix in _BASIC_AUTH_HOSTS)
+
+
+def authenticated_url(
+    url: str,
+    token: str | None,
+    style: str = "auto",
+    username: str = "",
+) -> str:
+    """Inject a credential into an HTTPS remote URL.
+
+    style:
+      - ``auto``    - Basic auth for Azure DevOps hosts, ``x-access-token`` elsewhere
+      - ``basic``   - ``https://<username>:<token>@host/...`` (Azure DevOps, GitLab)
+      - ``github``  - ``https://x-access-token:<token>@host/...``
+    """
     if not token or not url.startswith("https://"):
         return url
     parts = urlsplit(url)
-    if parts.username:
+    if parts.username:  # already has credentials
         return url
-    netloc = f"x-access-token:{token}@{parts.hostname}"
+
+    if style == "auto":
+        style = "basic" if _uses_basic_auth(url) else "github"
+
+    if style == "basic":
+        # Azure DevOps: the username is ignored, the PAT is the password.
+        netloc = f"{username or 'PAT'}:{token}@{parts.hostname}"
+    else:
+        netloc = f"x-access-token:{token}@{parts.hostname}"
+
     if parts.port:
         netloc = f"{netloc}:{parts.port}"
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))

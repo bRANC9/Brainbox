@@ -96,8 +96,9 @@ class GitService:
             if remote_url:
                 # Clone with the credential, then store the CLEAN remote so no
                 # token is persisted in .git/config on disk.
+                token, style, username = cls._auth_spec(repository)
                 client.clone(
-                    authenticated_url(remote_url, cls._auth_token(repository)),
+                    authenticated_url(remote_url, token, style=style, username=username),
                     branch=default_branch,
                     reset_url=remote_url,
                 )
@@ -481,8 +482,25 @@ class GitService:
             ) from exc
 
     @classmethod
+    def _auth_spec(cls, repository: GitRepository) -> tuple[str, str, str]:
+        """Return ``(token, style, username)`` for this repository.
+
+        The style can be pinned in the secret's metadata, otherwise it is derived
+        from the remote host (Azure DevOps -> basic auth, GitHub -> x-access-token).
+        """
+        token = cls._auth_token(repository)
+        style = "auto"
+        username = ""
+        metadata = getattr(repository.secret, "metadata", None) if repository.secret_id else None
+        if metadata:
+            style = str(metadata.get("auth_style") or "auto")
+            username = str(metadata.get("username") or "")
+        return token, style, username
+
+    @classmethod
     def _auth_url(cls, repository: GitRepository) -> str:
-        return authenticated_url(repository.remote_url, cls._auth_token(repository))
+        token, style, username = cls._auth_spec(repository)
+        return authenticated_url(repository.remote_url, token, style=style, username=username)
 
     @staticmethod
     def _author(user) -> tuple[str, str]:
