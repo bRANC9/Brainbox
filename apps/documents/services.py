@@ -81,6 +81,16 @@ def _rebuild_links(document: Document, *, user, request) -> None:
         logger.exception("link rebuild failed for document %s", document.pk)
 
 
+def _rebuild_deadlines(document: Document) -> None:
+    """Re-extract deadlines mentioned in the document (files stay source of truth)."""
+    try:
+        from apps.deadlines.services import rebuild_deadlines
+
+        rebuild_deadlines(document)
+    except Exception:  # noqa: BLE001 - never break a write
+        logger.exception("deadline extraction failed for document %s", document.pk)
+
+
 def _scan_for_secrets(content: str) -> None:
     """Optionally warn/reject when content looks like it contains credentials."""
     mode = (settings.BRAINBOX_SECRET_SCAN_MODE or "off").lower()
@@ -242,6 +252,7 @@ class DocumentService:
         if source not in _GIT_SOURCES:
             _autocommit(document, user=created_by, request=request)
         _rebuild_links(document, user=created_by, request=request)
+        _rebuild_deadlines(document)
         _reindex(document)
         return document
 
@@ -314,6 +325,7 @@ class DocumentService:
         if source not in _GIT_SOURCES:
             _autocommit(document, user=user, request=request)
         _rebuild_links(document, user=user, request=request)
+        _rebuild_deadlines(document)
         _reindex(document)
         return document
 

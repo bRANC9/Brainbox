@@ -8,7 +8,7 @@ import markdown as md
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, HttpResponseForbidden
+from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
@@ -353,6 +353,163 @@ def project_git_pull(request, workspace_slug, project_slug):
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Calendar / agenda / deadlines
+# ---------------------------------------------------------------------------
+def _accessible_deadlines(user, *, workspace_id=None, project_id=None):
+    from apps.deadlines.models import DeadlineStatus, KnowledgeDeadline
+
+    deadlines = KnowledgeDeadline.objects.select_related(
+        "document", "workspace", "project", "resource"
+    )
+    if workspace_id:
+        deadlines = deadlines.filter(workspace_id=workspace_id)
+    if project_id:
+        deadlines = deadlines.filter(project_id=project_id)
+    return [
+        d
+        for d in deadlines
+        if d.status != DeadlineStatus.DISMISSED and _can(user, d.resource, Permission.READ)
+    ]
+
+
+@login_required
+def calendar(request):
+    """Month view of deadlines."""
+    import calendar as calmod
+    from datetime import date
+
+    today = date.today()
+    year = int(request.GET.get("year", today.year))
+    month = int(request.GET.get("month", today.month))
+    cal = calmod.Calendar(firstweekday=0)
+    if not 1 <= month <= 12:
+        year, month = today.year, today.month
+    month_grid = cal.monthdayscalendar(year, month)
+
+    deadlines = _accessible_deadlines(
+        request.user,
+        workspace_id=request.GET.get("workspace"),
+        project_id=request.GET.get("project"),
+    )
+    by_day: dict[int, list] = {}
+    for deadline in deadlines:
+        if deadline.due_date.year == year and deadline.due_date.month == month:
+            by_day.setdefault(deadline.due_date.day, []).append(deadline)
+
+    # Month arithmetic via the Calendar class (no module-level helpers).
+    if month == 1:
+        prev_year, prev_month = year - 1, 12
+    else:
+        prev_year, prev_month = year, month - 1
+    if month == 12:
+        next_year, next_month = year + 1, 1
+    else:
+        next_year, next_month = year, month + 1
+
+    # Flat per-day list the template can loop without dict lookups.
+    days = [
+        {"num": day, "events": by_day.get(day, [])}
+        for day in range(1, calmod.monthrange(year, month)[1] + 1)
+    ]
+    return render(
+        request,
+        "calendar.html",
+        {
+            "year": year,
+            "month": month,
+            "month_name": calmod.month_name[month],
+            "month_grid": month_grid,
+            "days": days,
+            "today": today,
+            "prev_year": prev_year,
+            "prev_month": prev_month,
+            "next_year": next_year,
+            "next_month": next_month,
+            "weekday_names": ["Hét", "Ked", "Sze", "Csü", "Pén", "Szo", "Vas"],
+        },
+    )
+
+
+@login_required
+def agenda(request):
+    """Agenda view: overdue + upcoming deadlines grouped by day."""
+    from datetime import timedelta
+
+    from django.utils import timezone as djtz
+
+    today = djtz.localdate()
+    horizon = int(request.GET.get("days", 30))
+    until = today + timedelta(days=horizon)
+    deadlines = [
+        d
+        for d in _accessible_deadlines(
+            request.user,
+            workspace_id=request.GET.get("workspace"),
+            project_id=request.GET.get("project"),
+        )
+        if d.due_date <= until
+    ]
+    overdue = sorted([d for d in deadlines if d.due_date < today], key=lambda d: d.due_date)
+    upcoming = sorted([d for d in deadlines if d.due_date >= today], key=lambda d: d.due_date)
+    return render(
+        request, "agenda.html", {"overdue": overdue, "upcoming": upcoming, "today": today, "days": horizon}
+    )
+
+
+@login_required
+def deadlines_ical(request):
+    """iCal feed of open deadlines (subscribe from a calendar app)."""
+    from datetime import datetime, timedelta
+
+    from django.utils import timezone as djtz
+
+    today = djtz.localdate()
+    horizon = int(request.GET.get("days", 365))
+    until = today + timedelta(days=horizon)
+    rows = [
+        d
+        for d in _accessible_deadlines(
+            request.user,
+            workspace_id=request.GET.get("workspace"),
+            project_id=request.GET.get("project"),
+        )
+        if today - timedelta(days=30) <= d.due_date <= until and d.status == "open"
+    ]
+
+    def esc(text):
+        return (
+            str(text or "")
+            .replace("\\", "\\\\")
+            .replace(";", r"\;")
+            .replace(",", r"\,")
+            .replace("\n", r"\n")
+        )
+
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Brainbox//Deadlines//EN",
+        "CALSCALE:GREGORIAN",
+    ]
+    for deadline in rows:
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{deadline.id}@brainbox",
+            f"DTSTAMP:{stamp}",
+            f"DTSTART;VALUE=DATE:{deadline.due_date.strftime('%Y%m%d')}",
+            f"SUMMARY:{esc(deadline.title)}",
+            f"DESCRIPTION:{esc(deadline.context or deadline.document.title)}",
+            f"URL:{request.build_absolute_uri('/documents/%s/' % deadline.document_id)}",
+            "END:VEVENT",
+        ]
+    lines.append("END:VCALENDAR")
+    response = HttpResponse("\r\n".join(lines), content_type="text/calendar; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="brainbox-deadlines.ics"'
+    return response
+
+
 # Management UI (Phase 6)
 # ---------------------------------------------------------------------------
 @login_required

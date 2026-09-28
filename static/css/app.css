@@ -157,6 +157,22 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
 
 .auth { max-width: 360px; margin: 4rem auto; }
 
+.cal-nav { display: flex; gap: 0.5rem; margin: 0 0 1rem; }
+.cal-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.cal-grid th { color: var(--muted); font-size: 0.8rem; padding: 0.4rem; }
+.cal-day {
+  vertical-align: top;
+  height: 92px;
+  border: 1px solid var(--border);
+  padding: 0.35rem;
+  background: var(--panel);
+}
+.cal-day.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-date { color: var(--muted); font-size: 0.8rem; }
+.cal-events { list-style: none; padding: 0; margin: 0.25rem 0 0; }
+.cal-event { font-size: 0.78rem; padding: 0.1rem 0; line-height: 1.3; }
+.cal-event.overdue a { color: var(--danger); }
+
 .results { padding-left: 1.2rem; }
 .results li { margin-bottom: 1rem; }
 .results p { margin: 0.2rem 0 0; }

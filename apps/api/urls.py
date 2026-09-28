@@ -23,6 +23,7 @@ router.register("secrets", views.SecretViewSet, basename="secret")
 router.register("audit", views.AuditEventViewSet, basename="audit")
 router.register("jobs", jobs_views.JobViewSet, basename="job")
 router.register("job-runs", jobs_views.JobRunViewSet, basename="job-run")
+router.register("deadlines", views.DeadlineViewSet, basename="deadline")
 
 urlpatterns = router.urls + [
     path("search/", views.SearchView.as_view(), name="search"),

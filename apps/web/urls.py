@@ -10,6 +10,9 @@ urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("search/", views.search, name="search"),
     path("discover/", views.discovery, name="discovery"),
+    path("calendar/", views.calendar, name="calendar"),
+    path("calendar/agenda/", views.agenda, name="agenda"),
+    path("calendar/ical/", views.deadlines_ical, name="deadlines_ical"),
     path("workspaces/<slug:workspace_slug>/", views.workspace_detail, name="workspace_detail"),
     path(
         "workspaces/<slug:workspace_slug>/documents/new/",

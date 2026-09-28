@@ -35,6 +35,7 @@ class BrainboxCollector(Collector):
         yield from self._safe(self._indexing)
         yield from self._safe(self._git)
         yield from self._safe(self._secrets)
+        yield from self._safe(self._deadlines)
         yield from self._safe(self._jobs)
         yield from self._safe(self._audit)
 
@@ -111,8 +112,25 @@ class BrainboxCollector(Collector):
         active.add_metric(["false"], Secret.objects.filter(is_active=False).count())
         yield active
 
+    def _deadlines(self):
+        from apps.deadlines.models import DeadlineStatus, KnowledgeDeadline
+
+        gauge = GaugeMetricFamily(
+            "brainbox_deadlines", "Deadlines by status", labels=["status"]
+        )
+        for row in KnowledgeDeadline.objects.values("status").annotate(count=_count("id")):
+            gauge.add_metric([row["status"]], row["count"])
+        yield gauge
+
+        overdue = GaugeMetricFamily(
+            "brainbox_deadlines_overdue", "Open deadlines already past due"
+        )
+        overdue.add_metric([], KnowledgeDeadline.objects.filter(status=DeadlineStatus.OPEN).count())
+        yield overdue
+
     def _jobs(self):
         from apps.jobs.models import JobRun
+
 
         runs = GaugeMetricFamily("brainbox_job_runs", "Job runs by status", labels=["status"])
         for row in JobRun.objects.values("status").annotate(count=_count("id")):

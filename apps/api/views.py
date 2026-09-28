@@ -19,6 +19,7 @@ from apps.accounts.models import ApiKey
 from apps.accounts.services import ApiKeyService
 from apps.audit.models import AuditAction, AuditEvent, AuditSource
 from apps.audit.services import AuditService
+from apps.deadlines.models import KnowledgeDeadline
 from apps.documents.models import Document, DocumentStatus, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File
@@ -728,6 +729,60 @@ class SecretViewSet(viewsets.ModelViewSet):
         except Exception as exc:  # noqa: BLE001
             raise PermissionDenied(str(exc)) from exc
         return Response({"id": str(secret.pk), "name": secret.name, "value": value})
+
+
+class DeadlineViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):
+    """Deadlines extracted from the knowledge files (frontmatter + inline text)."""
+
+    permission_classes = [IsAuthenticated, ResourcePermission]
+    serializer_class = s.DeadlineSerializer
+    ordering_fields = ["due_date", "created_at"]
+    ordering = ["due_date"]
+
+    def get_queryset(self):
+        queryset = KnowledgeDeadline.objects.select_related(
+            "document", "workspace", "project", "resource"
+        )
+        params = self.request.query_params
+        if params.get("workspace"):
+            queryset = queryset.filter(workspace_id=params["workspace"])
+        if params.get("project"):
+            queryset = queryset.filter(project_id=params["project"])
+        if params.get("status"):
+            queryset = queryset.filter(status__in=params["status"].split(","))
+        if params.get("document"):
+            queryset = queryset.filter(document_id=params["document"])
+        if params.get("from"):
+            queryset = queryset.filter(due_date__gte=params["from"])
+        if params.get("to"):
+            queryset = queryset.filter(due_date__lte=params["to"])
+        return queryset
+
+    def get_create_target(self, validated_data):
+        document = validated_data.get("document")
+        return document.resource if document is not None else None
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        document = data["document"]
+        if not PermissionService.check(
+            request.user, document.resource, Permission.WRITE, api_key=api_key_from_request(request)
+        ):
+            raise PermissionDenied("Write access required on the document.")
+        deadline = KnowledgeDeadline.objects.create(
+            document=document,
+            resource=document.resource,
+            workspace=document.workspace,
+            project=document.project,
+            title=data["title"],
+            due_date=data["due_date"],
+            status=data.get("status", "open"),
+            source="manual",
+            confidence=100,
+        )
+        return Response(s.DeadlineSerializer(deadline).data, status=status.HTTP_201_CREATED)
 
 
 # ---------------------------------------------------------------------------

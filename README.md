@@ -514,8 +514,40 @@ Egy API key **szűkítheti** a felhasználó jogát (scope), de nem bővítheti.
 
 ---
 
-## Könyvtárszerkezet
+## Naptár / Agenda / határidők (deadlines)
 
+A határidők **a fájlokból** származnak (a fájl a source of truth), automatikusan,
+dokumentumíráskor újra kinyerve:
+
+1. **Frontmatter** (magas bizonyosság): `deadline: 2026-10-15`, `due:`,
+   `due_date`, `target_date`, `review_by` – ISO (`2026-10-15`) vagy magyar
+   (`2026. 10. 15.`) formában.
+2. **Szövegben** (alacsonyabb): dátum kulcsszó közelében
+   (`határidő`, `deadline`, `due`, `review by`, `ne felejtsük el` …).
+   A szabályos dátumok (pl. changelog) **nem** generálnak hamis határidőt,
+   a kódblokkok kimaradnak.
+
+Nézetek:
+- **`/calendar/`** – hónap-rács (előző/következő hónap navigáció).
+- **`/calendar/agenda/`** – **agenda nézet**: lejárt + következő N nap, napi listával.
+- **`/calendar/ical/`** – **iCal feed** (`?days=365`): feliratkoztatható Outlook /
+  Google Calendar / Apple Calendar appba – a „ne felejtsük el" célra pont jó.
+- Navigáció a felső sávon: *Calendar* / *Agenda*.
+
+API + AI:
+```text
+GET    /api/v1/deadlines/?workspace=<uuid>&status=open&from=2026-10-01
+POST   /api/v1/deadlines/          # kézi határidő (write kell a doku-re)
+MCP    knowledge_deadlines          # days_ahead=0 → mai agenda; 30 → 30 nap
+```
+
+A deadline-ok **permission-aware**-ek: csak a látott dokumentumok határidői jelennek meg.
+Metrika: `brainbox_deadlines{status}`, `brainbox_deadlines_overdue`.
+Újraolvasás: `python manage.py deadlines --reindex`.
+
+---
+
+## Könyvtárszerkezet
 
 ```text
 config/                 Django projekt (settings/urls/wsgi/asgi)
@@ -530,6 +562,7 @@ apps/
   links/                ResourceLink (+ LinkService)
   git/                  GitRepository, GitSyncState, GitCommitReference, GitClient, GitService
   jobs/                 DB-backed scheduler: registry, schedule math, Job/JobRun, engine, worker
+  deadlines/            KnowledgeDeadline + extraction from files (calendar/agenda/iCal)
   monitoring/           Prometheus domain collector + /readyz
   embeddings/           KnowledgeChunk, EmbeddingIndexState, providers, chunking, vector stores
   search/               SearchService (text + semantic + hybrid) + rerankers

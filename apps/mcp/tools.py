@@ -711,6 +711,71 @@ def _get_secret(ctx: ToolContext, secret_id) -> Secret:
 
 
 # ---------------------------------------------------------------------------
+# Deadlines / agenda (Phase: naptár + agenda)
+# ---------------------------------------------------------------------------
+@tool(
+    "knowledge_deadlines",
+    "Get the upcoming agenda: deadlines extracted from knowledge files "
+    "(tech-debt revisits, review dates, targets). Use days_ahead=0 for today's "
+    "agenda, or omit it for a 30-day outlook. Sorted by due date, overdue first.",
+    {
+        "type": "object",
+        "properties": {
+            "days_ahead": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 365,
+                "description": "0 = today only, 7 = this week. Default 30.",
+            },
+            "workspace": {"type": "string"},
+            "project": {"type": "string"},
+            "include_done": {"type": "boolean"},
+        },
+    },
+)
+def tool_deadlines(ctx: ToolContext, args: dict) -> dict:
+    from datetime import date, timedelta
+
+    from apps.deadlines.models import DeadlineStatus, KnowledgeDeadline
+
+    days_ahead = max(0, int(args.get("days_ahead", 30) or 0))
+    today = date.today()
+    until = today + timedelta(days=days_ahead)
+
+    deadlines = KnowledgeDeadline.objects.filter(
+        due_date__lte=until, status=DeadlineStatus.OPEN
+    ).select_related("document", "workspace", "project", "resource")
+
+    if not args.get("include_done"):
+        deadlines = deadlines.exclude(status__in=[DeadlineStatus.DONE, DeadlineStatus.DISMISSED])
+    if args.get("workspace"):
+        deadlines = deadlines.filter(workspace_id=args["workspace"])
+    if args.get("project"):
+        deadlines = deadlines.filter(project_id=args["project"])
+
+    items = []
+    for deadline in deadlines:
+        if not _may_read(ctx, deadline.resource):
+            continue  # permission-aware: never leak an inaccessible deadline
+        items.append(
+            {
+                "id": str(deadline.id),
+                "title": deadline.title,
+                "due_date": deadline.due_date.isoformat(),
+                "overdue": deadline.due_date < today,
+                "days_until": (deadline.due_date - today).days,
+                "status": deadline.status,
+                "document_id": str(deadline.document_id),
+                "document_title": deadline.document.title,
+                "workspace": str(deadline.workspace_id),
+                "project": str(deadline.project_id) if deadline.project_id else None,
+            }
+        )
+    items.sort(key=lambda row: row["due_date"])
+    return {"today": today.isoformat(), "days_ahead": days_ahead, "count": len(items), "deadlines": items}
+
+
+# ---------------------------------------------------------------------------
 # Knowledge intelligence (Phase 7)
 # ---------------------------------------------------------------------------
 @tool(

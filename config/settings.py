@@ -70,6 +70,7 @@ LOCAL_APPS = [
     "apps.mcp",
     "apps.knowledge",
     "apps.jobs",
+    "apps.deadlines",
     "apps.monitoring",
     "apps.audit",
     "apps.api",

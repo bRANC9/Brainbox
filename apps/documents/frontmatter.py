@@ -2,7 +2,24 @@
 
 from __future__ import annotations
 
+import datetime
+
 import yaml
+
+
+def _jsonable(value):
+    """Recursively convert YAML-parsed values into JSON-serializable ones.
+
+    PyYAML turns unquoted dates into ``datetime.date``/``datetime.datetime``
+    objects; those cannot be stored in a JSONField. Convert to ISO strings.
+    """
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return value.isoformat()
+    return value
 
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -36,4 +53,4 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
 
     if not isinstance(metadata, dict):
         return {}, text
-    return metadata, body
+    return _jsonable(metadata), body

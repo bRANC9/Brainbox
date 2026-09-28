@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Naptár - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Naptár &mdash; {{ month_name }} {{ year }}</h1>
+    <p class="muted">A dokumentumokból kinyert határidők (frontmatter + szöveg).</p>
+  </div>
+  <div>
+    <a class="button" href="{% url 'web:agenda' %}">Agenda nézet</a>
+    <a class="button" href="{% url 'web:deadlines_ical' %}">iCal feed</a>
+  </div>
+</section>
+
+<p class="cal-nav">
+  <a class="button" href="?year={{ prev_year }}&month={{ prev_month }}">&larr; {{ prev_month }}</a>
+  <a class="button" href="?year={{ today.year }}&month={{ today.month }}">Ma</a>
+  <a class="button" href="?year={{ next_year }}&month={{ next_month }}">{{ next_month }} &rarr;</a>
+</p>
+
+<table class="cal-grid">
+  <thead>
+    <tr>{% for name in weekday_names %}<th>{{ name }}</th>{% endfor %}</tr>
+  </thead>
+  <tbody>
+    {% for week in month_grid %}
+      <tr>
+        {% for day in week %}
+          <td class="cal-day{% if day == today.day and month == today.month and year == today.year %} today{% endif %}">
+            {% if day %}
+              <span class="cal-date">{{ day }}</span>
+              <ul class="cal-events">
+                {% for ev in days %}{% if ev.num == day %}
+                  {% for deadline in ev.events %}
+                    <li class="cal-event{% if deadline.is_overdue %} overdue{% endif %}">
+                      <a href="{% url 'web:document_detail' deadline.document_id %}">{{ deadline.title }}</a>
+                    </li>
+                  {% endfor %}
+                {% endif %}{% endfor %}
+              </ul>
+            {% endif %}          </td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

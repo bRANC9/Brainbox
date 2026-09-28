@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from apps.accounts.models import ApiKey, ApiKeyScope, User
 from apps.audit.models import AuditEvent
+from apps.deadlines.models import KnowledgeDeadline
 from apps.documents.models import Document, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File, FileVersion
@@ -629,6 +630,47 @@ class SecretCreateSerializer(serializers.ModelSerializer):
             "secret_type": {"required": False},
         }
         validators: list = []
+
+
+# ---------------------------------------------------------------------------
+# Deadlines
+# ---------------------------------------------------------------------------
+class DeadlineSerializer(serializers.ModelSerializer):
+    document_title = serializers.CharField(source="document.title", read_only=True)
+    document_path = serializers.CharField(source="document.path", read_only=True)
+    is_overdue = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = KnowledgeDeadline
+        fields = [
+            "id",
+            "document",
+            "document_title",
+            "document_path",
+            "resource",
+            "workspace",
+            "project",
+            "title",
+            "due_date",
+            "status",
+            "source",
+            "confidence",
+            "context",
+            "is_overdue",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "resource",
+            "workspace",
+            "project",
+            "source",
+            "confidence",
+            "context",
+            "created_at",
+            "updated_at",
+        ]
 
 
 # ---------------------------------------------------------------------------
