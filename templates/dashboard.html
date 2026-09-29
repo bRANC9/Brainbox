@@ -23,6 +23,7 @@
   <h1>Recent documents</h1>
 </section>
 {% if recent_documents %}
+  <div class="scroll-x">
   <table class="table">
     <thead><tr><th>Title</th><th>Workspace</th><th>Status</th><th>Updated</th></tr></thead>
     <tbody>
@@ -36,6 +37,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 {% else %}
   <p class="muted">No documents yet.</p>
 {% endif %}

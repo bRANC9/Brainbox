@@ -13,11 +13,12 @@
 </section>
 
 <p class="cal-nav">
-  <a class="button" href="?year={{ prev_year }}&month={{ prev_month }}">&larr; {{ prev_month }}</a>
-  <a class="button" href="?year={{ today.year }}&month={{ today.month }}">Ma</a>
-  <a class="button" href="?year={{ next_year }}&month={{ next_month }}">{{ next_month }} &rarr;</a>
+  <a class="button" href="?year={{ prev_year }}&amp;month={{ prev_month }}" title="{{ prev_month_name }} {{ prev_year }}">&larr; {{ prev_month_name }}</a>
+  <a class="button" href="?year={{ today.year }}&amp;month={{ today.month }}">Ma</a>
+  <a class="button" href="?year={{ next_year }}&amp;month={{ next_month }}" title="{{ next_month_name }} {{ next_year }}">{{ next_month_name }} &rarr;</a>
 </p>
 
+<div class="scroll-x">
 <table class="cal-grid">
   <thead>
     <tr>{% for name in weekday_names %}<th>{{ name }}</th>{% endfor %}</tr>
@@ -44,4 +45,5 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endblock %}

@@ -59,6 +59,49 @@ services:
     ports:
       - "${BRAINBOX_PORT:-8000}:8000"
 
+  # Test runner. Opt-in (`profiles`), so `up` never starts it:
+  #
+  #   docker compose -f docker-compose.dev.yml run --rm tests
+  #   docker compose -f docker-compose.dev.yml run --rm tests \
+  #       python manage.py test apps.web -v 2
+  #
+  # Runs against the same image as `web` and against Postgres, which is the
+  # point: the GitHub CI job also runs `manage.py test` on postgres, so a local
+  # run here matches CI's database engine instead of silently using SQLite.
+  # Source is bind-mounted, so test changes need no rebuild.
+  tests:
+    build:
+      context: .
+    image: brainbox:dev
+    profiles: ["test"]
+    command: ["python", "manage.py", "test"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Skip the entrypoint's migrate/collectstatic/bootstrap: the test runner
+      # creates its own test database and must not touch the dev one.
+      BRAINBOX_RUN_MIGRATIONS: "0"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-secret-key}
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: "*"
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+      DATABASE_URL: postgres://${POSTGRES_USER:-brainbox}:${POSTGRES_PASSWORD:-brainbox}@db:5432/${POSTGRES_DB:-brainbox}
+      BRAINBOX_DATA_ROOT: /data/knowledge
+      BRAINBOX_SECRET_KEY: ${BRAINBOX_SECRET_KEY:-}
+      BRAINBOX_GIT_AUTHOR_NAME: ${BRAINBOX_GIT_AUTHOR_NAME:-Brainbox}
+      BRAINBOX_GIT_AUTHOR_EMAIL: ${BRAINBOX_GIT_AUTHOR_EMAIL:-brainbox@localhost}
+      BRAINBOX_EMBEDDING_PROVIDER: ${BRAINBOX_EMBEDDING_PROVIDER:-deterministic}
+      BRAINBOX_EMBEDDING_DIM: ${BRAINBOX_EMBEDDING_DIM:-256}
+      BRAINBOX_LLM_PROVIDER: ${BRAINBOX_LLM_PROVIDER:-noop}
+    volumes:
+      - .:/app
+      - knowledge_data_dev:/data/knowledge
+    # The bind mount shadows the image's /app/staticfiles, so give collectstatic
+    # a tmpfs owned by the container user instead of a host directory that may
+    # belong to someone else. Same trick the production compose uses.
+    tmpfs: ["/app/staticfiles"]
+
 volumes:
   pgdata_dev:
   knowledge_data_dev:

@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .eggs/
 .venv/
+.venv-*/
 venv/
 env/
 
@@ -14,6 +15,9 @@ db.sqlite3-journal
 /staticfiles/
 /media/
 local_settings.py
+
+# Browser UI check output (tools/ui_smoke.py)
+/ui-smoke-shots/
 
 # Runtime data (bind mounts)
 /data/

@@ -17,7 +17,7 @@
       &middot; {{ document.path }}
       &middot; updated {{ document.updated_at|date:"Y-m-d H:i" }}
     </p>
-    <p class="actions">
+    <div class="actions">
       <a class="button" href="{% url 'web:document_history' document.pk %}">History</a>
       {% if can_write %}
         <a class="button primary" href="{% url 'web:document_edit' document.pk %}">Edit</a>
@@ -36,7 +36,7 @@
           </form>
         {% endif %}
       {% endif %}
-    </p>
+    </div>
     {% if document.summary %}<p class="summary">{{ document.summary }}</p>{% endif %}
   </header>
 

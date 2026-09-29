@@ -8,6 +8,7 @@ import markdown as md
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -38,6 +39,24 @@ def _can(user, resource, permission: str) -> bool:
     return PermissionService.check(user, resource, permission)
 
 
+def _workspace_queryset_with_counts():
+    """Workspaces with the card counters the dashboard template renders."""
+    return (
+        Workspace.objects.select_related("resource")
+        .annotate(
+            project_count=Count("project_set", distinct=True),
+            document_count=Count("documents", distinct=True),
+        )
+        .order_by("name")
+    )
+
+
+def _project_queryset_with_counts():
+    return Project.objects.annotate(
+        document_count=Count("documents", distinct=True)
+    ).order_by("name")
+
+
 def _render_markdown(content: str) -> str:
     _frontmatter, body = parse_frontmatter(content)
     return md.markdown(body, extensions=MARKDOWN_EXTENSIONS)
@@ -58,7 +77,7 @@ def _git_panel(workspace, project=None) -> dict:
 def dashboard(request):
     workspaces = [
         workspace
-        for workspace in Workspace.objects.select_related("resource")
+        for workspace in _workspace_queryset_with_counts()
         if _can(request.user, workspace.resource, Permission.READ)
     ]
     candidates = Document.objects.select_related("resource", "workspace", "project")[:100]
@@ -78,6 +97,8 @@ def dashboard(request):
 def search(request):
     query = request.GET.get("q", "").strip()
     mode = request.GET.get("mode", "hybrid")
+    if mode not in {"hybrid", "text", "semantic"}:
+        mode = "hybrid"
     results = []
     if query:
         results = SearchService.search(request.user, query, mode=mode, limit=25)
@@ -94,7 +115,11 @@ def search(request):
 
 
 def _access_context(request, resource) -> dict:
-    """Context for the shared access (ACL) panel, or {} when not permitted."""
+    """Context for the shared access (ACL) panel, or {} when not permitted.
+
+    The keys must stay unprefixed: `_access_panel.html` is included both here
+    and from the standalone permissions view, which supplies the same names.
+    """
     can_admin = PermissionService.check(request.user, resource, Permission.ADMIN)
     can_share = PermissionService.check(request.user, resource, Permission.WRITE)
     if not (can_admin or can_share):
@@ -111,11 +136,11 @@ def _access_context(request, resource) -> dict:
             label = subject.username if subject else "(törölt user)"
         entry_rows.append({"entry": entry, "label": label})
     return {
-        "access_entries": entry_rows,
-        "access_can_admin": can_admin,
-        "access_can_share": can_share,
+        "entry_rows": entry_rows,
+        "can_admin": can_admin,
+        "can_share": can_share,
         "access_url": reverse("web:resource_permissions", args=[resource.pk]),
-        "access_search": _subject_matches(request.GET.get("access_q", "")),
+        "search": _subject_matches(request.GET.get("q", "")),
     }
 
 
@@ -127,7 +152,9 @@ def workspace_detail(request, workspace_slug):
 
     projects = [
         project
-        for project in workspace.project_set.select_related("resource")
+        for project in _project_queryset_with_counts()
+        .select_related("resource")
+        .filter(workspace=workspace)
         if _can(request.user, project.resource, Permission.READ)
     ]
     documents = [
@@ -136,12 +163,12 @@ def workspace_detail(request, workspace_slug):
         if _can(request.user, document.resource, Permission.READ)
     ]
     can_write = _can(request.user, workspace.resource, Permission.WRITE)
+    # can_admin / can_share / entry_rows come from _access_context.
     context = {
         "workspace": workspace,
         "projects": projects,
         "documents": documents,
         "can_write": can_write,
-        "can_admin": _can(request.user, workspace.resource, Permission.ADMIN),
         **_git_panel(workspace),
         **_access_context(request, workspace.resource),
     }
@@ -373,6 +400,37 @@ def _accessible_deadlines(user, *, workspace_id=None, project_id=None):
     ]
 
 
+def _int_param(request, name: str, default: int, *, minimum: int, maximum: int) -> int:
+    """Read an int query param, clamped to a range.
+
+    A hand-edited or hostile value must not raise: `?year=abc` used to bubble up
+    a ValueError and return a 500.
+    """
+    raw = request.GET.get(name)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, value))
+
+
+MONTH_NAMES_HU = [
+    "",
+    "január",
+    "február",
+    "március",
+    "április",
+    "május",
+    "június",
+    "július",
+    "augusztus",
+    "szeptember",
+    "október",
+    "november",
+    "december",
+]
+
+
 @login_required
 def calendar(request):
     """Month view of deadlines."""
@@ -380,11 +438,9 @@ def calendar(request):
     from datetime import date
 
     today = date.today()
-    year = int(request.GET.get("year", today.year))
-    month = int(request.GET.get("month", today.month))
+    year = _int_param(request, "year", today.year, minimum=1970, maximum=9999)
+    month = _int_param(request, "month", today.month, minimum=1, maximum=12)
     cal = calmod.Calendar(firstweekday=0)
-    if not 1 <= month <= 12:
-        year, month = today.year, today.month
     month_grid = cal.monthdayscalendar(year, month)
 
     deadlines = _accessible_deadlines(
@@ -418,14 +474,16 @@ def calendar(request):
         {
             "year": year,
             "month": month,
-            "month_name": calmod.month_name[month],
+            "month_name": MONTH_NAMES_HU[month],
             "month_grid": month_grid,
             "days": days,
             "today": today,
             "prev_year": prev_year,
             "prev_month": prev_month,
+            "prev_month_name": MONTH_NAMES_HU[prev_month],
             "next_year": next_year,
             "next_month": next_month,
+            "next_month_name": MONTH_NAMES_HU[next_month],
             "weekday_names": ["Hét", "Ked", "Sze", "Csü", "Pén", "Szo", "Vas"],
         },
     )
@@ -439,7 +497,8 @@ def agenda(request):
     from django.utils import timezone as djtz
 
     today = djtz.localdate()
-    horizon = int(request.GET.get("days", 30))
+    # Clamped: a huge `days` used to raise OverflowError inside timedelta.
+    horizon = _int_param(request, "days", 30, minimum=1, maximum=365)
     until = today + timedelta(days=horizon)
     deadlines = [
         d
@@ -465,7 +524,7 @@ def deadlines_ical(request):
     from django.utils import timezone as djtz
 
     today = djtz.localdate()
-    horizon = int(request.GET.get("days", 365))
+    horizon = _int_param(request, "days", 365, minimum=1, maximum=3650)
     until = today + timedelta(days=horizon)
     rows = [
         d
@@ -618,6 +677,15 @@ def audit_dashboard(request):
     )
 
 
+def _group_member_from_post(request):
+    """Resolve the member from `user_id` (the picker) or a typed `username`."""
+    user_id = request.POST.get("user_id", "").strip()
+    if user_id:
+        return User.objects.filter(pk=user_id).first()
+    username = request.POST.get("username", "").strip()
+    return User.objects.filter(username=username).first() if username else None
+
+
 @login_required
 def groups_admin(request):
     if not request.user.is_staff:
@@ -627,20 +695,50 @@ def groups_admin(request):
         if action == "create":
             name = request.POST.get("name", "").strip()
             if name:
-                Group.objects.get_or_create(name=name, defaults={"created_by": request.user})
+                _, created = Group.objects.get_or_create(
+                    name=name, defaults={"created_by": request.user}
+                )
+                if created:
+                    messages.success(request, f"Group '{name}' created.")
+                else:
+                    messages.error(request, f"Group '{name}' already exists.")
         elif action == "add_member":
             group = get_object_or_404(Group, pk=request.POST.get("group_id"))
-            member = User.objects.filter(username=request.POST.get("username", "")).first()
+            member = _group_member_from_post(request)
             if member is None:
                 messages.error(request, "No such user.")
             else:
-                GroupMembership.objects.get_or_create(user=member, group=group)
+                role = request.POST.get("role", GroupMembership.Role.MEMBER)
+                if role not in GroupMembership.Role.values:
+                    role = GroupMembership.Role.MEMBER
+                _, created = GroupMembership.objects.get_or_create(
+                    user=member, group=group, defaults={"role": role}
+                )
+                if created:
+                    messages.success(request, f"{_user_label(member)} added to {group.name}.")
+                else:
+                    messages.error(
+                        request, f"{_user_label(member)} is already in {group.name}."
+                    )
         elif action == "remove_member":
             GroupMembership.objects.filter(pk=request.POST.get("membership_id")).delete()
         return redirect("web:groups_admin")
 
-    groups = Group.objects.prefetch_related("memberships__user")
-    return render(request, "groups.html", {"groups": groups})
+    groups = list(Group.objects.prefetch_related("memberships__user").order_by("name"))
+    all_users = list(User.objects.order_by("display_name", "username"))
+    # Per group: everyone who is not yet a member, so the picker is always full.
+    for group in groups:
+        member_ids = {m.user_id for m in group.memberships.all()}
+        group.candidates = [
+            {"id": str(user.pk), "label": _user_label(user)}
+            for user in all_users
+            if user.pk not in member_ids
+        ]
+    return render(
+        request,
+        "groups.html",
+        {"groups": groups, "roles": GroupMembership.Role.choices},
+    )
 
 
 def _resolve_subject(subject_type: str, value: str):
@@ -656,25 +754,43 @@ def _resolve_subject(subject_type: str, value: str):
     return user.id if user else None
 
 
-def _subject_matches(query: str, limit: int = 8) -> dict:
-    """Directory search for the access panel (users + groups by name)."""
+def _user_label(user) -> str:
+    if user.display_name and user.display_name != user.username:
+        return f"{user.display_name} ({user.username})"
+    if user.email:
+        return f"{user.username} ({user.email})"
+    return user.username
+
+
+def _subject_matches(query: str, limit: int = 500) -> dict:
+    """Directory of users + groups for the access panel's "add member" select.
+
+    An empty `query` returns *every* user and group so the dropdown is always
+    populated; a non-empty one narrows the list. Capped at `limit` so a huge
+    directory cannot render an unusable page.
+    """
     query = (query or "").strip()
-    if not query:
-        return {"users": [], "groups": []}
-    users = list(
-        User.objects.filter(username__icontains=query)[:limit]
-    ) + list(User.objects.filter(display_name__icontains=query)[:limit])
-    seen, user_rows = set(), []
-    for user in users:
-        if user.pk in seen:
-            continue
-        seen.add(user.pk)
-        user_rows.append({"id": str(user.pk), "label": f"{user.username} ({user.display_name or user.email})" if (user.display_name or user.email) else user.username})
-    groups = [
-        {"id": str(group.pk), "label": f"{group.name} (csoport)"}
-        for group in Group.objects.filter(name__icontains=query)[:limit]
-    ]
-    return {"users": user_rows[:limit], "groups": groups[:limit]}
+    users = User.objects.all()
+    groups = Group.objects.all()
+    if query:
+        users = users.filter(
+            Q(username__icontains=query)
+            | Q(display_name__icontains=query)
+            | Q(email__icontains=query)
+        )
+        groups = groups.filter(name__icontains=query)
+    return {
+        "users": [
+            {"id": str(user.pk), "label": _user_label(user)}
+            for user in users.order_by("display_name", "username")[:limit]
+        ],
+        "groups": [
+            {"id": str(group.pk), "label": f"{group.name} (csoport)"}
+            for group in groups.order_by("name")[:limit]
+        ],
+        "query": query,
+        "truncated": users.count() > limit or groups.count() > limit,
+    }
 
 
 @login_required
@@ -775,8 +891,7 @@ def resource_permissions(request, resource_id):
             "subject_types": SubjectType.choices,
             "can_admin": can_admin,
             "can_share": can_share,
-            "search": _subject_matches(request.GET.get("q", "")),
-            "access_url": reverse("web:resource_permissions", args=[resource.pk]),
+            "search": _subject_matches(request.GET.get("q", "")),            "access_url": reverse("web:resource_permissions", args=[resource.pk]),
             "standalone": True,
         },
     )

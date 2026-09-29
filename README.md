@@ -131,6 +131,19 @@ docker compose -f docker-compose.dev.yml up --build
 # http://localhost:8000  (admin/admin, lásd .env)
 ```
 
+### Tesztek Dockerben
+
+```bash
+docker compose -f docker-compose.dev.yml run --rm tests
+# szűkítve egy appra:
+docker compose -f docker-compose.dev.yml run --rm tests python manage.py test apps.web -v 2
+```
+
+Ugyanaz az image, mint a `web` szolgáltatás, és **Postgresen fut** — akárcsak a
+CI, ahol `manage.py test` szintén postgresen megy. A `-f docker-compose.dev.yml`
+nélkül SQLite-on futnál, tehát a helyi futás nem egyezne a CI adatbázis-motorjával.
+A forrás bind-mountolt, tesztváltoztatáshoz nem kell rebuild.
+
 ### Közvetlenül (SQLite fallback)
 
 ```bash
@@ -150,6 +163,18 @@ python manage.py runserver
 python manage.py test
 ruff check .
 python manage.py makemigrations --check --dry-run
+```
+
+A `manage.py test` a kiszolgált HTML-t ellenőrzi, de nem látja, mit csinál vele
+a böngésző: reszponzív elrendezést, CSS-t, amit soha nem talál meg, vagy
+markupot, amit az HTML parser átstrukturál. Ezekre van az opcionális
+`tools/ui_smoke.py` (nem fut a CI-ban, kézi gate):
+
+```bash
+pip install -r requirements-browser.txt
+sudo playwright install --with-deps chromium   # WSL/Ubuntu, egyszer
+python manage.py runserver 8123 &
+python tools/ui_smoke.py --base http://localhost:8123
 ```
 
 ---

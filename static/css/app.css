@@ -27,6 +27,8 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
   padding: 0.75rem 1.5rem;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -35,7 +37,7 @@ a:hover { text-decoration: underline; }
   z-index: 10;
 }
 .brand { font-weight: 700; font-size: 1.15rem; color: var(--text); }
-.topbar nav { display: flex; align-items: center; gap: 1rem; }
+.topbar nav { display: flex; align-items: center; gap: 0.35rem 1rem; flex-wrap: wrap; }
 .topbar .user { color: var(--muted); }
 .inline { display: inline; margin: 0; }
 
@@ -76,6 +78,10 @@ main { max-width: 1080px; margin: 0 auto; padding: 1.5rem; }
 .table th, .table td { text-align: left; padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--border); }
 .table th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
 
+/* Wide tables scroll inside their own box instead of widening the page. */
+.scroll-x { overflow-x: auto; margin-bottom: 1.5rem; }
+.scroll-x > .table { margin-bottom: 0; }
+
 .badge {
   display: inline-block;
   padding: 0.1rem 0.5rem;
@@ -113,8 +119,22 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
   font: inherit;
 }
 .form textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* `.form.row` is the form itself, `.form .row` a wrapper inside it - both are
+   horizontal layouts. Only the descendant selector used to exist, so the
+   inline `class="form row"` forms silently stacked full-width. */
+.form.row { flex-direction: row; align-items: flex-end; flex-wrap: wrap; }
+.form.row > label { flex: 1; min-width: 200px; }
 .form .row { display: flex; gap: 1rem; flex-wrap: wrap; }
 .form .row > label { flex: 1; min-width: 200px; }
+.form .row > .inline-check {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding-bottom: 0.5rem;
+}
+.form input[type="checkbox"] { width: auto; padding: 0; }
 
 .document .markdown {
   background: var(--panel);
@@ -133,6 +153,10 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
 .document .markdown pre code { background: none; padding: 0; }
 .document .markdown table { border-collapse: collapse; }
 .document .markdown th, .document .markdown td { border: 1px solid var(--border); padding: 0.35rem 0.6rem; }
+.document .markdown img { max-width: 100%; height: auto; }
+.document-head h1 { margin: 0.2rem 0; font-size: 1.6rem; }
+.actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.actions .inline { display: inline-flex; }
 
 .summary { background: var(--panel-2); border-left: 3px solid var(--accent); padding: 0.5rem 0.9rem; border-radius: 0 8px 8px 0; }
 
@@ -191,3 +215,22 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
 .commits { list-style: none; padding-left: 0; margin: 0.5rem 0 0; }
 .commits li { padding: 0.2rem 0; font-size: 0.9rem; }
 .commits code, .git-panel code { background: var(--panel-2); padding: 0.05rem 0.35rem; border-radius: 4px; }
+.member-list { margin: 0 0 1rem; }
+
+@media (max-width: 720px) {
+  main { padding: 1rem 0.75rem; }
+  .topbar { padding: 0.6rem 0.75rem; }
+  .topbar nav { gap: 0.2rem 0.7rem; font-size: 0.9rem; }
+  .topbar nav a { white-space: nowrap; }
+  .page-head { flex-direction: column; align-items: flex-start; }
+  .page-head h1 { font-size: 1.35rem; }
+  .grid { grid-template-columns: 1fr; }
+  .form.row { flex-direction: column; align-items: stretch; }
+  .form.row > label { min-width: 0; }
+  .form.row > .button { width: 100%; text-align: center; }
+  .form .row { flex-direction: column; }
+  .cal-grid { min-width: 560px; }
+  .cal-day { height: 70px; }
+  .settings-row { flex-wrap: wrap; }
+  .settings-row input, .settings-row select { min-width: 0; width: 100%; }
+}

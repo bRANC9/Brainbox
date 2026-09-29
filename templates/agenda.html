@@ -30,6 +30,7 @@
 <section class="git-panel">
   <h2>Következő ({{ upcoming|length }})</h2>
   {% if upcoming %}
+    <div class="scroll-x">
     <table class="table">
       <thead><tr><th>Dátum</th><th>Mi</th><th>Dokumentum</th><th>Státusz</th></tr></thead>
       <tbody>
@@ -43,6 +44,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
   {% else %}
     <p class="muted">Nincs esedékes határidő a következő {{ days }} napban. Jó hír!</p>
   {% endif %}

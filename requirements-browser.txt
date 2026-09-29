@@ -1,0 +1,11 @@
+# Optional: browser checks for the web UI.
+#
+# Deliberately NOT in requirements-dev.txt, because CI installs that file and
+# these checks do not run there. The Django suite covers the rendered HTML; this
+# covers what only a browser can see (responsive layout, CSS, HTML parsing).
+#
+#   pip install -r requirements-browser.txt
+#   sudo playwright install --with-deps chromium
+#   python manage.py runserver 8123 &
+#   python tools/ui_smoke.py --base http://localhost:8123
+playwright>=1.48,<2

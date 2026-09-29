@@ -34,6 +34,7 @@
 
 <h2>Documents</h2>
 {% if documents %}
+  <div class="scroll-x">
   <table class="table">
     <thead><tr><th>Title</th><th>Status</th><th>Priority</th><th>Updated</th></tr></thead>
     <tbody>
@@ -47,6 +48,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 {% else %}
   <p class="muted">No workspace-level documents.</p>
 {% endif %}

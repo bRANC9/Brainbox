@@ -14,12 +14,16 @@
   {% if can_write %}
     <a class="button" href="{% url 'web:project_document_create' workspace.slug project.slug %}">New document</a>
   {% endif %}
+  {% if can_admin %}
+    <a class="button" href="{% url 'web:resource_permissions' project.resource_id %}">Permissions</a>
+  {% endif %}
 </section>
 
 {% include "_git_panel.html" %}
 {% if access_url %}{% include "_access_panel.html" %}{% endif %}
 
 {% if documents %}
+  <div class="scroll-x">
   <table class="table">
     <thead><tr><th>Title</th><th>Status</th><th>Priority</th><th>Updated</th></tr></thead>
     <tbody>
@@ -33,6 +37,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 {% else %}
   <p class="muted">No documents in this project.</p>
 {% endif %}

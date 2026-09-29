@@ -35,5 +35,10 @@
   {% else %}
     <p class="muted">No results.</p>
   {% endif %}
+{% else %}
+  <p class="muted">
+    Keress dokumentumok, projektek és munkaterek között.
+    A <a href="{% url 'web:discovery' %}">Discover</a> oldal a tudásbázis felosztását mutatja.
+  </p>
 {% endif %}
 {% endblock %}

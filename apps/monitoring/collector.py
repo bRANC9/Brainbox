@@ -129,8 +129,7 @@ class BrainboxCollector(Collector):
         yield overdue
 
     def _jobs(self):
-        from apps.jobs.models import JobRun
-
+        from apps.jobs.models import JobRun, JobRunStatus
 
         runs = GaugeMetricFamily("brainbox_job_runs", "Job runs by status", labels=["status"])
         for row in JobRun.objects.values("status").annotate(count=_count("id")):
@@ -141,14 +140,14 @@ class BrainboxCollector(Collector):
             "brainbox_job_run_duration_seconds", "Last run duration per job", labels=["job"]
         )
         for row in (
-            JobRun.objects.filter(status=JobRun.Status.SUCCEEDED)
-            .exclude(finished_at=None)
-            .order_by("-finished_at")
-            .values("job__name", "started_at", "finished_at")[:50]
+            JobRun.objects.filter(status=JobRunStatus.SUCCEEDED)
+            .exclude(ended_at__isnull=True)
+            .order_by("-ended_at")
+            .values("job__name", "duration_ms")[:50]
         ):
-            duration.add_metric(
-                [row["job__name"]], (row["finished_at"] - row["started_at"]).total_seconds()
-            )
+            if row["duration_ms"] is None:
+                continue
+            duration.add_metric([row["job__name"]], row["duration_ms"] / 1000.0)
         yield duration
 
     def _audit(self):

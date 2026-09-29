@@ -6,6 +6,7 @@ forms post; 'standalone' shows the heading.
 <div class="git-panel" id="access-panel">
   <h2>Tagok és hozzáférés</h2>
 
+  <div class="scroll-x">
   <table class="table">
     <thead><tr><th>Tag / csoport</th><th>Tipus</th><th>Jogosultság</th><th>Hatás</th><th>Öröklik</th>{% if can_admin %}<th></th>{% endif %}</tr></thead>
     <tbody>
@@ -31,64 +32,69 @@ forms post; 'standalone' shows the heading.
           {% endif %}
         </tr>
       {% empty %}
-        <tr><td colspan="6" class="muted">Nincs külön bejegyzés (minden öröklött).</td></tr>
+        <tr><td colspan="{% if can_admin %}6{% else %}5{% endif %}" class="muted">Nincs külön bejegyzés (minden öröklött).</td></tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
 
   {% if can_share %}
-    <h3>Uj tag vagy csoport</h3>
+    <h3>Új tag vagy csoport</h3>
     <form method="get" class="form row">
-      <label style="flex:3">Keresés (felhasználó vagy csoport)
-        <input type="text" name="q" value="{{ request.GET.q|default:'' }}" autofocus>
+      <label style="flex:3">Szűrés (felhasználó vagy csoport)
+        <input type="text" name="q" value="{{ search.query|default:'' }}" placeholder="szűrés üresen hagyva: minden felhasználó látszik">
       </label>
-      <button class="button" type="submit">Keresés</button>
+      <button class="button" type="submit">Szűrés</button>
     </form>
 
-    {% if search.users or search.groups %}
-      <form method="post" action="{{ access_url }}" class="form">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="grant">
-        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-        <label>Tag kiválasztása
-          <select name="subject_id" required>
-            <optgroup label="Felhasználók">
-              {% for u in search.users %}<option value="user:{{ u.id }}">{{ u.label }}</option>{% endfor %}
-            </optgroup>
-            {% if search.groups %}
-              <optgroup label="Csoportok">
-                {% for g in search.groups %}<option value="group:{{ g.id }}">{{ g.label }}</option>{% endfor %}
-              </optgroup>
+    <form method="post" action="{{ access_url }}" class="form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="grant">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <label>Tag kiválasztása
+        <select name="subject_id" required>
+          <option value="">-- válassz felhasználót vagy csoportot --</option>
+          <optgroup label="Felhasználók ({{ search.users|length }})">
+            {% for u in search.users %}<option value="user:{{ u.id }}">{{ u.label }}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="Csoportok ({{ search.groups|length }})">
+            {% for g in search.groups %}<option value="group:{{ g.id }}">{{ g.label }}</option>{% endfor %}
+          </optgroup>
+        </select>
+      </label>
+      <p class="meta">
+        {% if search.query %}
+          "{{ search.query }}"-ra szűkítve.
+        {% else %}
+          Az összes felhasználó és csoport látszik; a fenti mezővel szűkíthetsz.
+        {% endif %}
+        {% if search.truncated %}Túl sok találat, a lista levágva.{% endif %}
+      </p>
+      <div class="row">
+        <label>Jogosultság
+          <select name="permission">
+            <option value="read">Olvasás</option>
+            {% if can_admin %}
+              <option value="write">Írás</option>
+              <option value="delete">Törlés</option>
+              <option value="admin">Admin</option>
             {% endif %}
           </select>
         </label>
-        <div class="row">
-          <label>Jogosultság
-            <select name="permission">
-              <option value="read">Olvasás</option>
-              {% if can_admin %}
-                <option value="write">Írás</option>
-                <option value="delete">Törlés</option>
-                <option value="admin">Admin</option>
-              {% endif %}
-            </select>
-          </label>
-          <label>Hatás
-            <select name="effect">
-              {% if can_admin %}<option value="allow">Engedélyez</option>{% endif %}
-              <option value="allow">Engedélyez</option>
-              {% if can_admin %}<option value="deny">Tiltás</option>{% endif %}
-            </select>
-          </label>
-          <label>Öröklődik <input type="checkbox" name="inherit" checked></label>
-        </div>
-        <button type="submit" class="button primary">Hozzáadás</button>
-      </form>
-    {% endif %}
+        <label>Hatás
+          <select name="effect">
+            <option value="allow">Engedélyez</option>
+            {% if can_admin %}<option value="deny">Tiltás</option>{% endif %}
+          </select>
+        </label>
+        <label class="inline-check">Öröklődik <input type="checkbox" name="inherit" checked></label>
+      </div>
+      <button type="submit" class="button primary">Hozzáadás</button>
+    </form>
 
     {% if can_admin %}
       <details>
-        <summary>Uj csoport létrehozása (read joggal)</summary>
+        <summary>Új csoport létrehozása (read joggal)</summary>
         <form method="post" action="{{ access_url }}" class="form">
           {% csrf_token %}
           <input type="hidden" name="action" value="create_group">
@@ -100,5 +106,4 @@ forms post; 'standalone' shows the heading.
     {% endif %}
   {% else %}
     <p class="muted">Ehhez a resource-hez nincs írási jogod, így nem oszthatod meg.</p>
-  {% endif %}
-</div>
+  {% endif %}</div>
