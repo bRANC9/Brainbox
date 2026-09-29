@@ -134,15 +134,20 @@ docker compose -f docker-compose.dev.yml up --build
 ### Tesztek Dockerben
 
 ```bash
-docker compose -f docker-compose.dev.yml run --rm tests
+docker compose -f docker-compose.dev.yml run --rm --build tests
 # szűkítve egy appra:
-docker compose -f docker-compose.dev.yml run --rm tests python manage.py test apps.web -v 2
+docker compose -f docker-compose.dev.yml run --rm --build tests \
+    python manage.py test apps.web -v 2
 ```
 
 Ugyanaz az image, mint a `web` szolgáltatás, és **Postgresen fut** — akárcsak a
 CI, ahol `manage.py test` szintén postgresen megy. A `-f docker-compose.dev.yml`
 nélkül SQLite-on futnál, tehát a helyi futás nem egyezne a CI adatbázis-motorjával.
 A forrás bind-mountolt, tesztváltoztatáshoz nem kell rebuild.
+
+A `--build` nem elhagyható: a `brainbox:dev` image csak `build` vagy
+`up --build` parancsnál frissül, a `run` a meglévőt használja újra. `--build`
+nélkül egy régi image csendben régebbi függőségekkel futtathatja a suite-ot.
 
 ### Közvetlenül (SQLite fallback)
 
