@@ -93,7 +93,9 @@ services:
       BRAINBOX_ADMIN_PASSWORD: ${BRAINBOX_ADMIN_PASSWORD:-}
     volumes:
       - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
-      - static_data:/app/staticfiles
+    # Static files are regenerated on boot into a tmpfs, so no host-side
+    # ownership is required (avoids "Permission denied" on collectstatic).
+    tmpfs: ["/app/staticfiles"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     labels:

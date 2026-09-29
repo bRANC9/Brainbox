@@ -161,7 +161,7 @@ USE_TZ = True
 # Static / media
 # ---------------------------------------------------------------------------
 STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_ROOT = Path(os.environ.get("BRAINBOX_STATIC_ROOT", str(BASE_DIR / "staticfiles")))
 STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
 
 STORAGES = {
