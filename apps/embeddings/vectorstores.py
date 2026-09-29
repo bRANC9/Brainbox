@@ -14,8 +14,6 @@ import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from django.conf import settings
-
 from .models import KnowledgeChunk
 
 
@@ -218,13 +216,16 @@ class QdrantVectorStore(VectorStore):
 
 
 def get_vector_store() -> VectorStore:
-    if settings.QDRANT_URL:
+    from apps.settings_store.services import get_value
+
+    url = str(get_value("QDRANT_URL", "") or "").strip()
+    if url:
         from .providers import get_embedding_provider
 
         return QdrantVectorStore(
-            settings.QDRANT_URL,
-            settings.QDRANT_API_KEY,
-            settings.QDRANT_COLLECTION,
+            url,
+            str(get_value("QDRANT_API_KEY", "") or ""),
+            str(get_value("QDRANT_COLLECTION", "brainbox_chunks") or "brainbox_chunks"),
             get_embedding_provider().dimension,
         )
     return LocalVectorStore()

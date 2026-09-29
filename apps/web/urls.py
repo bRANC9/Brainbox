@@ -42,6 +42,7 @@ urlpatterns = [
     path("manage/api-keys/", views.api_keys, name="api_keys"),
     path("manage/audit/", views.audit_dashboard, name="audit_dashboard"),
     path("manage/groups/", views.groups_admin, name="groups_admin"),
+    path("manage/settings/", views.settings_page, name="settings_page"),
     path(
         "resources/<uuid:resource_id>/permissions/",
         views.resource_permissions,

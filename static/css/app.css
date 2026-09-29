@@ -157,6 +157,9 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
 
 .auth { max-width: 360px; margin: 4rem auto; }
 
+.settings-row { display: flex; gap: 0.4rem; align-items: center; }
+.settings-row input, .settings-row select { min-width: 220px; }
+
 .cal-nav { display: flex; gap: 0.5rem; margin: 0 0 1rem; }
 .cal-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .cal-grid th { color: var(--muted); font-size: 0.8rem; padding: 0.4rem; }

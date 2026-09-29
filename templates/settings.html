@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Beállítások - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Beállítások</h1>
+    <p class="muted">Az AI, keresés, Git, job és monitoring értékek a DB-ből felülírhatók (env = default). Titkok maszkolva vannak.</p>
+  </div>
+</section>
+
+{% for category, rows in grouped.items %}
+  <section class="git-panel">
+    <h2>{{ category }}</h2>
+    <table class="table">
+      <thead><tr><th>Kulcs</th><th>Leírás</th><th>Érték (felülírva)</th><th>Env default</th><th></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td><code>{{ row.key }}</code>{% if row.requires_restart %} <span class="badge">restart</span>{% endif %}</td>
+            <td class="muted">{{ row.label }}{% if row.description %} — {{ row.description }}{% endif %}</td>
+            <td>
+              <form method="post" class="row settings-row">
+                {% csrf_token %}
+                <input type="hidden" name="key" value="{{ row.key }}">
+                {% if row.value_type == "choice" %}
+                  <select name="value">
+                    <option value="">(-- env --)</option>
+                    {% for choice in row.choices %}
+                      <option value="{{ choice }}" {% if row.current == choice %}selected{% endif %}>{{ choice }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif row.secret %}
+                  <input type="password" name="value" placeholder="{% if row.overridden %}mentve (***){% else %}-- üres --{% endif %}" autocomplete="new-password">
+                {% else %}
+                  <input type="text" name="value" value="{% if not row.secret %}{{ row.current }}{% endif %}" placeholder="{{ row.example }}">
+                {% endif %}
+                <button class="button" type="submit">Ment</button>
+                {% if row.overridden %}
+                  <button class="link" name="reset" value="1" type="submit">töröl</button>
+                {% endif %}
+              </form>
+            </td>
+            <td class="muted">{{ row.env_default|default:"(üres)" }}</td>
+            <td>{% if row.overridden %}<span class="badge">felülírva</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endfor %}
+{% endblock %}

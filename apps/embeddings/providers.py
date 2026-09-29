@@ -15,8 +15,6 @@ import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 
-from django.conf import settings
-
 TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -115,17 +113,19 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
 
 def get_embedding_provider() -> EmbeddingProvider:
-    """Instantiate the configured provider.
+    """Instantiate the configured provider (DB override, else environment).
 
     ``ollama`` is accepted as an alias of ``openai``: a local Ollama server
     exposes the same OpenAI-compatible ``/v1/embeddings`` endpoint.
     """
-    provider = (settings.BRAINBOX_EMBEDDING_PROVIDER or "deterministic").lower()
-    if provider in {"openai", "ollama", "openai-compatible"}:
+    from apps.settings_store.services import get_value
+
+    name = str(get_value("BRAINBOX_EMBEDDING_PROVIDER", "deterministic") or "deterministic").lower()
+    if name in {"openai", "ollama", "openai-compatible"}:
         return OpenAIEmbeddingProvider(
-            settings.BRAINBOX_EMBEDDING_DIM,
-            settings.BRAINBOX_EMBEDDING_MODEL,
-            settings.OPENAI_API_KEY,
-            settings.OPENAI_BASE_URL,
+            int(get_value("BRAINBOX_EMBEDDING_DIM", 256) or 256),
+            str(get_value("BRAINBOX_EMBEDDING_MODEL", "") or ""),
+            str(get_value("OPENAI_API_KEY", "") or ""),
+            str(get_value("OPENAI_BASE_URL", "https://api.openai.com/v1") or ""),
         )
-    return DeterministicEmbeddingProvider(settings.BRAINBOX_EMBEDDING_DIM)
+    return DeterministicEmbeddingProvider(int(get_value("BRAINBOX_EMBEDDING_DIM", 256) or 256))

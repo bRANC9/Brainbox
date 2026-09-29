@@ -38,6 +38,7 @@ from apps.resources.models import Resource
 from apps.search.services import SearchService
 from apps.secrets.models import Secret
 from apps.secrets.services import SecretService
+from apps.settings_store.services import describe
 from apps.workspaces.models import Project, Workspace
 
 from . import serializers as s
@@ -788,6 +789,46 @@ class DeadlineViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
+class RuntimeSettingViewSet(viewsets.ViewSet):
+    """Read/override runtime settings (superuser only)."""
+
+    permission_classes = [IsAuthenticated]
+    lookup_field = "key"
+
+    def _require_superuser(self, request):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Superuser access required.")
+
+    def list(self, request):
+        self._require_superuser(request)
+        return Response(describe())
+
+    def retrieve(self, request, key=None):
+        self._require_superuser(request)
+        rows = {row["key"]: row for row in describe()}
+        if key not in rows:
+            raise ValidationError({"key": "Unknown setting."})
+        return Response(rows[key])
+
+    def partial_update(self, request, key=None):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from apps.settings_store.services import clear_override, set_value
+
+        self._require_superuser(request)
+        if key not in {row["key"] for row in describe()}:
+            raise ValidationError({"key": "Unknown setting."})
+        if request.data.get("reset"):
+            clear_override(key)
+        else:
+            try:
+                set_value(key=key, raw=request.data.get("value", ""), user=request.user)
+            except DjangoValidationError as exc:
+                raise ValidationError(exc.message_dict) from exc
+        rows = {row["key"]: row for row in describe()}
+        return Response(rows[key])
+
+
 class SearchView(APIView):
     permission_classes = [IsAuthenticated]
 

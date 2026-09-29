@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils.text import slugify
@@ -43,7 +42,9 @@ def _autocommit(document: Document, *, user, request, message: str | None = None
 
 def _reindex(document: Document) -> None:
     """Keep the vector index in sync with the source-of-truth file."""
-    if not settings.BRAINBOX_AUTO_INDEX:
+    from apps.settings_store.services import get_value
+
+    if not get_value("BRAINBOX_AUTO_INDEX", True):
         return
     try:
         from apps.embeddings.services import IndexingService
@@ -93,7 +94,9 @@ def _rebuild_deadlines(document: Document) -> None:
 
 def _scan_for_secrets(content: str) -> None:
     """Optionally warn/reject when content looks like it contains credentials."""
-    mode = (settings.BRAINBOX_SECRET_SCAN_MODE or "off").lower()
+    from apps.settings_store.services import get_value
+
+    mode = str(get_value("BRAINBOX_SECRET_SCAN_MODE", "off") or "off").lower()
     if mode not in {"warn", "reject"}:
         return
     try:

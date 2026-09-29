@@ -776,6 +776,60 @@ def tool_deadlines(ctx: ToolContext, args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Runtime settings (UI-managed, superuser)
+# ---------------------------------------------------------------------------
+@tool(
+    "knowledge_get_settings",
+    "Read the current runtime configuration (AI/embedding, search, git, jobs). "
+    "Secret values are masked. Use this to check which model/provider is active.",
+    {"type": "object", "properties": {"category": {"type": "string"}}},
+)
+def tool_get_settings(ctx: ToolContext, args: dict) -> dict:
+    from apps.settings_store.services import describe
+
+    rows = describe()
+    category = args.get("category")
+    if category:
+        rows = [row for row in rows if row["category"].lower() == str(category).lower()]
+    return {
+        "count": len(rows),
+        "settings": {
+            row["key"]: row["current"] for row in rows
+        },
+        "overridden": [row["key"] for row in rows if row["overridden"]],
+    }
+
+
+@tool(
+    "knowledge_set_setting",
+    "Override a runtime setting (superuser only). Secrets are accepted but never echoed back.",
+    {
+        "type": "object",
+        "properties": {
+            "key": {"type": "string", "description": "e.g. BRAINBOX_LLM_MODEL"},
+            "value": {"type": "string"},
+        },
+        "required": ["key", "value"],
+    },
+)
+def tool_set_setting(ctx: ToolContext, args: dict) -> dict:
+    from django.core.exceptions import ValidationError
+
+    from apps.settings_store.services import describe, set_value
+
+    if not getattr(ctx.user, "is_superuser", False):
+        raise ToolError("Superuser access required to change settings.")
+    key = str(args.get("key", ""))
+    if key not in {row["key"] for row in describe()}:
+        raise ToolError(f"Unknown setting '{key}'.")
+    try:
+        set_value(key=key, raw=args.get("value", ""), user=ctx.user)
+    except ValidationError as exc:
+        raise ToolError("; ".join(exc.messages)) from exc
+    return {"key": key, "saved": True}
+
+
+# ---------------------------------------------------------------------------
 # Knowledge intelligence (Phase 7)
 # ---------------------------------------------------------------------------
 @tool(

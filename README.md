@@ -547,6 +547,29 @@ Metrika: `brainbox_deadlines{status}`, `brainbox_deadlines_overdue`.
 
 ---
 
+## Beállítások a felületen (Runtime settings)
+
+Az AI/embedding, keresés, Git, job és monitoring értékek **a web UI-ról** állíthatók
+(`/manage/settings/`, superuser) – a compose/env csak az **alapérték**. A felülírt
+értékek a DB-ben élnek és felülmúlják az env-t, így nem kell a compose-t szerkeszteni
+vagy újraindítani (a provider-ok futásidőben olvassák).
+
+```text
+/manage/settings/                # kategóriánkénti űrlap (AI, Search, Git, Jobs, Monitoring)
+GET    /api/v1/settings/         # listázás (superuser, titkok maszkolva)
+PATCH  /api/v1/settings/<KEY>/   # felülírás: {"value": "..."} vagy {"reset": true}
+MCP    knowledge_get_settings    # agent megnézi az aktív konfigot
+MCP    knowledge_set_setting     # superuser felülír (titkok nem visszhangzva)
+```
+
+A providerek (embedding / LLM / reranker / vector store), a keresési backend, a
+chunkolás, a scheduler és a secret-scanner mind innen olvas. A titkok (API kulcs,
+Git PAT, Qdrant kulcs, metrics token) maszkolva vannak a UI-n és az API-ban
+(„***"), és nem kerülnek auditba. A `manage.py provider_check` a felülírt értékeket
+ellenőrzi.
+
+---
+
 ## Könyvtárszerkezet
 
 ```text
@@ -563,6 +586,7 @@ apps/
   git/                  GitRepository, GitSyncState, GitCommitReference, GitClient, GitService
   jobs/                 DB-backed scheduler: registry, schedule math, Job/JobRun, engine, worker
   deadlines/            KnowledgeDeadline + extraction from files (calendar/agenda/iCal)
+  settings_store/       RuntimeSetting + registry: UI-manageable config overrides
   monitoring/           Prometheus domain collector + /readyz
   embeddings/           KnowledgeChunk, EmbeddingIndexState, providers, chunking, vector stores
   search/               SearchService (text + semantic + hybrid) + rerankers

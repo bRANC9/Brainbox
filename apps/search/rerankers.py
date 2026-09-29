@@ -17,7 +17,6 @@ import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 
-from django.conf import settings
 from django.utils import timezone
 
 STATUS_SCORES = {
@@ -161,13 +160,16 @@ class CrossEncoderReranker(Reranker):
 
 
 def get_reranker() -> Reranker:
-    name = (settings.BRAINBOX_RERANKER or "heuristic").lower()
+    from apps.settings_store.services import get_value
+
+    name = str(get_value("BRAINBOX_RERANKER", "heuristic") or "heuristic").lower()
     if name == "none":
         return NoopReranker()
     if name in {"crossencoder", "cross-encoder"}:
         try:
             return CrossEncoderReranker(
-                settings.BRAINBOX_RERANK_URL, settings.BRAINBOX_RERANK_MODEL
+                str(get_value("BRAINBOX_RERANK_URL", "") or ""),
+                str(get_value("BRAINBOX_RERANK_MODEL", "") or ""),
             )
         except ValueError:
             return HeuristicReranker()

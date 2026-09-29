@@ -11,8 +11,6 @@ import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 
-from django.conf import settings
-
 
 class LLMError(RuntimeError):
     pass
@@ -117,11 +115,13 @@ class OpenAILLMProvider(LLMProvider):
 
 
 def get_llm_provider() -> LLMProvider:
-    provider = (getattr(settings, "BRAINBOX_LLM_PROVIDER", "noop") or "noop").lower()
-    if provider in {"openai", "ollama", "openai-compatible"}:
+    from apps.settings_store.services import get_value
+
+    name = str(get_value("BRAINBOX_LLM_PROVIDER", "noop") or "noop").lower()
+    if name in {"openai", "ollama", "openai-compatible"}:
         return OpenAILLMProvider(
-            settings.OPENAI_API_KEY,
-            settings.OPENAI_BASE_URL,
-            getattr(settings, "BRAINBOX_LLM_MODEL", "gpt-4o-mini"),
+            str(get_value("OPENAI_API_KEY", "") or ""),
+            str(get_value("OPENAI_BASE_URL", "https://api.openai.com/v1") or ""),
+            str(get_value("BRAINBOX_LLM_MODEL", "") or "gpt-4o-mini"),
         )
     return NoopLLMProvider()

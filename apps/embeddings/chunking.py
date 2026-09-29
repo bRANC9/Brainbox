@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import re
 
-from django.conf import settings
-
 from apps.documents.frontmatter import parse_frontmatter
 
 BLOCK_SPLIT = re.compile(r"\n\s*\n")
@@ -14,8 +12,10 @@ BLOCK_SPLIT = re.compile(r"\n\s*\n")
 class ChunkingService:
     @staticmethod
     def chunk(text: str, *, max_chars: int | None = None, overlap: int | None = None) -> list[str]:
-        max_chars = max_chars or settings.BRAINBOX_CHUNK_SIZE
-        overlap = settings.BRAINBOX_CHUNK_OVERLAP if overlap is None else overlap
+        from apps.settings_store.services import get_value
+
+        max_chars = max_chars or int(get_value("BRAINBOX_CHUNK_SIZE", 1200) or 1200)
+        overlap = int(get_value("BRAINBOX_CHUNK_OVERLAP", 150) or 0) if overlap is None else overlap
         max_chars = max(max_chars, 100)
         overlap = max(0, min(overlap, max_chars // 2))
 

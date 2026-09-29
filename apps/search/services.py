@@ -60,8 +60,10 @@ def _snippet(content: str, query: str, length: int = 260) -> str:
 class TextSearchService:
     @classmethod
     def search(cls, query: str, *, filters: dict | None = None, limit: int = 20) -> list[Candidate]:
+        from apps.settings_store.services import get_value
+
         filters = filters or {}
-        if settings.BRAINBOX_SEARCH_BACKEND == "postgres" and connection.vendor == "postgresql":
+        if str(get_value("BRAINBOX_SEARCH_BACKEND", "simple")).lower() == "postgres" and connection.vendor == "postgresql":
             return cls._postgres(query, filters, limit)
         return cls._simple(query, filters, limit)
 

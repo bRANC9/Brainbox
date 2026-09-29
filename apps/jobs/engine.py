@@ -41,7 +41,9 @@ BOOT_ID = f"{socket.gethostname()}:{os.getpid()}"
 # Locking
 # ---------------------------------------------------------------------------
 def _lock_ttl() -> timedelta:
-    return timedelta(seconds=max(10, settings.BRAINBOX_JOB_LOCK_TTL_SEC))
+    from apps.settings_store.services import get_value
+
+    return timedelta(seconds=max(10, int(get_value("BRAINBOX_JOB_LOCK_TTL_SEC", 120) or 120)))
 
 
 def acquire_lock(owner: str | None = None) -> bool:
@@ -171,7 +173,9 @@ def enqueue_run(task_key: str, *, trigger: str = JobTrigger.SYSTEM, payload: dic
 @transaction.atomic
 def tick(now=None) -> int:
     """Create run rows for due jobs. Returns the number of occurrences enqueued."""
-    if not settings.BRAINBOX_SCHEDULER_ENABLED:
+    from apps.settings_store.services import get_value
+
+    if not get_value("BRAINBOX_SCHEDULER_ENABLED", True):
         return 0
     now = now or timezone.now()
 

@@ -513,6 +513,37 @@ def deadlines_ical(request):
 # Management UI (Phase 6)
 # ---------------------------------------------------------------------------
 @login_required
+def settings_page(request):
+    """Runtime settings editor (superuser): AI/embedding, search, git, jobs, monitoring."""
+    from django.core.exceptions import ValidationError
+
+    from apps.settings_store.services import clear_override, describe, set_value
+
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Superuser access required.")
+
+    if request.method == "POST":
+        key = request.POST.get("key", "")
+        if request.POST.get("reset") == "1":
+            clear_override(key)
+            messages.success(request, f"{key}: env default visszaállítva.")
+        else:
+            try:
+                set_value(key=key, raw=request.POST.get("value", ""), user=request.user)
+                messages.success(request, f"{key} elmentve.")
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+        return redirect("web:settings_page")
+
+
+    grouped: dict[str, list[dict]] = {}
+    for row in describe():
+        grouped.setdefault(row["category"], []).append(row)
+
+    return render(request, "settings.html", {"grouped": grouped})
+
+
+@login_required
 def discovery(request):
     buckets = DiscoveryService.discover(
         request.user, workspace_id=request.GET.get("workspace"), limit=50
