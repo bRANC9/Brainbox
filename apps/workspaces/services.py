@@ -35,11 +35,28 @@ def _unique_project_slug(workspace: Workspace, base: str) -> str:
     return slug
 
 
+def _require_actor(created_by, *, what: str):
+    """Refuse to create an object nobody owns.
+
+    Ownership in Brainbox is not a field: it is the implicit
+    ``Permission.ADMIN`` grant issued to ``created_by`` below. With no actor
+    the row would be written with ``created_by=NULL`` and *no ACL entry at
+    all*, so :class:`PermissionService` denies it to everyone - a ghost object
+    that the creator cannot see either. Refusing is the only safe outcome.
+    """
+    if created_by is None:
+        raise ValueError(f"{what} requires created_by; ownerless objects are refused.")
+    if not getattr(created_by, "is_authenticated", True):
+        raise ValueError(f"{what} requires an authenticated created_by.")
+    return created_by
+
+
 class WorkspaceService:
     @staticmethod
     @transaction.atomic
-    def create(*, name: str, slug: str | None = None, description: str = "", created_by=None,
-               request=None) -> Workspace:
+    def create(*, name: str, slug: str | None = None, description: str = "",
+               created_by, request=None) -> Workspace:
+        _require_actor(created_by, what="Workspace creation")
         base_slug = slugify(slug or name)
         resource = ResourceService.create(
             resource_type=ResourceType.WORKSPACE,
@@ -53,14 +70,13 @@ class WorkspaceService:
             description=description,
             created_by=created_by,
         )
-        if created_by is not None:
-            PermissionService.grant(
-                resource,
-                subject_type=SubjectType.USER,
-                subject_id=created_by.id,
-                permission=Permission.ADMIN,
-                created_by=created_by,
-            )
+        PermissionService.grant(
+            resource,
+            subject_type=SubjectType.USER,
+            subject_id=created_by.id,
+            permission=Permission.ADMIN,
+            created_by=created_by,
+        )
         AuditService.log(
             AuditAction.CREATE,
             user=created_by,
@@ -77,7 +93,8 @@ class ProjectService:
     @staticmethod
     @transaction.atomic
     def create(*, workspace: Workspace, name: str, slug: str | None = None,
-               description: str = "", created_by=None, request=None) -> Project:
+               description: str = "", created_by, request=None) -> Project:
+        _require_actor(created_by, what="Project creation")
         base_slug = slugify(slug or name)
         resource = ResourceService.create(
             resource_type=ResourceType.PROJECT,
@@ -93,14 +110,13 @@ class ProjectService:
             description=description,
             created_by=created_by,
         )
-        if created_by is not None:
-            PermissionService.grant(
-                resource,
-                subject_type=SubjectType.USER,
-                subject_id=created_by.id,
-                permission=Permission.ADMIN,
-                created_by=created_by,
-            )
+        PermissionService.grant(
+            resource,
+            subject_type=SubjectType.USER,
+            subject_id=created_by.id,
+            permission=Permission.ADMIN,
+            created_by=created_by,
+        )
         AuditService.log(
             AuditAction.CREATE,
             user=created_by,
