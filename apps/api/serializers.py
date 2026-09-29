@@ -151,7 +151,7 @@ class ResourceLinkSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 class WorkspaceSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="pk", read_only=True)
-    resource = serializers.UUIDField(read_only=True)
+    resource = serializers.UUIDField(source="resource_id", read_only=True)
     document_count = serializers.IntegerField(source="documents.count", read_only=True)
     project_count = serializers.IntegerField(source="project_set.count", read_only=True)
 
@@ -200,7 +200,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
 
 class ProjectSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="pk", read_only=True)
-    resource = serializers.UUIDField(read_only=True)
+    resource = serializers.UUIDField(source="resource_id", read_only=True)
     workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all())
     document_count = serializers.IntegerField(source="documents.count", read_only=True)
 
@@ -506,7 +506,7 @@ class GitCommitReferenceSerializer(serializers.ModelSerializer):
 
 class GitRepositorySerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="pk", read_only=True)
-    resource = serializers.UUIDField(read_only=True)
+    resource = serializers.UUIDField(source="resource_id", read_only=True)
     workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all())
     project = serializers.PrimaryKeyRelatedField(
         queryset=Project.objects.all(), required=False, allow_null=True
