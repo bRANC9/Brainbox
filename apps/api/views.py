@@ -421,23 +421,21 @@ class GroupViewSet(viewsets.ModelViewSet):
     ordering_fields = ["name", "created_at"]
 
     def get_permissions(self):
-        if self.action in {"create", "update", "partial_update", "destroy", "add_member"}:
+        if self.action in {"create", "update", "partial_update", "destroy", "members"}:
             return [IsAdminUser()]
         return [IsAuthenticated()]
 
-    @action(detail=True, methods=["post"], url_path="members")
-    def add_member(self, request, pk=None):
+    @action(detail=True, methods=["get", "post"], url_path="members")
+    def members(self, request, pk=None):
         group = self.get_object()
-        serializer = s.GroupMembershipSerializer(data={**request.data, "group": group.pk})
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    @action(detail=True, methods=["get"], url_path="members")
-    def list_members(self, request, pk=None):
-        group = self.get_object()
-        data = s.GroupMembershipSerializer(group.memberships.all(), many=True).data
-        return Response(data)
+        if request.method == "POST":
+            serializer = s.GroupMembershipSerializer(
+                data={**request.data, "group": group.pk}
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(s.GroupMembershipSerializer(group.memberships.all(), many=True).data)
 
 
 class ApiKeyViewSet(viewsets.ModelViewSet):
