@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% if document %}{% block title %}Edit {{ document.title }} - Brainbox{% endblock %}{% else %}{% block title %}New document - Brainbox{% endblock %}{% endif %}
+{% block title %}{% if document %}Edit {{ document.title }}{% else %}New document{% endif %} - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
   <div>
