@@ -2,7 +2,12 @@
 Folder + document tree for a workspace/project. 'tree_rows' is a flat list with
 a 'depth' so it renders without recursive template tags.
 {% endcomment %}
-<section class="git-panel" id="tree-root">
+<section class="git-panel" id="tree-root"
+         data-workspace="{{ workspace.slug }}"
+         data-project="{{ project.slug|default:'' }}"
+         data-doc-create="{% if project %}{% url 'web:project_document_create' workspace.slug project.slug %}{% else %}{% url 'web:workspace_document_create' workspace.slug %}{% endif %}"
+         data-folder-create="{% if project %}{% url 'web:project_folder_create' workspace.slug project.slug %}{% else %}{% url 'web:workspace_folder_create' workspace.slug %}{% endif %}"
+         data-folder-op="{% url 'web:tree_folder_op' %}">
   <div class="page-head" style="margin-bottom:.5rem">
     <h2 style="margin:0">Fájlok és mappák <span class="muted" style="font-size:.8rem">(húzd a sorokat mappák közé)</span></h2>
     {% if can_write %}
@@ -20,6 +25,15 @@ a 'depth' so it renders without recursive template tags.
     {% endif %}
   </div>
 
+  {% if available_tags %}
+    <p class="tag-filter">Szűrés címkére:
+      <a class="chip {% if not tag_filter %}chip-active{% endif %}" href="?">összes</a>
+      {% for t in available_tags %}
+        <a class="chip {% if tag_filter == t %}chip-active{% endif %}" href="?tag={{ t|urlencode }}">{{ t }}</a>
+      {% endfor %}
+    </p>
+  {% endif %}
+
   {% if tree_rows %}
     <table class="table file-tree">
       <tbody>
@@ -28,16 +42,19 @@ a 'depth' so it renders without recursive template tags.
               draggable="true"
               data-type="{{ row.type }}"
               data-id="{% if row.type == 'doc' %}{{ row.doc.pk }}{% else %}folder:{{ row.path }}{% endif %}"
-              {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% else %}data-folder="{{ row.path }}"{% endif %}>
+              {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% else %}data-folder="{{ row.path }}"{% endif %}
+              data-tags="{{ row.tags|join:',' }}">
             <td style="padding-left: {{ row.depth }}rem">
               {% if row.type == "dir" %}
                 <span class="muted">📁 {{ row.name }}/</span>
+                {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
                 {% if can_write %}
                   <a class="link" href="{% if project %}{% url 'web:project_document_create' workspace.slug project.slug %}?folder={{ row.path|urlencode }}{% else %}{% url 'web:workspace_document_create' workspace.slug %}?folder={{ row.path|urlencode }}{% endif %}">+ doku</a>
                 {% endif %}
               {% else %}
                 📄 <a href="{% url 'web:document_detail' row.doc.pk %}">{{ row.name }}</a>
                 <span class="muted">{{ row.doc.path }}</span>
+                {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
                 <span class="badge badge-{{ row.doc.status }}">{{ row.doc.status }}</span>
                 {% if can_write %}
                   <a class="link" href="{% url 'web:document_edit' row.doc.pk %}">szerk</a>
@@ -59,8 +76,15 @@ a 'depth' so it renders without recursive template tags.
   const csrf = document.querySelector('[name=csrfmiddlewaretoken]');
   if (!csrf) return;
   const url = "{% url 'web:tree_move' %}";
+  const root = document.getElementById('tree-root');
+  const opUrl = root ? root.dataset.folderOp : '';
+  const ws = root ? root.dataset.workspace : '';
+  const proj = root ? root.dataset.project : '';
+  const docCreate = root ? root.dataset.docCreate : '';
+  const folderCreate = root ? root.dataset.folderCreate : '';
   let dragging = null;
 
+  // ---- drag & drop (move) ----------------------------------------------
   document.querySelectorAll('.tree-row').forEach(function (row) {
     row.addEventListener('dragstart', function (e) {
       dragging = row;
@@ -77,7 +101,6 @@ a 'depth' so it renders without recursive template tags.
     });
   });
 
-  // Drop targets: folder rows + the panel itself (move to root).
   document.querySelectorAll('.tree-row[data-type="dir"]').forEach(function (row) {
     row.addEventListener('dragover', function (e) {
       if (!dragging || dragging === row) return;
@@ -95,10 +118,9 @@ a 'depth' so it renders without recursive template tags.
     });
   });
 
-  const panel = document.getElementById('tree-root');
-  if (panel) {
-    panel.addEventListener('dragover', function (e) { e.preventDefault(); });
-    panel.addEventListener('drop', function (e) {
+  if (root) {
+    root.addEventListener('dragover', function (e) { e.preventDefault(); });
+    root.addEventListener('drop', function (e) {
       e.preventDefault();
       if (dragging) send(dragging, '');
     });
@@ -115,6 +137,126 @@ a 'depth' so it renders without recursive template tags.
       else { alert('Nem sikerült áthelyezni: ' + (data.error || 'ismeretlen hiba')); }
     });
   }
+
+  // ---- right-click context menu on folders -------------------------------
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu';
+  menu.style.display = 'none';
+  document.body.appendChild(menu);
+
+  function hideMenu() { menu.style.display = 'none'; }
+
+  function showMenu(x, y, items) {
+    menu.innerHTML = '';
+    items.forEach(function (item) {
+      if (item === '-') {
+        const sep = document.createElement('hr');
+        menu.appendChild(sep);
+        return;
+      }
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = item.label;
+      b.addEventListener('click', function () {
+        hideMenu();
+        item.action();
+      });
+      menu.appendChild(b);
+    });
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    menu.style.display = 'block';
+  }
+
+  document.addEventListener('click', hideMenu);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideMenu(); });
+
+  function postOp(payload) {
+    return fetch(opUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf.value },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data && data.ok) { window.location.reload(); }
+      else { alert(data.error || 'Nem sikerült.'); }
+    });
+  }
+
+  document.querySelectorAll('.tree-row[data-type="dir"]').forEach(function (row) {
+    row.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      const folder = row.dataset.folder;
+      showMenu(e.clientX, e.clientY, [
+        { label: '📄 Új doku itt', action: function () {
+            window.location = docCreate + '?folder=' + encodeURIComponent(folder);
+          } },
+        { label: '📁 Új mappa itt', action: function () {
+            window.location = folderCreate + '?parent=' + encodeURIComponent(folder);
+          } },
+        '-',
+        { label: '✏️ Átnevezés', action: function () {
+            const name = prompt('Új mappanév:', folder.split('/').pop());
+            if (name === null) return;
+            postOp({ op: 'rename', workspace: ws, project: proj, path: folder, name: name });
+          } },
+        { label: '🏷 Címkék', action: function () {
+            const current = (row.dataset.tags || '').split(',').filter(Boolean);
+            const entered = prompt('Címkék (vesszővel):', current.join(', '));
+            if (entered === null) return;
+            const added = entered.split(/[,\s]+/).map(function (t) { return t.trim(); }).filter(Boolean);
+            const removed = current.filter(function (t) { return added.indexOf(t) === -1; });
+            added.filter(function (t) { return current.indexOf(t) === -1; }).forEach(function (t) {
+              postForm('/folders/tags/', { action: 'add', workspace: ws, project: proj, path: folder, tags: t });
+            });
+            removed.forEach(function (t) {
+              postForm('/folders/tags/', { action: 'remove', workspace: ws, project: proj, path: folder, tags: t });
+            });
+          } },
+        { label: '🗑 Törlés', action: function () {
+            if (confirm('Törölöd a(z) "' + folder + '" mappát?')) {
+              postOp({ op: 'delete', workspace: ws, project: proj, path: folder });
+            }
+          } },
+        { label: '📤 Törlés (tartalom a gyökérbe)', action: function () {
+            if (confirm('A(z) "' + folder + '" tartalmát a gyökérbe mozgatom?')) {
+              postOp({ op: 'delete', workspace: ws, project: proj, path: folder, move: 'up' });
+            }
+          } }
+      ]);
+    });
+  });
+function postForm(url, data) {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    Object.keys(data).forEach(function (k) {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = k;
+      input.value = data[k];
+      form.appendChild(input);
+    });
+    form.appendChild(csrf.cloneNode(true));
+    document.body.appendChild(form);
+    form.submit();
+  }
+
+  // Right-click on a document -> tag editor
+  document.querySelectorAll('.tree-row[data-type="doc"]').forEach(function (row) {
+    row.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      const current = (row.dataset.tags || '').split(',').filter(Boolean);
+      const entered = prompt('Címkék (vesszővel):', current.join(', '));
+      if (entered === null) return;
+      const next = entered.split(/[,\s]+/).map(function (t) { return t.trim(); }).filter(Boolean);
+      current.filter(function (t) { return next.indexOf(t) === -1; }).forEach(function (t) {
+        postForm('/documents/' + row.dataset.id + '/tags/', { action: 'remove', tags: t });
+      });
+      next.filter(function (t) { return current.indexOf(t) === -1; }).forEach(function (t) {
+        postForm('/documents/' + row.dataset.id + '/tags/', { action: 'add', tags: t });
+      });
+    });
+  });
+
 })();
 </script>
 {% endif %}

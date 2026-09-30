@@ -13,6 +13,10 @@
 
 <form method="post" class="form">
   {% csrf_token %}
+  {% if parent %}<input type="hidden" name="parent" value="{{ parent }}">{% endif %}
+  {% if parent %}
+    <p class="muted">Új mappa itt: <code>{{ parent }}/</code></p>
+  {% endif %}
   <label>Mappák (soronként egy, pl. <code>dotnet</code>, <code>python</code>, <code>django</code>)
     <textarea name="paths" rows="5" placeholder="dotnet&#10;python&#10;django&#10;legacy/dotnet" autofocus></textarea>
   </label>

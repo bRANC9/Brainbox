@@ -1,8 +1,10 @@
 from django.conf import settings
 from django.db import models
 
+from apps.tags.models import Taggable
 
-class Workspace(models.Model):
+
+class Workspace(Taggable, models.Model):
     """Top level container. Its Resource doubles as its primary key."""
 
     resource = models.OneToOneField(
@@ -36,7 +38,7 @@ class Workspace(models.Model):
         return Project.objects.filter(workspace=self)
 
 
-class Project(models.Model):
+class Project(Taggable, models.Model):
     """A workspace-scoped container with its own Resource and ACL."""
 
     resource = models.OneToOneField(

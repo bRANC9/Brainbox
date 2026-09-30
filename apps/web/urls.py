@@ -9,6 +9,9 @@ app_name = "web"
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("tree/move/", views.tree_move, name="tree_move"),
+    path("tree/folder-op/", views.tree_folder_op, name="tree_folder_op"),
+    path("documents/<uuid:pk>/tags/", views.document_tags, name="document_tags"),
+    path("folders/tags/", views.folder_tags, name="folder_tags"),
     path("search/", views.search, name="search"),
     path("workspaces/<slug:workspace_slug>/folders/", views.folder_create, name="workspace_folder_create"),
     path(

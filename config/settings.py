@@ -71,6 +71,7 @@ LOCAL_APPS = [
     "apps.knowledge",
     "apps.jobs",
     "apps.deadlines",
+    "apps.tags",
     "apps.settings_store",
     "apps.monitoring",
     "apps.audit",

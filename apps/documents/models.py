@@ -4,6 +4,8 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
+from apps.tags.models import Taggable
+
 
 class DocumentStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
@@ -31,7 +33,7 @@ class ChangeSource(models.TextChoices):
     SYSTEM = "system", "System"
 
 
-class Document(models.Model):
+class Document(Taggable, models.Model):
     """Markdown/knowledge document. Content lives on disk; DB holds metadata."""
 
     resource = models.OneToOneField(
@@ -97,7 +99,7 @@ class Document(models.Model):
         return self.title
 
 
-class DocumentFolder(models.Model):
+class DocumentFolder(Taggable, models.Model):
     """A folder inside a workspace/project. Also created on disk.
 
     Folders exist so people can organise knowledge in the UI; they carry no

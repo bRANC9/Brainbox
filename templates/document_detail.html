@@ -40,6 +40,31 @@
     {% if document.summary %}<p class="summary">{{ document.summary }}</p>{% endif %}
   </header>
 
+  {% if can_write %}
+  <section class="git-panel" style="margin:1rem 0">
+    <h2>Címkék</h2>
+    <p class="muted">Kattints egy címke eltávolításához; újat a jobb gombos menüben (a fában) vagy alább adhatsz hozzá.</p>
+    <p>
+      {% for t in tags %}
+        <form method="post" action="{% url 'web:document_tags' document.pk %}" class="inline">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="remove">
+          <input type="hidden" name="tags" value="{{ t }}">
+          <button class="chip" type="submit" title="Kattints az eltávolításhoz">{{ t }} ✕</button>
+        </form>
+      {% endfor %}
+    </p>
+    <form method="post" action="{% url 'web:document_tags' document.pk %}" class="form row">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add">
+      <label style="flex:2">Új címke (vesszővel több is)
+        <input type="text" name="tags" placeholder="azure, bicep">
+      </label>
+      <button class="button" type="submit">Hozzáadás</button>
+    </form>
+  </section>
+{% endif %}
+
   <div class="markdown">{{ rendered_html|safe }}</div>
 
   <section class="links">

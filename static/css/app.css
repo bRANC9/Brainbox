@@ -181,6 +181,48 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
 
 .auth { max-width: 360px; margin: 4rem auto; }
 
+.chip {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-decoration: none;
+  margin-right: 0.2rem;
+}
+a.chip:hover { border-color: var(--accent); color: var(--text); text-decoration: none; }
+.chip-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip-sm { font-size: 0.7rem; padding: 0 0.4rem; }
+.tag-filter { margin: 0 0 0.75rem; }
+
+.ctx-menu {
+  position: fixed;
+  z-index: 50;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.25rem;
+  min-width: 190px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.ctx-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+}
+.ctx-menu button:hover { background: var(--panel-2); }
+.ctx-menu hr { border: none; border-top: 1px solid var(--border); margin: 0.25rem 0; }
+
 .file-tree td { cursor: grab; }
 .file-tree tr.dragging { opacity: 0.4; }
 .file-tree tr.drop-target td { background: rgba(79, 140, 255, 0.18); box-shadow: inset 0 0 0 1px var(--accent); }

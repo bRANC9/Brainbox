@@ -95,7 +95,7 @@ def dashboard(request):
     )
 
 
-def _folder_tree_rows(workspace, project=None, user=None) -> list[dict]:
+def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") -> list[dict]:
     """Flatten the folder+document tree into rows the template can loop.
 
     Folders come from the stored DocumentFolder rows plus every parent path of
@@ -103,12 +103,15 @@ def _folder_tree_rows(workspace, project=None, user=None) -> list[dict]:
     ``{"type": "dir"|"doc", "name", "depth", ...}``.
     """
     from apps.documents.models import Document, DocumentFolder
+    from apps.tags.services import filter_documents_by_tag, tags_for
 
     documents = [
         doc
         for doc in Document.objects.filter(workspace=workspace, project=project)
         if _can(user, doc.resource, Permission.READ)
     ]
+    if tag_filter:
+        documents = filter_documents_by_tag(documents, tag_filter)
     folder_paths = set(
         DocumentFolder.objects.filter(workspace=workspace, project=project).values_list(
             "path", flat=True
@@ -144,13 +147,89 @@ def _folder_tree_rows(workspace, project=None, user=None) -> list[dict]:
         for name in sorted(node["children"]):
             child = node["children"][name]
             path = f"{parent_path}/{name}" if parent_path else name
-            rows.append({"type": "dir", "name": name, "depth": depth, "path": path})
+            rows.append(
+                {
+                    "type": "dir",
+                    "name": name,
+                    "depth": depth,
+                    "path": path,
+                    "tags": _folder_tags(workspace, project, path),
+                }
+            )
             walk(child, depth + 1, path)
         for document in sorted(node["docs"], key=lambda item: item.path):
-            rows.append({"type": "doc", "name": document.title, "depth": depth, "doc": document})
+            rows.append(
+                {
+                    "type": "doc",
+                    "name": document.title,
+                    "depth": depth,
+                    "doc": document,
+                    "tags": tags_for(document),
+                }
+            )
 
     walk(root, 0, "")
     return rows
+
+
+def _folder_tags(workspace, project, path: str) -> list[str]:
+    from apps.documents.models import DocumentFolder
+    from apps.tags.services import tags_for
+
+    folder = DocumentFolder.objects.filter(workspace=workspace, project=project, path=path).first()
+    return tags_for(folder) if folder else []
+
+
+@login_required
+@require_http_methods(["POST"])
+def tree_folder_op(request):
+    """Right-click menu operations on a folder: rename / delete (by path)."""
+    import json as _json
+
+    from django.core.exceptions import ValidationError
+    from django.http import JsonResponse
+
+    from apps.documents.folders import delete_folder, ensure_folder, rename_folder
+
+    try:
+        payload = _json.loads(request.body.decode("utf-8") or "{}")
+    except ValueError:
+        return JsonResponse({"ok": False, "error": "rossz JSON"}, status=400)
+
+    workspace = get_object_or_404(Workspace, slug=payload.get("workspace"))
+    project = (
+        get_object_or_404(Project, workspace=workspace, slug=payload.get("project"))
+        if payload.get("project")
+        else None
+    )
+    resource = project.resource if project else workspace.resource
+    if not _can(request.user, resource, Permission.WRITE):
+        return JsonResponse({"ok": False, "error": "Nincs írási jogosultságod."}, status=403)
+
+    path = (payload.get("path") or "").strip("/")
+    op = payload.get("op")
+    if not path:
+        return JsonResponse({"ok": False, "error": "nincs mappa megadva"}, status=400)
+
+    try:
+        folder = ensure_folder(workspace, project, path, created_by=request.user)
+        if op == "rename":
+            name = (payload.get("name") or "").strip("/")
+            if not name:
+                return JsonResponse({"ok": False, "error": "Üres név."}, status=400)
+            if "/" in name:
+                new_path = name
+            else:
+                parent = path.rsplit("/", 1)[0] if "/" in path else ""
+                new_path = f"{parent}/{name}" if parent else name
+            rename_folder(folder=folder, path=new_path)
+        elif op == "delete":
+            delete_folder(folder=folder, move_to_root=payload.get("move") == "up")
+        else:
+            return JsonResponse({"ok": False, "error": "ismeretlen művelet"}, status=400)
+    except ValidationError as exc:
+        return JsonResponse({"ok": False, "error": "; ".join(exc.messages)}, status=400)
+    return JsonResponse({"ok": True})
 
 
 @login_required
@@ -213,6 +292,7 @@ def folder_create(request, workspace_slug, project_slug=None):
         return HttpResponseForbidden("You do not have write access here.")
 
     if request.method == "POST":
+        parent = (request.POST.get("parent") or "").strip("/")
         raw_paths = [
             line.strip()
             for line in (request.POST.get("paths") or request.POST.get("path") or "").splitlines()
@@ -223,9 +303,10 @@ def folder_create(request, workspace_slug, project_slug=None):
         else:
             ok, failed = 0, []
             for raw in raw_paths:
+                target = f"{parent}/{raw}" if parent else raw
                 try:
                     create_folder(
-                        workspace=workspace, project=project, path=raw, created_by=request.user
+                        workspace=workspace, project=project, path=target, created_by=request.user
                     )
                     ok += 1
                 except ValidationError as exc:
@@ -243,7 +324,11 @@ def folder_create(request, workspace_slug, project_slug=None):
     return render(
         request,
         "folder_form.html",
-        {"workspace": workspace, "project": project},
+        {
+            "workspace": workspace,
+            "project": project,
+            "parent": (request.GET.get("parent") or "").strip("/"),
+        },
     )
 
 
@@ -317,13 +402,16 @@ def workspace_detail(request, workspace_slug):
         if _can(request.user, document.resource, Permission.READ)
     ]
     can_write = _can(request.user, workspace.resource, Permission.WRITE)
+    tag_filter = request.GET.get("tag", "")
     context = {
         "workspace": workspace,
         "projects": projects,
         "documents": documents,
         "can_write": can_write,
         "can_admin": _can(request.user, workspace.resource, Permission.ADMIN),
-        "tree_rows": _folder_tree_rows(workspace, None, request.user),
+        "tree_rows": _folder_tree_rows(workspace, None, request.user, tag_filter),
+        "tag_filter": tag_filter,
+        "available_tags": _available_tags(workspace, None),
         **_git_panel(workspace),
         **_access_context(request, workspace.resource),
     }
@@ -343,12 +431,15 @@ def project_detail(request, workspace_slug, project_slug):
         if _can(request.user, document.resource, Permission.READ)
     ]
     can_write = _can(request.user, project.resource, Permission.WRITE)
+    tag_filter = request.GET.get("tag", "")
     context = {
         "workspace": workspace,
         "project": project,
         "documents": documents,
         "can_write": can_write,
-        "tree_rows": _folder_tree_rows(workspace, project, request.user),
+        "tree_rows": _folder_tree_rows(workspace, project, request.user, tag_filter),
+        "tag_filter": tag_filter,
+        "available_tags": _available_tags(workspace, project),
         **_git_panel(workspace, project),
         **_access_context(request, project.resource),
     }
@@ -362,6 +453,8 @@ def document_detail(request, pk):
         raise Http404
 
     content = DocumentService.read_content(document)
+    from apps.tags.services import effective_tags
+
     outgoing = [
         link
         for link in document.resource.outgoing_links.select_related("target")
@@ -382,6 +475,7 @@ def document_detail(request, pk):
             "outgoing_links": outgoing,
             "incoming_links": incoming,
             "related": GraphService.neighbors(request.user, document.resource, depth=1),
+            "tags": effective_tags(document),
             "can_write": _can(request.user, document.resource, Permission.WRITE),
             "can_admin": _can(request.user, document.resource, Permission.ADMIN),
         },
@@ -871,6 +965,90 @@ def settings_test(request):
 
     request.session["settings_probe"] = {"key": key, **result}
     return redirect(f"{reverse('web:settings_page')}#probe")
+
+
+def _available_tags(workspace, project) -> list[str]:
+    """Tag vocabulary used in this scope, for the filter bar."""
+    from apps.documents.models import Document, DocumentFolder
+    from apps.tags.services import tags_for
+
+    names = set()
+    for document in Document.objects.filter(workspace=workspace, project=project):
+        names.update(tags_for(document))
+    for folder in DocumentFolder.objects.filter(workspace=workspace, project=project):
+        names.update(tags_for(folder))
+    return sorted(n for n in names if n)
+
+
+@login_required
+@require_http_methods(["POST"])
+def document_tags(request, pk):
+    """Attach/detach tags on a document (from the document page or context menu)."""
+    from django.http import JsonResponse
+
+    from apps.documents.models import Document
+    from apps.tags.services import tag_target, untag_target
+
+    document = get_object_or_404(Document.objects.select_related("resource"), pk=pk)
+    if not _can(request.user, document.resource, Permission.WRITE):
+        return HttpResponseForbidden("Nincs írási jogosultságod ehhez a dokumentumhoz.")
+
+    action = request.POST.get("action")
+    names = [
+        part.strip()
+        for part in (request.POST.get("tags") or "").replace(",", " ").split()
+        if part.strip()
+    ]
+    if action == "remove":
+        tags = untag_target(document, names)
+    elif action == "add":
+        tags = tag_target(document, names, user=request.user)
+    else:
+        return JsonResponse({"ok": False, "error": "Ismeretlen művelet"}, status=400)
+
+    if request.headers.get("X-Requested-With") == "fetch":
+        return JsonResponse({"ok": True, "tags": tags})
+    return redirect("web:document_detail", pk=document.pk)
+
+
+@login_required
+@require_http_methods(["POST"])
+def folder_tags(request):
+    """Attach/detach tags on a folder (affects its subtree when filtering)."""
+    from django.http import JsonResponse
+
+    from apps.documents.models import DocumentFolder
+    from apps.tags.services import tag_target, untag_target
+
+    workspace = get_object_or_404(Workspace, slug=request.POST.get("workspace"))
+    project = (
+        get_object_or_404(Project, workspace=workspace, slug=request.POST.get("project"))
+        if request.POST.get("project")
+        else None
+    )
+    resource = project.resource if project else workspace.resource
+    if not _can(request.user, resource, Permission.WRITE):
+        return HttpResponseForbidden("Nincs írási jogosultságod ehhez a mappához.")
+
+    folder = DocumentFolder.objects.filter(
+        workspace=workspace, project=project, path=(request.POST.get("path") or "").strip("/")
+    ).first()
+    if folder is None:
+        from apps.documents.folders import ensure_folder
+
+        folder = ensure_folder(workspace, project, request.POST.get("path") or "", created_by=request.user)
+
+    names = [
+        part.strip()
+        for part in (request.POST.get("tags") or "").replace(",", " ").split()
+        if part.strip()
+    ]
+    action = request.POST.get("action")
+    tags = untag_target(folder, names) if action == "remove" else tag_target(folder, names, user=request.user)
+
+    if request.headers.get("X-Requested-With") == "fetch":
+        return JsonResponse({"ok": True, "tags": tags})
+    return redirect("web:workspace_detail", workspace_slug=workspace.slug)
 
 
 @login_required

@@ -165,6 +165,7 @@ class SearchService:
         workspace_id=None,
         project_id=None,
         status=None,
+        tags: list | None = None,
         limit: int = 10,
         api_key=None,
     ) -> list[dict]:
@@ -205,6 +206,14 @@ class SearchService:
                 pk__in=[candidate.document_id for candidate in merged.values()]
             )
         }
+
+        if tags:
+            from apps.tags.services import filter_documents_by_tag
+
+            allowed_ids = {
+                str(d.pk) for d in filter_documents_by_tag(list(documents.values()), tags[0])
+            }
+            merged = {k: v for k, v in merged.items() if v.document_id in allowed_ids}
 
         scored: list[dict] = []
         seen_documents: set[str] = set()

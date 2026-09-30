@@ -5,9 +5,10 @@ from django.db import models
 from django.db.models import Q
 
 from apps.documents.models import ChangeSource, ChangeType
+from apps.tags.models import Taggable
 
 
-class File(models.Model):
+class File(Taggable, models.Model):
     """Arbitrary binary/text file. Bytes live on disk, metadata in the DB."""
 
     resource = models.OneToOneField(
