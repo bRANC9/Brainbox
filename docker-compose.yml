@@ -96,9 +96,10 @@ services:
       BRAINBOX_ADMIN_PASSWORD: ${BRAINBOX_ADMIN_PASSWORD:-}
     volumes:
       - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
-    # Static files are regenerated on boot into a tmpfs, so no host-side
-    # ownership is required (avoids "Permission denied" on collectstatic).
-    tmpfs: ["/app/staticfiles"]
+    # Static files are regenerated on boot, so no host-side data is needed. A
+    # bare tmpfs mount is created root-owned, which the app user (uid 1000)
+    # cannot write -- that is what makes collectstatic fail. Pin the ownership.
+    tmpfs: ["/app/staticfiles:uid=1000,gid=1000,mode=0755"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     labels:

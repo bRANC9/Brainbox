@@ -8,6 +8,17 @@
   </div>
 </section>
 
+{% if probe %}
+  <div class="git-panel" id="probe">
+    <h2>Teszt: {{ probe.key }}</h2>
+    <p>
+      {% if probe.ok == True %}<span class="badge badge-approved">OK</span>{% elif probe.ok == False %}<span class="badge badge-archived">HIBA</span>{% else %}<span class="badge">nincs teszt</span>{% endif %}
+      <span class="muted">{{ probe.detail }}</span>
+    </p>
+    {% if probe.dimension %}<p class="muted">Mért dimenzió: {{ probe.dimension }}</p>{% endif %}
+  </div>
+{% endif %}
+
 {% for category, rows in grouped.items %}
   <section class="git-panel">
     <h2>{{ category }}</h2>
@@ -40,6 +51,14 @@
                   <button class="link" name="reset" value="1" type="submit">töröl</button>
                 {% endif %}
               </form>
+              {% if row.key in testable %}
+                <form method="post" action="{% url 'web:settings_test' %}" class="inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="key" value="{{ row.key }}">
+                  <input type="hidden" name="deep" value="1">
+                  <button class="button" type="submit" title="Valódi hívás a modell-szerverhez">tesztelés</button>
+                </form>
+              {% endif %}
             </td>
             <td class="muted">{{ row.env_default|default:"(üres)" }}</td>
             <td>{% if row.overridden %}<span class="badge">felülírva</span>{% endif %}</td>

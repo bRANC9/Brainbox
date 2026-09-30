@@ -110,6 +110,13 @@ DEFINITIONS: tuple[SettingDefinition, ...] = (
     # -- Monitoring & security ---------------------------------------------
     SettingDefinition("BRAINBOX_METRICS_TOKEN", "Metrics token", "Monitoring",
                       "Ha üres, /metrics nyitott", secret=True),
+    SettingDefinition(
+        "BRAINBOX_REQUIRE_EMBEDDING",
+        "Embedding kötelező a readiness-ben",
+        "Monitoring",
+        "Ha be van kapcsolva, a /readyz 503-at ad, ha az embedding provider nem érhető el",
+        value_type="bool",
+    ),
 )
 
 BY_KEY = {definition.key: definition for definition in DEFINITIONS}

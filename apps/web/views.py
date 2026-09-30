@@ -603,6 +603,25 @@ def settings_page(request):
 
 
 @login_required
+def settings_test(request):
+    """Run a connectivity probe for one setting (the 'tesztelés' button)."""
+    from apps.settings_store.probes import probe_for_key
+
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Superuser access required.")
+
+    key = request.POST.get("key", "")
+    deep = request.POST.get("deep") == "1"
+    try:
+        result = probe_for_key(key, deep=deep)
+    except Exception as exc:  # noqa: BLE001 - surface the error in the UI
+        result = {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+
+    request.session["settings_probe"] = {"key": key, **result}
+    return redirect(f"{reverse('web:settings_page')}#probe")
+
+
+@login_required
 def discovery(request):
     buckets = DiscoveryService.discover(
         request.user, workspace_id=request.GET.get("workspace"), limit=50

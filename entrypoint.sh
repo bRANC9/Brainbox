@@ -21,16 +21,20 @@ else
 fi
 
 echo "[brainbox] collecting static files..."
-# Static collection is best-effort: a permission problem on a bind-mounted
-# STATIC_ROOT must not take the whole app down (the service still serves; only
-# the styling may be stale). Migrations above stay fatal on purpose.
-if python manage.py collectstatic --noinput; then
+# collectstatic_safe clears stale assets first (plain collectstatic never does,
+# so a persistent STATIC_ROOT keeps serving an old build's CSS forever) and
+# falls back to a plain collect if that would leave the dir empty. It also logs
+# what landed where, which is what makes a bad static dir diagnosable.
+#
+# Still best-effort: a permission problem on a bind-mounted STATIC_ROOT must not
+# take the whole app down. /readyz reports the static dir separately, so a
+# broken one is visible without the container failing to boot. Migrations above
+# stay fatal on purpose.
+if python manage.py collectstatic_safe --noinput; then
     :
 else
-    echo "[brainbox] WARNING: collectstatic failed (continuing)." >&2
-    echo "[brainbox] If the UI looks unstyled, fix the owner of the static dir:" >&2
-    echo "[brainbox]   chown -R $(id -u):$(id -g) <host-path-of-/app/staticfiles>" >&2
-    echo "[brainbox] or mount /app/staticfiles as a tmpfs in the compose file." >&2
+    echo "[brainbox] WARNING: static collection failed (continuing)." >&2
+    echo "[brainbox] The UI may be unstyled; /readyz reports the static dir." >&2
 fi
 
 if [ -n "${BRAINBOX_ADMIN_USERNAME:-}" ] && [ -n "${BRAINBOX_ADMIN_PASSWORD:-}" ]; then

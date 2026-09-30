@@ -43,6 +43,8 @@ urlpatterns = [
     path("manage/audit/", views.audit_dashboard, name="audit_dashboard"),
     path("manage/groups/", views.groups_admin, name="groups_admin"),
     path("manage/settings/", views.settings_page, name="settings_page"),
+    path("manage/settings/test/", views.settings_test, name="settings_test"),
+    path("manage/settings/test/", views.settings_test, name="settings_test"),
     path(
         "resources/<uuid:resource_id>/permissions/",
         views.resource_permissions,
