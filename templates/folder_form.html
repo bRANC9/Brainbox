@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Új mappa - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="crumbs">
+      <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
+      {% if project %} / <a href="{% url 'web:project_detail' workspace.slug project.slug %}">{{ project.name }}</a>{% endif %}
+    </p>
+    <h1>Új mappa</h1>
+  </div>
+</section>
+
+<form method="post" class="form">
+  {% csrf_token %}
+  <label>Útvonal (almappákhoz "/" karakter)
+    <input type="text" name="path" placeholder="techdebt" required autofocus>
+  </label>
+  <div class="row">
+    <button class="button primary" type="submit">Létrehozás</button>
+    {% if project %}
+      <a class="button" href="{% url 'web:project_detail' workspace.slug project.slug %}">Mégse</a>
+    {% else %}
+      <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Mégse</a>
+    {% endif %}
+  </div>
+</form>
+
+<p class="muted">A mappa létrejön a lemezen is. Több .md fájlt tehetsz bele – a „+ doku" gomb a kiválasztott mappában nyit új dokumentumot.</p>
+{% endblock %}

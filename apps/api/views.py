@@ -20,7 +20,7 @@ from apps.accounts.services import ApiKeyService
 from apps.audit.models import AuditAction, AuditEvent, AuditSource
 from apps.audit.services import AuditService
 from apps.deadlines.models import KnowledgeDeadline
-from apps.documents.models import Document, DocumentStatus, DocumentVersion
+from apps.documents.models import Document, DocumentFolder, DocumentStatus, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File
 from apps.files.services import FileService
@@ -787,6 +787,54 @@ class DeadlineViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
+class FolderViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    serializer_class = s.FolderSerializer
+    search_fields = ["path"]
+    ordering_fields = ["path", "created_at"]
+
+    def get_queryset(self):
+        return DocumentFolder.objects.select_related("workspace", "project")
+
+    def get_create_target(self, validated_data):
+        project = validated_data.get("project")
+        if project is not None:
+            return project.resource
+        workspace = validated_data.get("workspace")
+        return workspace.resource if workspace else None
+
+    def perform_create(self, serializer):
+        from django.core.exceptions import ValidationError
+
+        from apps.documents.folders import create_folder
+
+        data = serializer.validated_data
+        try:
+            create_folder(
+                workspace=data["workspace"],
+                project=data.get("project"),
+                path=data["path"],
+                created_by=self.request.user,
+            )
+        except ValidationError as exc:
+            raise ValidationError(exc.message_dict) from exc
+        serializer.instance = DocumentFolder.objects.get(
+            workspace=data["workspace"], project=data.get("project"), path=serializer.validated_data["path"]
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+
+        from apps.documents.folders import delete_folder
+
+        folder = self.get_object()
+        try:
+            delete_folder(folder=folder, move_to_root=request.data.get("move") == "up")
+        except ValidationError as exc:
+            raise ValidationError(exc.message_dict) from exc
+        return Response(status=204)
+
+
 class RuntimeSettingViewSet(viewsets.ViewSet):
     """Read/override runtime settings (superuser only)."""
 

@@ -19,8 +19,11 @@
     </label>
     {% if not document %}
       <label>Path (optional)
-        <input type="text" name="path" placeholder="skills/azure-bicep/SKILL.md">
-      </label>
+        <input type="text" name="path" value="{% if document %}{{ document.path }}{% else %}{{ prefill_path }}{% endif %}" placeholder="skills/azure-bicep/SKILL.md" list="folder-paths">
+      <datalist id="folder-paths">
+        {% for row in folders %}{% if row.type == "dir" %}<option value="{{ row.path }}/">{% endif %}{% endfor %}
+      </datalist>
+    </label>
     {% endif %}
   </div>
   <div class="row">

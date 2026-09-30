@@ -93,6 +93,105 @@ def dashboard(request):
     )
 
 
+def _folder_tree_rows(workspace, project=None, user=None) -> list[dict]:
+    """Flatten the folder+document tree into rows the template can loop.
+
+    Folders come from the stored DocumentFolder rows plus every parent path of
+    the documents (so git-imported trees show up too). Rows are
+    ``{"type": "dir"|"doc", "name", "depth", ...}``.
+    """
+    from apps.documents.models import Document, DocumentFolder
+
+    documents = [
+        doc
+        for doc in Document.objects.filter(workspace=workspace, project=project)
+        if _can(user, doc.resource, Permission.READ)
+    ]
+    folder_paths = set(
+        DocumentFolder.objects.filter(workspace=workspace, project=project).values_list(
+            "path", flat=True
+        )
+    )
+    for document in documents:
+        parts = (document.path or "").split("/")[:-1]
+        for index in range(1, len(parts) + 1):
+            folder_paths.add("/".join(parts[:index]))
+
+    # node[path] = {"children": {name: path}, "docs": [...]}
+    root = {"children": {}, "docs": []}
+    for folder_path in sorted(folder_paths):
+        node = root
+        prefix = ""
+        for segment in folder_path.split("/"):
+            prefix = f"{prefix}/{segment}" if prefix else segment
+            node["children"].setdefault(segment, {"children": {}, "docs": [], "path": prefix})
+            node = node["children"][segment]
+
+    for document in documents:
+        parts = (document.path or "").split("/")[:-1]
+        node = root
+        prefix = ""
+        for segment in parts:
+            prefix = f"{prefix}/{segment}" if prefix else segment
+            node = node["children"][segment]
+        node["docs"].append(document)
+
+    rows: list[dict] = []
+
+    def walk(node: dict, depth: int, parent_path: str) -> None:
+        for name in sorted(node["children"]):
+            child = node["children"][name]
+            path = f"{parent_path}/{name}" if parent_path else name
+            rows.append({"type": "dir", "name": name, "depth": depth, "path": path})
+            walk(child, depth + 1, path)
+        for document in sorted(node["docs"], key=lambda item: item.path):
+            rows.append({"type": "doc", "name": document.title, "depth": depth, "doc": document})
+
+    walk(root, 0, "")
+    return rows
+
+
+@login_required
+def folder_create(request, workspace_slug, project_slug=None):
+    """Create a folder inside a workspace/project."""
+    from django.core.exceptions import ValidationError
+
+    from apps.documents.folders import create_folder
+
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    project = (
+        get_object_or_404(Project, workspace=workspace, slug=project_slug)
+        if project_slug
+        else None
+    )
+    target = project.resource if project else workspace.resource
+    if not _can(request.user, target, Permission.WRITE):
+        return HttpResponseForbidden("You do not have write access here.")
+
+    if request.method == "POST":
+        try:
+            create_folder(
+                workspace=workspace,
+                project=project,
+                path=request.POST.get("path", ""),
+                created_by=request.user,
+            )
+            messages.success(request, "Folder created.")
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        if project:
+            return redirect(
+                "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug
+            )
+        return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+
+    return render(
+        request,
+        "folder_form.html",
+        {"workspace": workspace, "project": project},
+    )
+
+
 @login_required
 def search(request):
     query = request.GET.get("q", "").strip()
@@ -163,12 +262,13 @@ def workspace_detail(request, workspace_slug):
         if _can(request.user, document.resource, Permission.READ)
     ]
     can_write = _can(request.user, workspace.resource, Permission.WRITE)
-    # can_admin / can_share / entry_rows come from _access_context.
     context = {
         "workspace": workspace,
         "projects": projects,
         "documents": documents,
         "can_write": can_write,
+        "can_admin": _can(request.user, workspace.resource, Permission.ADMIN),
+        "tree_rows": _folder_tree_rows(workspace, None, request.user),
         **_git_panel(workspace),
         **_access_context(request, workspace.resource),
     }
@@ -193,6 +293,7 @@ def project_detail(request, workspace_slug, project_slug):
         "project": project,
         "documents": documents,
         "can_write": can_write,
+        "tree_rows": _folder_tree_rows(workspace, project, request.user),
         **_git_panel(workspace, project),
         **_access_context(request, project.resource),
     }
@@ -268,6 +369,10 @@ def document_create(request, workspace_slug, project_slug=None):
             "document": None,
             "content": "",
             "statuses": DocumentStatus.choices,
+            "folders": _folder_tree_rows(workspace, project, request.user),
+            "prefill_path": (request.GET.get("folder", "") + "/")
+            if request.GET.get("folder")
+            else "",
         },
     )
 
@@ -303,6 +408,8 @@ def document_edit(request, pk):
             "document": document,
             "content": DocumentService.read_content(document),
             "statuses": DocumentStatus.choices,
+            "folders": _folder_tree_rows(document.workspace, document.project, request.user),
+            "prefill_path": "",
         },
     )
 

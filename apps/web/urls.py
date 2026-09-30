@@ -9,6 +9,12 @@ app_name = "web"
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("search/", views.search, name="search"),
+    path("workspaces/<slug:workspace_slug>/folders/", views.folder_create, name="workspace_folder_create"),
+    path(
+        "workspaces/<slug:workspace_slug>/<slug:project_slug>/folders/",
+        views.folder_create,
+        name="project_folder_create",
+    ),
     path("discover/", views.discovery, name="discovery"),
     path("calendar/", views.calendar, name="calendar"),
     path("calendar/agenda/", views.agenda, name="agenda"),

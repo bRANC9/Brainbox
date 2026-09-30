@@ -1,0 +1,45 @@
+{% comment %}
+Folder + document tree for a workspace/project. 'tree_rows' is a flat list with
+a 'depth' so it renders without recursive template tags.
+{% endcomment %}
+<section class="git-panel">
+  <div class="page-head" style="margin-bottom:.5rem">
+    <h2 style="margin:0">Fájlok és mappák</h2>
+    {% if can_write %}
+      <span>
+        {% if project %}
+          <a class="button" href="{% url 'web:project_folder_create' workspace.slug project.slug %}">Új mappa</a>
+          <a class="button primary" href="{% url 'web:project_document_create' workspace.slug project.slug %}">Új doku</a>
+        {% else %}
+          <a class="button" href="{% url 'web:workspace_folder_create' workspace.slug %}">Új mappa</a>
+          <a class="button primary" href="{% url 'web:workspace_document_create' workspace.slug %}">Új doku</a>
+        {% endif %}
+      </span>
+    {% endif %}
+  </div>
+
+  {% if tree_rows %}
+    <table class="table file-tree">
+      <tbody>
+        {% for row in tree_rows %}
+          <tr>
+            <td style="padding-left: {{ row.depth }}rem">
+              {% if row.type == "dir" %}
+                <span class="muted">📁 {{ row.name }}/</span>
+                {% if can_write %}
+                  <a class="link" href="{% if project %}{% url 'web:project_document_create' workspace.slug project.slug %}?folder={{ row.path|urlencode }}{% else %}{% url 'web:workspace_document_create' workspace.slug %}?folder={{ row.path|urlencode }}{% endif %}">+ doku</a>
+                {% endif %}
+              {% else %}
+                📄 <a href="{% url 'web:document_detail' row.doc.pk %}">{{ row.name }}</a>
+                <span class="muted">{{ row.doc.path }}</span>
+                <span class="badge badge-{{ row.doc.status }}">{{ row.doc.status }}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Még nincs mappa vagy dokumentum ebben a scope-ban.</p>
+  {% endif %}
+</section>

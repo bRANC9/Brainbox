@@ -82,6 +82,18 @@ def _rebuild_links(document: Document, *, user, request) -> None:
         logger.exception("link rebuild failed for document %s", document.pk)
 
 
+def _register_folders(document: Document) -> None:
+    """Make sure the document's parent folders exist in the folder tree."""
+    if "/" not in (document.path or ""):
+        return
+    try:
+        from .folders import register_parents
+
+        register_parents(document.workspace, document.project, document.path)
+    except Exception:  # noqa: BLE001 - folder bookkeeping must not break a write
+        logger.exception("folder registration failed for document %s", document.pk)
+
+
 def _rebuild_deadlines(document: Document) -> None:
     """Re-extract deadlines mentioned in the document (files stay source of truth)."""
     try:
@@ -256,6 +268,7 @@ class DocumentService:
             _autocommit(document, user=created_by, request=request)
         _rebuild_links(document, user=created_by, request=request)
         _rebuild_deadlines(document)
+        _register_folders(document)
         _reindex(document)
         return document
 
@@ -329,6 +342,7 @@ class DocumentService:
             _autocommit(document, user=user, request=request)
         _rebuild_links(document, user=user, request=request)
         _rebuild_deadlines(document)
+        _register_folders(document)
         _reindex(document)
         return document
 
