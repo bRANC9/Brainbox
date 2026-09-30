@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 from django.core.management import CommandError, call_command
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 MARKER = "css/app.css"
 
@@ -143,8 +143,13 @@ class UnwritableTargetTests(SimpleTestCase):
         self.assertTrue((root / MARKER).exists())
 
 
-class ReadyzStaticCheckTests(SimpleTestCase):
-    """A missing marker must make readiness fail, not pass quietly."""
+class ReadyzStaticCheckTests(TestCase):
+    """A missing marker must be reported without failing readiness.
+
+    ``TestCase``, not ``SimpleTestCase``: ``/readyz`` opens a database cursor, and
+    SimpleTestCase forbids that, which would show up as ``database: error`` and
+    mask what these tests are actually about.
+    """
 
     def _readyz(self):
         from django.test import Client
@@ -159,7 +164,13 @@ class ReadyzStaticCheckTests(SimpleTestCase):
             body = self._readyz().json()
         self.assertEqual(body.get("static"), "ok")
 
-    def test_readyz_fails_when_marker_missing(self):
+    def test_readyz_reports_missing_static_without_going_unready(self):
+        """An unstyled UI is a correctness problem, not an availability one.
+
+        Failing readiness here would pull a working instance out of rotation over
+        cosmetics, and would break every environment where collectstatic has not
+        run yet (CI, a bare dev checkout).
+        """
         tmp = Path(tempfile.mkdtemp())
         fx = _Fixture(tmp)
         empty = tmp / "emptystatic"
@@ -171,4 +182,5 @@ class ReadyzStaticCheckTests(SimpleTestCase):
             body = response.json()
         self.assertEqual(body.get("static"), "missing")
         self.assertEqual(body.get("static_dir"), str(empty))
-        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.status_code, 200, "a missing asset must not fail readiness")
+        self.assertEqual(body.get("status"), "ok")

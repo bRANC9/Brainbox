@@ -58,8 +58,12 @@ def readyz(request):
         healthy = False
 
     # Static assets are collected at boot by `collectstatic_safe`. A missing
-    # marker file means the UI is being served unstyled, which is invisible from
-    # outside unless it is reported here.
+    # marker file means the UI is being served unstyled -- worth reporting, but
+    # deliberately NOT fatal. Unstyled is a correctness problem, not an
+    # availability one: failing readiness here would pull a working instance out
+    # of rotation over cosmetics, and it would also make /readyz fail anywhere
+    # collectstatic has not run yet (CI, a bare dev checkout). The collection
+    # command itself fails loudly, and the entrypoint logs it.
     try:
         static_root = Path(settings.STATIC_ROOT)
         if (static_root / MARKER_ASSET).exists():
@@ -67,10 +71,8 @@ def readyz(request):
         else:
             checks["static"] = "missing"
             checks["static_dir"] = str(static_root)
-            healthy = False
     except Exception:  # noqa: BLE001
         checks["static"] = "error"
-        healthy = False
 
     # AI providers (optional dependency: degrade, don't kill the app).
     try:
