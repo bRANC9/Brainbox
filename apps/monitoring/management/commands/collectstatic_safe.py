@@ -74,17 +74,25 @@ class Command(CollectStaticCommand):
             probe = probe.parent
         return probe if probe.is_dir() and os.access(probe, os.W_OK) else None
 
+    @staticmethod
+    def _identity() -> str:
+        """Current uid:gid, or a portable placeholder on Windows."""
+        uid = getattr(os, "getuid", lambda: "?")()
+        gid = getattr(os, "getgid", lambda: "?")()
+        return f"{uid}:{gid}"
+
     def _diagnose(self, root: Path, sources: list[Path], problem: str) -> str:
-        uid = f"{os.getuid()}:{os.getgid()}"
+        identity = self._identity()
+        uid, _, gid = identity.partition(":")
         return "\n".join(
             [
                 problem,
-                f"  target  : {root} (want uid {uid})",
+                f"  target  : {root} (want uid {identity})",
                 f"  sources : {', '.join(str(p) for p in sources) or '(none)'}",
                 "  fix     : mount /app/staticfiles as a tmpfs owned by the "
-                f"container uid ({uid}), e.g.",
-                f"           tmpfs: [\"/app/staticfiles:uid={os.getuid()},"
-                f"gid={os.getgid()},mode=0755\"]",
+                f"container uid ({identity}), e.g.",
+                f'           tmpfs: ["/app/staticfiles:uid={uid},'
+                f"gid={gid},mode=0755\"]",
             ]
         )
 

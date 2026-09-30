@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}Beállítások - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
@@ -24,11 +24,11 @@
     <h2>{{ category }}</h2>
     <div class="scroll-x">
     <table class="table">
-      <thead><tr><th>Kulcs</th><th>Leírás</th><th>Érték (felülírva)</th><th>Env default</th><th></th></tr></thead>
+      <thead><tr><th>Kulcs</th><th>Leírás</th><th>Érték (felülírva)</th><th>Env alapérték</th><th></th></tr></thead>
       <tbody>
         {% for row in rows %}
           <tr>
-            <td><code>{{ row.key }}</code>{% if row.requires_restart %} <span class="badge">restart</span>{% endif %}</td>
+            <td><code>{{ row.key }}</code>{% if row.requires_restart %} <span class="badge">újraindítás</span>{% endif %}</td>
             <td class="muted">{{ row.label }}{% if row.description %} — {{ row.description }}{% endif %}</td>
             <td>
               <form method="post" class="row settings-row">

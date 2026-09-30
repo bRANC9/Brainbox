@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
+{% load ui %}
 {% block title %}{{ document.title }} - Brainbox{% endblock %}
 {% block content %}
 <article class="document">
@@ -18,21 +19,21 @@
       &middot; updated {{ document.updated_at|date:"Y-m-d H:i" }}
     </p>
     <div class="actions">
-      <a class="button" href="{% url 'web:document_history' document.pk %}">History</a>
+      <a class="button" href="{% url 'web:document_history' document.pk %}">Előzmények</a>
       {% if can_write %}
-        <a class="button primary" href="{% url 'web:document_edit' document.pk %}">Edit</a>
+        <a class="button primary" href="{% url 'web:document_edit' document.pk %}">Szerkesztés</a>
       {% endif %}
       {% if can_admin %}
-        <a class="button" href="{% url 'web:resource_permissions' document.resource_id %}">Permissions</a>
+        <a class="button" href="{% url 'web:resource_permissions' document.resource_id %}">Jogosultságok</a>
       {% endif %}
       {% if can_write %}
         {% if document.status == "approved" %}
           <form method="post" action="{% url 'web:document_reject' document.pk %}" class="inline">
-            {% csrf_token %}<button class="button" type="submit">Move to draft</button>
+            {% csrf_token %}<button class="button" type="submit">Vissza a draft-ba</button>
           </form>
         {% else %}
           <form method="post" action="{% url 'web:document_approve' document.pk %}" class="inline">
-            {% csrf_token %}<button class="button" type="submit">Approve</button>
+            {% csrf_token %}<button class="button" type="submit">Jóváhagyás</button>
           </form>
         {% endif %}
       {% endif %}
@@ -68,20 +69,20 @@
   <div class="markdown">{{ rendered_html|safe }}</div>
 
   <section class="links">
-    <h2>Outgoing links</h2>
+    <h2>Kimenő linkek</h2>
     {% if outgoing_links %}
       <ul>
         {% for link in outgoing_links %}<li>[{{ link.link_type }}] {{ link.target.name }}</li>{% endfor %}
       </ul>
     {% else %}<p class="muted">None.</p>{% endif %}
-    <h2>Backlinks</h2>
+    <h2>Visszautalálások</h2>
     {% if incoming_links %}
       <ul>
         {% for link in incoming_links %}<li>[{{ link.link_type }}] {{ link.source.name }}</li>{% endfor %}
       </ul>
     {% else %}<p class="muted">None.</p>{% endif %}
 
-    <h2>Related knowledge</h2>
+    <h2>Kapcsolódó tudás</h2>
     {% if related %}
       <ul>
         {% for item in related %}

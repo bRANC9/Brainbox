@@ -1,10 +1,11 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
+{% load ui %}
 {% block title %}Discover - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
   <div>
-    <h1>Discover knowledge</h1>
-    <p class="muted">Skills, patterns, conventions, decisions and examples you can read.</p>
+    <h1>Tudás felfedezése</h1>
+    <p class="muted">Skills, patternök, konvenciók, döntések és példák, amelyeket el tudsz olvasni.</p>
   </div>
 </section>
 
@@ -15,12 +16,12 @@
       {% for item in items %}
         <li>
           <a href="{% url 'web:document_detail' item.document_id %}">{{ item.title }}</a>
-          <span class="badge badge-{{ item.status }}">{{ item.status }}</span>
-          <span class="muted">priority {{ item.priority }}</span>
+          <span class="badge badge-{{ item.status|hu }}">{{ item.status|hu }}</span>
+          <span class="muted">prioritás {{ item.priority }}</span>
           {% if item.summary %}<p class="muted">{{ item.summary }}</p>{% endif %}
         </li>
       {% empty %}
-        <li class="muted">Nothing here yet.</li>
+        <li class="muted">Még nincs semmi itt.</li>
       {% endfor %}
     </ul>
   </section>

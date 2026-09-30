@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{% if document %}Edit {{ document.title }}{% else %}New document{% endif %} - Brainbox{% endblock %}
+{% load ui %}
+{% block title %}Dokumentum - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
   <div>
@@ -7,7 +8,8 @@
       <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
       {% if project %} / <a href="{% url 'web:project_detail' workspace.slug project.slug %}">{{ project.name }}</a>{% endif %}
     </p>
-    <h1>{% if document %}Edit document{% else %}New document{% endif %}</h1>
+    <h1>{% if document %}Dokumentum szerkesztése{% else %}Új dokumentum{% endif %}</h1>
+    {% if document %}<p class="muted">{{ document.title }} &middot; {{ document.path }}</p>{% endif %}
   </div>
 </section>
 
@@ -20,47 +22,47 @@
 <form method="post" class="form">
   {% csrf_token %}
   <div class="row">
-    <label>Title
+    <label>Cím
       <input type="text" name="title" value="{{ document.title|default:'' }}" required>
     </label>
     {% if not document %}
-      <label>Path (optional)
-        <input type="text" name="path" value="{% if document %}{{ document.path }}{% else %}{{ prefill_path }}{% endif %}" placeholder="skills/azure-bicep/SKILL.md" list="folder-paths">
-      <datalist id="folder-paths">
-        {% for row in folders %}{% if row.type == "dir" %}<option value="{{ row.path }}/">{% endif %}{% endfor %}
-      </datalist>
-    </label>
+      <label>Útvonal (opcionális)
+        <input type="text" name="path" value="{{ prefill_path }}" placeholder="skills/azure-bicep/SKILL.md" list="folder-paths">
+        <datalist id="folder-paths">
+          {% for row in folders %}{% if row.type == "dir" %}<option value="{{ row.path }}/">{% endif %}{% endfor %}
+        </datalist>
+      </label>
     {% endif %}
   </div>
   <div class="row">
-    <label>Status
+    <label>Státusz
       <select name="status">
         {% for value, label in statuses %}
-          <option value="{{ value }}" {% if document and document.status == value %}selected{% endif %}>{{ label }}</option>
+          <option value="{{ value }}" {% if document and document.status == value %}selected{% elif not document and value == "draft" %}selected{% endif %}>{{ value|hu }}</option>
         {% endfor %}
       </select>
     </label>
-    <label>Priority
+    <label>Prioritás
       <input type="number" name="priority" value="{{ document.priority|default:0 }}">
     </label>
   </div>
   <label>Összefoglaló
     <input type="text" name="summary" value="{{ document.summary|default:'' }}">
   </label>
-  <label>Ez egy sablon (új dokumentumok példányosíthatók belőle)
+  <label class="inline-check">Ez egy sablon (új dokumentumok példányosíthatók belőle)
     <input type="checkbox" name="is_template" {% if document.is_template %}checked{% endif %}>
   </label>
 
-  <label>Content (Markdown, YAML frontmatter supported)
+  <label>Tartalom (Markdown, YAML frontmatter támogatott)
     <textarea name="content" id="editor" rows="20">{{ content }}</textarea>
   </label>
 
   <div class="row">
-    <button type="submit" class="button primary">Save</button>
+    <button type="submit" class="button primary">Mentés</button>
     {% if document %}
-      <a class="button" href="{% url 'web:document_detail' document.pk %}">Cancel</a>
+      <a class="button" href="{% url 'web:document_detail' document.pk %}">Mégse</a>
     {% else %}
-      <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Cancel</a>
+      <a class="button" href="{% if project %}{% url 'web:project_detail' workspace.slug project.slug %}{% else %}{% url 'web:workspace_detail' workspace.slug %}{% endif %}">Mégse</a>
     {% endif %}
   </div>
 </form>

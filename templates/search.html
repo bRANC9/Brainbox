@@ -1,8 +1,8 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}Search - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
-  <h1>Search</h1>
+  <h1>Keresés</h1>
 </section>
 
 <form method="get" class="form row">
@@ -11,9 +11,9 @@
   </label>
   <label>Mode
     <select name="mode">
-      <option value="hybrid" {% if mode == "hybrid" %}selected{% endif %}>Hybrid</option>
-      <option value="text" {% if mode == "text" %}selected{% endif %}>Full-text</option>
-      <option value="semantic" {% if mode == "semantic" %}selected{% endif %}>Semantic</option>
+      <option value="hybrid" {% if mode == "hybrid" %}selected{% endif %}>Hibrid</option>
+      <option value="text" {% if mode == "text" %}selected{% endif %}>Szöveges</option>
+      <option value="semantic" {% if mode == "semantic" %}selected{% endif %}>Szemantikus</option>
     </select>
   </label>
   <button type="submit" class="button primary">Search</button>
@@ -33,7 +33,7 @@
       {% endfor %}
     </ol>
   {% else %}
-    <p class="muted">No results.</p>
+    <p class="muted">Nincs találat.</p>
   {% endif %}
 {% else %}
   <p class="muted">

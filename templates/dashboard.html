@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Dashboard - Brainbox{% endblock %}
+{% load ui %}
+{% block title %}Vezérlőpult - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
   <h1>Workspaces</h1>
@@ -10,35 +11,33 @@
     {% for workspace in workspaces %}
       <a class="card" href="{% url 'web:workspace_detail' workspace.slug %}">
         <h2>{{ workspace.name }}</h2>
-        <p class="muted">{{ workspace.description|default:"No description" }}</p>
-        <p class="meta">{{ workspace.project_count }} projects &middot; {{ workspace.document_count }} documents</p>
+        <p class="muted">{{ workspace.description|default:"Nincs leírás" }}</p>
+        <p class="meta">{{ workspace.project_count }} projekt &middot; {{ workspace.document_count }} dokumentum</p>
       </a>
     {% endfor %}
   </div>
 {% else %}
-  <p class="muted">No workspaces available. Create one with <code>manage.py bootstrap</code> on first boot, or <code>POST /api/v1/workspaces/</code> with an API key. The Django admin cannot create them: a workspace is created together with its access-control entry, and the admin bypasses that.</p>
+  <p class="muted">Nincs elérhető workspace. Hozz létre egyet az <a href="/api/v1/workspaces/">API</a>-n vagy az <a href="/admin/">admin</a>-ban.</p>
 {% endif %}
 
 <section class="page-head">
-  <h1>Recent documents</h1>
+  <h1>Legutóbbi dokumentumok</h1>
 </section>
 {% if recent_documents %}
-  <div class="scroll-x">
   <table class="table">
-    <thead><tr><th>Title</th><th>Workspace</th><th>Status</th><th>Updated</th></tr></thead>
+    <thead><tr><th>Cím</th><th>Workspace</th><th>Státusz</th><th>Frissítve</th></tr></thead>
     <tbody>
       {% for document in recent_documents %}
         <tr>
           <td><a href="{% url 'web:document_detail' document.pk %}">{{ document.title }}</a></td>
           <td>{{ document.workspace.name }}{% if document.project %} / {{ document.project.name }}{% endif %}</td>
-          <td><span class="badge badge-{{ document.status }}">{{ document.get_status_display }}</span></td>
+          <td><span class="badge badge-{{ document.status }}">{{ document.status|hu }}</span></td>
           <td>{{ document.updated_at|date:"Y-m-d H:i" }}</td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
-  </div>
 {% else %}
-  <p class="muted">No documents yet.</p>
+  <p class="muted">Még nincs dokumentum.</p>
 {% endif %}
 {% endblock %}

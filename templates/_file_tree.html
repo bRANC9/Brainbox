@@ -1,3 +1,4 @@
+﻿{% load ui %}
 {% comment %}
 Folder + document tree for a workspace/project. 'tree_rows' is a flat list with
 a 'depth' so it renders without recursive template tags.
@@ -55,7 +56,7 @@ a 'depth' so it renders without recursive template tags.
                 📄 <a href="{% url 'web:document_detail' row.doc.pk %}">{{ row.name }}</a>
                 <span class="muted">{{ row.doc.path }}</span>
                 {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
-                <span class="badge badge-{{ row.doc.status }}">{{ row.doc.status }}</span>
+                <span class="badge badge-{{ row.doc.status|hu }}">{{ row.doc.status|hu }}</span>
                 {% if can_write %}
                   <a class="link" href="{% url 'web:document_edit' row.doc.pk %}">szerk</a>
                 {% endif %}

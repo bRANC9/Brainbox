@@ -1,4 +1,4 @@
-{% if git_repository %}
+﻿{% if git_repository %}
 <section class="git-panel">
   <h2>Git</h2>
   <p class="meta">
@@ -22,7 +22,7 @@
       <form method="post" action="{% url 'web:workspace_git_pull' workspace.slug %}" class="inline">
     {% endif %}
       {% csrf_token %}
-      <button class="button" type="submit">Sync from Git</button>
+      <button class="button" type="submit">Szinkronizálás Gitből</button>
     </form>
   {% endif %}
   {% if git_commits %}

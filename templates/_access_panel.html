@@ -1,3 +1,4 @@
+﻿{% load ui %}
 {% comment %}
 Shared access (ACL) panel. Works inline on a workspace/project page and on the
 standalone /resources/<id>/permissions/ page. 'access_url' is where grant/revoke
@@ -13,9 +14,9 @@ forms post; 'standalone' shows the heading.
       {% for row in entry_rows %}
         <tr>
           <td>{{ row.label }}</td>
-          <td>{{ row.entry.get_subject_type_display }}</td>
-          <td>{{ row.entry.get_permission_display }}</td>
-          <td>{{ row.entry.get_effect_display }}</td>
+          <td>{{ row.entry.subject_type|hu }}</td>
+          <td>{{ row.entry.permission|hu }}</td>
+          <td>{{ row.entry.effect|hu }}</td>
           <td>{{ row.entry.inherit|yesno:"igen,no" }}</td>
           {% if can_admin %}
             <td>

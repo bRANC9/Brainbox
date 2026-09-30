@@ -409,7 +409,12 @@ class DocumentService:
                 skipped.append({"file": safe_rel, "reason": "nem utf-8 szöveg"})
                 continue
             rel_path = f"{prefix}/{safe_rel}" if prefix else safe_rel
-            title = Path(safe_rel).stem.replace("_", " ").replace("-", " ").strip()
+            stem = Path(safe_rel).stem
+            for suffix in (".md", ".markdown", ".txt"):
+                if stem.lower().endswith(suffix):
+                    stem = stem[: -len(suffix)]
+                    break
+            title = stem.replace("_", " ").replace("-", " ").strip()
             try:
                 document = DocumentService.create(
                     workspace=workspace,

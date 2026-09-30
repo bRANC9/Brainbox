@@ -1,32 +1,33 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
+{% load ui %}
 {% block title %}Audit - Brainbox{% endblock %}
 {% block content %}
-<section class="page-head"><h1>Audit log</h1></section>
+<section class="page-head"><h1>Audit napló</h1></section>
 
 <form method="get" class="form row">
   <label>Action
     <select name="action">
-      <option value="">All</option>
+      <option value="">Mind</option>
       {% for value, label in actions %}
         <option value="{{ value }}" {% if action == value %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
   </label>
-  <button class="button" type="submit">Filter</button>
+  <button class="button" type="submit">Szűrés</button>
 </form>
 
 <div class="scroll-x">
 <table class="table">
-  <thead><tr><th>When</th><th>Action</th><th>Result</th><th>User</th><th>Resource</th><th>Source</th></tr></thead>
+  <thead><tr><th>Mikor</th><th>Művelet</th><th>Eredmény</th><th>Felhasználó</th><th>Erőforrás</th><th>Forrás</th></tr></thead>
   <tbody>
     {% for event in events %}
       <tr>
         <td>{{ event.timestamp|date:"Y-m-d H:i:s" }}</td>
-        <td>{{ event.get_action_display }}</td>
-        <td>{{ event.get_result_display }}</td>
+        <td>{{ event.action|hu }}</td>
+        <td>{{ event.result|hu }}</td>
         <td>{{ event.user|default:"-" }}</td>
         <td>{{ event.resource|default:"-" }}</td>
-        <td>{{ event.get_source_display }}</td>
+        <td>{{ event.source|hu }}</td>
       </tr>
     {% empty %}
       <tr><td colspan="6" class="muted">No events.</td></tr>
