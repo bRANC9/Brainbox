@@ -265,6 +265,75 @@ class DocumentViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
             }
         )
 
+    @action(detail=False, methods=["post"], url_path="bulk", parser_classes=[MultiPartParser, FormParser])
+    def bulk(self, request):
+        """Create many documents at once from uploaded markdown files."""
+        from apps.documents.services import DocumentService
+
+        workspace = get_object_or_404(Workspace, pk=request.data.get("workspace"))
+        project = (
+            get_object_or_404(Project, pk=request.data["project"])
+            if request.data.get("project")
+            else None
+        )
+        target = project.resource if project else workspace.resource
+        if not PermissionService.check(
+            request.user, target, Permission.WRITE, api_key=api_key_from_request(request)
+        ):
+            raise PermissionDenied("Write permission required on the target.")
+        uploads = [(f.name, f.read()) for f in request.FILES.getlist("files")]
+        if not uploads:
+            raise ValidationError({"files": "No files supplied."})
+        folder = (request.data.get("folder") or "").strip()
+        result = DocumentService.bulk_create_from_files(
+            workspace=workspace,
+            project=project,
+            folder=folder,
+            uploads=uploads,
+            created_by=request.user,
+            request=request,
+            api_key=api_key_from_request(request),
+        )
+        return Response(
+            {
+                "created": [s.DocumentSerializer(doc).data for doc in result["created"]],
+                "skipped": result["skipped"],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=["post"], url_path="from-template")
+    def from_template(self, request):
+        """Instantiate a new document from a template."""
+        from apps.documents.services import DocumentService
+
+        template = get_object_or_404(Document, pk=request.data.get("template_id"))
+        workspace = get_object_or_404(Workspace, pk=request.data.get("workspace"))
+        project = (
+            get_object_or_404(Project, pk=request.data["project"])
+            if request.data.get("project")
+            else None
+        )
+        target = project.resource if project else workspace.resource
+        if not PermissionService.check(
+            request.user, target, Permission.WRITE, api_key=api_key_from_request(request)
+        ):
+            raise PermissionDenied("Write permission required on the target.")
+        document = DocumentService.instantiate_template(
+            template=template,
+            workspace=workspace,
+            project=project,
+            title=request.data.get("title", ""),
+            path=request.data.get("path", ""),
+            folder=request.data.get("folder", ""),
+            created_by=request.user,
+            request=request,
+            api_key=api_key_from_request(request),
+        )
+        return Response(
+            s.DocumentSerializer(document).data, status=status.HTTP_201_CREATED
+        )
+
     @action(detail=True, methods=["get"])
     def related(self, request, pk=None):
         document = self.get_object()

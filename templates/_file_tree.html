@@ -9,9 +9,11 @@ a 'depth' so it renders without recursive template tags.
       <span>
         {% if project %}
           <a class="button" href="{% url 'web:project_folder_create' workspace.slug project.slug %}">Új mappa</a>
+          <a class="button" href="{% url 'web:project_bulk_upload' workspace.slug project.slug %}">Tömeges feltöltés</a>
           <a class="button primary" href="{% url 'web:project_document_create' workspace.slug project.slug %}">Új doku</a>
         {% else %}
           <a class="button" href="{% url 'web:workspace_folder_create' workspace.slug %}">Új mappa</a>
+          <a class="button" href="{% url 'web:workspace_bulk_upload' workspace.slug %}">Tömeges feltöltés</a>
           <a class="button primary" href="{% url 'web:workspace_document_create' workspace.slug %}">Új doku</a>
         {% endif %}
       </span>

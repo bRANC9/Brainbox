@@ -7,9 +7,12 @@ immutable :class:`DocumentVersion` snapshot for history/diff/restore.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
+import yaml
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 from django.utils.text import slugify
 
 from apps.audit.models import AuditAction, AuditSource
@@ -189,6 +192,7 @@ class DocumentService:
         metadata: dict | None = None,
         status: str | None = None,
         priority: int | None = None,
+        is_template: bool = False,
         created_by=None,
         source: str = ChangeSource.WEB,
         request=None,
@@ -235,6 +239,7 @@ class DocumentService:
             frontmatter=frontmatter,
             metadata=meta,
             current_version=1,
+            is_template=is_template,
             created_by=created_by,
         )
 
@@ -360,6 +365,105 @@ class DocumentService:
             source=ChangeSource.WEB,
             request=request,
             api_key=api_key,
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def bulk_create_from_files(
+        *,
+        workspace,
+        project=None,
+        folder: str = "",
+        uploads,
+        created_by=None,
+        source=ChangeSource.WEB,
+        request=None,
+        api_key=None,
+    ) -> dict:
+        """Create one Document per uploaded markdown file into a folder.
+
+        ``uploads`` is an iterable of ``(filename, content_bytes)``. Each file
+        lands at ``<folder>/<filename>``; duplicates and unreadable files are
+        reported instead of aborting the whole batch.
+        """
+        created = []
+        skipped = []
+        for name, data in uploads:
+            filename = (name or "").strip().split("/")[-1]
+            if not filename:
+                continue
+            try:
+                content = data.decode("utf-8") if isinstance(data, (bytes, bytearray)) else str(data)
+            except UnicodeDecodeError:
+                skipped.append({"file": filename, "reason": "nem utf-8 szöveg"})
+                continue
+            rel_path = f"{folder.strip('/')}/{filename}" if folder else filename
+            title = Path(filename).stem.replace("_", " ").replace("-", " ").strip()
+            try:
+                document = DocumentService.create(
+                    workspace=workspace,
+                    project=project,
+                    title=title or filename,
+                    path=rel_path,
+                    content=content,
+                    created_by=created_by,
+                    source=source,
+                    request=request,
+                )
+            except ValidationError as exc:
+                skipped.append({"file": filename, "reason": "; ".join(exc.messages)})
+                continue
+            created.append(document)
+        return {"created": created, "skipped": skipped}
+
+    @classmethod
+    @transaction.atomic
+    def instantiate_template(
+        cls,
+        *,
+        template,
+        workspace,
+        project=None,
+        title: str = "",
+        path: str = "",
+        folder: str = "",
+        created_by=None,
+        request=None,
+        api_key=None,
+        status: str = DocumentStatus.DRAFT,
+    ):
+        """Create a new document from a template, filling simple placeholders."""
+        content = DocumentService.read_content(template)
+        frontmatter, body = parse_frontmatter(content)
+        # Templates are knowledge inputs, not published knowledge.
+        frontmatter.pop("status", None)
+        title = title or (str(frontmatter.get("title") or template.title).strip())
+        body = (
+            body.replace("{{title}}", title)
+            .replace("{{date}}", timezone.now().date().isoformat())
+        )
+        rendered = body
+        if frontmatter:
+            rendered = (
+                "---\n"
+                + yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
+                + "---\n\n"
+                + body.lstrip("\n")
+            )
+        rel_path = path or (
+            f"{folder.strip('/')}/{title}.md" if folder else f"{title}.md"
+        )
+        return cls.create(
+            workspace=workspace,
+            project=project,
+            title=title,
+            path=rel_path,
+            content=rendered,
+            status=status,
+            metadata={"created_from_template": str(template.pk), "template_title": template.title},
+            created_by=created_by,
+            source=ChangeSource.MCP if request is None else ChangeSource.API,
+            request=request,
         )
 
     @staticmethod

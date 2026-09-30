@@ -289,6 +289,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             "path",
             "summary",
             "mime_type",
+            "is_template",
             "status",
             "priority",
             "frontmatter",

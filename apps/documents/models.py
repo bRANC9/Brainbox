@@ -55,6 +55,11 @@ class Document(models.Model):
     path = models.CharField(max_length=1024, help_text="Relative path under the documents dir")
     summary = models.TextField(blank=True)
     mime_type = models.CharField(max_length=128, default="text/markdown")
+    is_template = models.BooleanField(
+        default=False,
+        help_text="Sablon: nem kerül a keresési indexbe, de új dokumentumok "
+        "példányosíthatók belőle.",
+    )
     status = models.CharField(
         max_length=16, choices=DocumentStatus.choices, default=DocumentStatus.DRAFT
     )

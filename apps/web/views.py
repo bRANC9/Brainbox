@@ -335,6 +335,63 @@ def document_detail(request, pk):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+def document_bulk_upload(request, workspace_slug, project_slug=None):
+    """Upload many .md files into a folder of a workspace/project at once."""
+    from apps.documents.folders import ensure_folder
+    from apps.documents.services import DocumentService
+
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    project = (
+        get_object_or_404(Project, workspace=workspace, slug=project_slug)
+        if project_slug
+        else None
+    )
+    target = project.resource if project else workspace.resource
+    if not _can(request.user, target, Permission.WRITE):
+        return HttpResponseForbidden("You do not have write access here.")
+
+    if request.method == "POST":
+        folder = (request.POST.get("folder") or "").strip()
+        uploads = [
+            (uploaded.name, uploaded.read()) for uploaded in request.FILES.getlist("files")
+        ]
+        if not uploads:
+            messages.error(request, "Válassz ki legalább egy fájlt.")
+        else:
+            if folder:
+                ensure_folder(workspace, project, folder, created_by=request.user)
+            result = DocumentService.bulk_create_from_files(
+                workspace=workspace,
+                project=project,
+                folder=folder,
+                uploads=uploads,
+                created_by=request.user,
+                source=ChangeSource.WEB,
+                request=request,
+            )
+            messages.success(request, f"{len(result['created'])} fájl betöltve.")
+            for skipped in result["skipped"]:
+                messages.warning(f"{skipped['file']}: {skipped['reason']}")
+        if project:
+            return redirect(
+                "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug
+            )
+        return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+
+    folders = [
+        row["path"]
+        for row in _folder_tree_rows(workspace, project, request.user)
+        if row["type"] == "dir"
+    ]
+    return render(
+        request,
+        "document_bulk_form.html",
+        {"workspace": workspace, "project": project, "folders": folders},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
 def document_create(request, workspace_slug, project_slug=None):
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
     project = None
@@ -345,14 +402,22 @@ def document_create(request, workspace_slug, project_slug=None):
         return HttpResponseForbidden("You do not have write access here.")
 
     if request.method == "POST":
+        from apps.documents.folders import ensure_folder
+
+        path = (request.POST.get("path") or "").strip()
+        if path:
+            parent = path.rsplit("/", 1)[0] if "/" in path else ""
+            if parent:
+                ensure_folder(workspace, project, parent, created_by=request.user)
         document = DocumentService.create(
             workspace=workspace,
             project=project,
             title=request.POST.get("title", ""),
-            path=request.POST.get("path") or None,
+            path=path or None,
             content=request.POST.get("content", ""),
             summary=request.POST.get("summary", ""),
             status=request.POST.get("status") or None,
+            is_template=request.POST.get("is_template") == "on",
             created_by=request.user,
             source=ChangeSource.WEB,
             request=request,
@@ -360,6 +425,21 @@ def document_create(request, workspace_slug, project_slug=None):
         messages.success(request, f"Document '{document.title}' created.")
         return redirect("web:document_detail", pk=document.pk)
 
+    templates = [
+        t
+        for t in Document.objects.filter(
+            workspace=workspace, project=project, is_template=True
+        )
+        if _can(request.user, t.resource, Permission.READ)
+    ]
+    prefill = ""
+    template_id = request.GET.get("template")
+    if template_id:
+        chosen = next((t for t in templates if str(t.pk) == str(template_id)), None)
+        if chosen is not None:
+            from apps.documents.services import DocumentService as _Svc
+
+            prefill = _Svc.read_content(chosen)
     return render(
         request,
         "document_form.html",
@@ -367,12 +447,13 @@ def document_create(request, workspace_slug, project_slug=None):
             "workspace": workspace,
             "project": project,
             "document": None,
-            "content": "",
+            "content": prefill,
             "statuses": DocumentStatus.choices,
             "folders": _folder_tree_rows(workspace, project, request.user),
             "prefill_path": (request.GET.get("folder", "") + "/")
             if request.GET.get("folder")
             else "",
+            "templates": templates,
         },
     )
 

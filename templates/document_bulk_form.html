@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Tömeges feltöltés - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="crumbs">
+      <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
+      {% if project %} / <a href="{% url 'web:project_detail' workspace.slug project.slug %}">{{ project.name }}</a>{% endif %}
+    </p>
+    <h1>Tömeges feltöltés</h1>
+    <p class="muted">Válassz ki több .md fájlt egyszerre – mindegyik külön dokumentum lesz.</p>
+  </div>
+</section>
+
+<form method="post" enctype="multipart/form-data" class="form">
+  {% csrf_token %}
+  <label>Célmappa (opcionális, pl. deploy)
+    <input type="text" name="folder" placeholder="deploy" list="folder-list">
+    <datalist id="folder-list">
+      {% for path in folders %}<option value="{{ path }}">{% endfor %}
+    </datalist>
+  </label>
+  <label>Fájlok (.md)
+    <input type="file" name="files" multiple accept=".md,.markdown,.txt">
+  </label>
+  <div class="row">
+    <button class="button primary" type="submit">Betöltés</button>
+    {% if project %}
+      <a class="button" href="{% url 'web:project_detail' workspace.slug project.slug %}">Mégse</a>
+    {% else %}
+      <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Mégse</a>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}
