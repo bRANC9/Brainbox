@@ -2,7 +2,9 @@
 .gitignore
 .github
 .venv
+.venv-local
 venv
+env
 __pycache__
 *.py[cod]
 *.egg-info

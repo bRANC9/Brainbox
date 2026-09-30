@@ -158,6 +158,19 @@ USE_TZ = True
 
 
 # ---------------------------------------------------------------------------
+# Build identity
+# ---------------------------------------------------------------------------
+# The commit the image was built from, baked in by the Dockerfile's
+# ``APP_GIT_SHA`` build arg (the build workflow passes ``github.sha``). It is
+# surfaced by ``/healthz`` and ``/readyz`` so a running instance can be
+# identified without shell access -- which matters because the only other way to
+# tell two deployments apart is to diff behaviour from the outside. ``"dev"``
+# means "not baked in" (local runs, tests).
+
+APP_GIT_SHA = os.environ.get("APP_GIT_SHA", "dev")
+
+
+# ---------------------------------------------------------------------------
 # Static / media
 # ---------------------------------------------------------------------------
 STATIC_URL = "/static/"
@@ -261,6 +274,7 @@ BRAINBOX_RERANK_MODEL = os.environ.get("BRAINBOX_RERANK_MODEL", "")
 # Monitoring
 # If set, /metrics requires this token (Bearer or ?token=). Empty = open.
 BRAINBOX_METRICS_TOKEN = os.environ.get("BRAINBOX_METRICS_TOKEN", "")
+BRAINBOX_REQUIRE_EMBEDDING = env_bool("BRAINBOX_REQUIRE_EMBEDDING", False)
 
 # Background jobs (DB-backed scheduler + worker, ai-handler style)
 BRAINBOX_SCHEDULER_ENABLED = env_bool("BRAINBOX_SCHEDULER_ENABLED", True)

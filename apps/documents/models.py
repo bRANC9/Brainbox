@@ -55,6 +55,11 @@ class Document(models.Model):
     path = models.CharField(max_length=1024, help_text="Relative path under the documents dir")
     summary = models.TextField(blank=True)
     mime_type = models.CharField(max_length=128, default="text/markdown")
+    is_template = models.BooleanField(
+        default=False,
+        help_text="Sablon: nem kerül a keresési indexbe, de új dokumentumok "
+        "példányosíthatók belőle.",
+    )
     status = models.CharField(
         max_length=16, choices=DocumentStatus.choices, default=DocumentStatus.DRAFT
     )
@@ -90,6 +95,50 @@ class Document(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+
+class DocumentFolder(models.Model):
+    """A folder inside a workspace/project. Also created on disk.
+
+    Folders exist so people can organise knowledge in the UI; they carry no
+    content of their own (files remain the source of truth). Creating a document
+    with a nested path auto-registers the parent folders, so the tree stays
+    correct even for folders imported from git.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        "workspaces.Workspace", on_delete=models.CASCADE, related_name="folders"
+    )
+    project = models.ForeignKey(
+        "workspaces.Project",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="folders",
+    )
+    path = models.CharField(max_length=1024)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_folders",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "documents_folder"
+        ordering = ["path"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "project", "path"], name="uniq_folder_path"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return self.path
 
 
 class DocumentVersion(models.Model):

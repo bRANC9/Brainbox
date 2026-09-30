@@ -9,6 +9,12 @@ app_name = "web"
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("search/", views.search, name="search"),
+    path("workspaces/<slug:workspace_slug>/folders/", views.folder_create, name="workspace_folder_create"),
+    path(
+        "workspaces/<slug:workspace_slug>/<slug:project_slug>/folders/",
+        views.folder_create,
+        name="project_folder_create",
+    ),
     path("discover/", views.discovery, name="discovery"),
     path("calendar/", views.calendar, name="calendar"),
     path("calendar/agenda/", views.agenda, name="agenda"),
@@ -42,7 +48,19 @@ urlpatterns = [
     path("manage/api-keys/", views.api_keys, name="api_keys"),
     path("manage/audit/", views.audit_dashboard, name="audit_dashboard"),
     path("manage/groups/", views.groups_admin, name="groups_admin"),
+    path(
+        "workspaces/<slug:workspace_slug>/bulk-upload/",
+        views.document_bulk_upload,
+        name="workspace_bulk_upload",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/<slug:project_slug>/bulk-upload/",
+        views.document_bulk_upload,
+        name="project_bulk_upload",
+    ),
     path("manage/settings/", views.settings_page, name="settings_page"),
+    path("manage/settings/test/", views.settings_test, name="settings_test"),
+    path("manage/settings/test/", views.settings_test, name="settings_test"),
     path(
         "resources/<uuid:resource_id>/permissions/",
         views.resource_permissions,

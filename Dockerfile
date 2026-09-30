@@ -9,6 +9,13 @@
 
 FROM python:3.12-slim
 
+# The commit this image was built from, surfaced by /healthz and /readyz so a
+# running instance can be identified without shell access. The build workflow
+# passes it as a build arg; a local build without it stays "dev". Declared after
+# FROM because ENV is only valid inside a stage.
+ARG APP_GIT_SHA=dev
+ENV APP_GIT_SHA=${APP_GIT_SHA}
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \

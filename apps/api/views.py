@@ -20,7 +20,7 @@ from apps.accounts.services import ApiKeyService
 from apps.audit.models import AuditAction, AuditEvent, AuditSource
 from apps.audit.services import AuditService
 from apps.deadlines.models import KnowledgeDeadline
-from apps.documents.models import Document, DocumentStatus, DocumentVersion
+from apps.documents.models import Document, DocumentFolder, DocumentStatus, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File
 from apps.files.services import FileService
@@ -263,6 +263,75 @@ class DocumentViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
                 "to": target.version,
                 "diff": "\n".join(diff_lines),
             }
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk", parser_classes=[MultiPartParser, FormParser])
+    def bulk(self, request):
+        """Create many documents at once from uploaded markdown files."""
+        from apps.documents.services import DocumentService
+
+        workspace = get_object_or_404(Workspace, pk=request.data.get("workspace"))
+        project = (
+            get_object_or_404(Project, pk=request.data["project"])
+            if request.data.get("project")
+            else None
+        )
+        target = project.resource if project else workspace.resource
+        if not PermissionService.check(
+            request.user, target, Permission.WRITE, api_key=api_key_from_request(request)
+        ):
+            raise PermissionDenied("Write permission required on the target.")
+        uploads = [(f.name, f.read()) for f in request.FILES.getlist("files")]
+        if not uploads:
+            raise ValidationError({"files": "No files supplied."})
+        folder = (request.data.get("folder") or "").strip()
+        result = DocumentService.bulk_create_from_files(
+            workspace=workspace,
+            project=project,
+            folder=folder,
+            uploads=uploads,
+            created_by=request.user,
+            request=request,
+            api_key=api_key_from_request(request),
+        )
+        return Response(
+            {
+                "created": [s.DocumentSerializer(doc).data for doc in result["created"]],
+                "skipped": result["skipped"],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=["post"], url_path="from-template")
+    def from_template(self, request):
+        """Instantiate a new document from a template."""
+        from apps.documents.services import DocumentService
+
+        template = get_object_or_404(Document, pk=request.data.get("template_id"))
+        workspace = get_object_or_404(Workspace, pk=request.data.get("workspace"))
+        project = (
+            get_object_or_404(Project, pk=request.data["project"])
+            if request.data.get("project")
+            else None
+        )
+        target = project.resource if project else workspace.resource
+        if not PermissionService.check(
+            request.user, target, Permission.WRITE, api_key=api_key_from_request(request)
+        ):
+            raise PermissionDenied("Write permission required on the target.")
+        document = DocumentService.instantiate_template(
+            template=template,
+            workspace=workspace,
+            project=project,
+            title=request.data.get("title", ""),
+            path=request.data.get("path", ""),
+            folder=request.data.get("folder", ""),
+            created_by=request.user,
+            request=request,
+            api_key=api_key_from_request(request),
+        )
+        return Response(
+            s.DocumentSerializer(document).data, status=status.HTTP_201_CREATED
         )
 
     @action(detail=True, methods=["get"])
@@ -787,6 +856,54 @@ class DeadlineViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
+class FolderViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    serializer_class = s.FolderSerializer
+    search_fields = ["path"]
+    ordering_fields = ["path", "created_at"]
+
+    def get_queryset(self):
+        return DocumentFolder.objects.select_related("workspace", "project")
+
+    def get_create_target(self, validated_data):
+        project = validated_data.get("project")
+        if project is not None:
+            return project.resource
+        workspace = validated_data.get("workspace")
+        return workspace.resource if workspace else None
+
+    def perform_create(self, serializer):
+        from django.core.exceptions import ValidationError
+
+        from apps.documents.folders import create_folder
+
+        data = serializer.validated_data
+        try:
+            create_folder(
+                workspace=data["workspace"],
+                project=data.get("project"),
+                path=data["path"],
+                created_by=self.request.user,
+            )
+        except ValidationError as exc:
+            raise ValidationError(exc.message_dict) from exc
+        serializer.instance = DocumentFolder.objects.get(
+            workspace=data["workspace"], project=data.get("project"), path=serializer.validated_data["path"]
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+
+        from apps.documents.folders import delete_folder
+
+        folder = self.get_object()
+        try:
+            delete_folder(folder=folder, move_to_root=request.data.get("move") == "up")
+        except ValidationError as exc:
+            raise ValidationError(exc.message_dict) from exc
+        return Response(status=204)
+
+
 class RuntimeSettingViewSet(viewsets.ViewSet):
     """Read/override runtime settings (superuser only)."""
 

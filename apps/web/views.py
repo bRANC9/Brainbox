@@ -93,6 +93,105 @@ def dashboard(request):
     )
 
 
+def _folder_tree_rows(workspace, project=None, user=None) -> list[dict]:
+    """Flatten the folder+document tree into rows the template can loop.
+
+    Folders come from the stored DocumentFolder rows plus every parent path of
+    the documents (so git-imported trees show up too). Rows are
+    ``{"type": "dir"|"doc", "name", "depth", ...}``.
+    """
+    from apps.documents.models import Document, DocumentFolder
+
+    documents = [
+        doc
+        for doc in Document.objects.filter(workspace=workspace, project=project)
+        if _can(user, doc.resource, Permission.READ)
+    ]
+    folder_paths = set(
+        DocumentFolder.objects.filter(workspace=workspace, project=project).values_list(
+            "path", flat=True
+        )
+    )
+    for document in documents:
+        parts = (document.path or "").split("/")[:-1]
+        for index in range(1, len(parts) + 1):
+            folder_paths.add("/".join(parts[:index]))
+
+    # node[path] = {"children": {name: path}, "docs": [...]}
+    root = {"children": {}, "docs": []}
+    for folder_path in sorted(folder_paths):
+        node = root
+        prefix = ""
+        for segment in folder_path.split("/"):
+            prefix = f"{prefix}/{segment}" if prefix else segment
+            node["children"].setdefault(segment, {"children": {}, "docs": [], "path": prefix})
+            node = node["children"][segment]
+
+    for document in documents:
+        parts = (document.path or "").split("/")[:-1]
+        node = root
+        prefix = ""
+        for segment in parts:
+            prefix = f"{prefix}/{segment}" if prefix else segment
+            node = node["children"][segment]
+        node["docs"].append(document)
+
+    rows: list[dict] = []
+
+    def walk(node: dict, depth: int, parent_path: str) -> None:
+        for name in sorted(node["children"]):
+            child = node["children"][name]
+            path = f"{parent_path}/{name}" if parent_path else name
+            rows.append({"type": "dir", "name": name, "depth": depth, "path": path})
+            walk(child, depth + 1, path)
+        for document in sorted(node["docs"], key=lambda item: item.path):
+            rows.append({"type": "doc", "name": document.title, "depth": depth, "doc": document})
+
+    walk(root, 0, "")
+    return rows
+
+
+@login_required
+def folder_create(request, workspace_slug, project_slug=None):
+    """Create a folder inside a workspace/project."""
+    from django.core.exceptions import ValidationError
+
+    from apps.documents.folders import create_folder
+
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    project = (
+        get_object_or_404(Project, workspace=workspace, slug=project_slug)
+        if project_slug
+        else None
+    )
+    target = project.resource if project else workspace.resource
+    if not _can(request.user, target, Permission.WRITE):
+        return HttpResponseForbidden("You do not have write access here.")
+
+    if request.method == "POST":
+        try:
+            create_folder(
+                workspace=workspace,
+                project=project,
+                path=request.POST.get("path", ""),
+                created_by=request.user,
+            )
+            messages.success(request, "Folder created.")
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        if project:
+            return redirect(
+                "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug
+            )
+        return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+
+    return render(
+        request,
+        "folder_form.html",
+        {"workspace": workspace, "project": project},
+    )
+
+
 @login_required
 def search(request):
     query = request.GET.get("q", "").strip()
@@ -163,12 +262,13 @@ def workspace_detail(request, workspace_slug):
         if _can(request.user, document.resource, Permission.READ)
     ]
     can_write = _can(request.user, workspace.resource, Permission.WRITE)
-    # can_admin / can_share / entry_rows come from _access_context.
     context = {
         "workspace": workspace,
         "projects": projects,
         "documents": documents,
         "can_write": can_write,
+        "can_admin": _can(request.user, workspace.resource, Permission.ADMIN),
+        "tree_rows": _folder_tree_rows(workspace, None, request.user),
         **_git_panel(workspace),
         **_access_context(request, workspace.resource),
     }
@@ -193,6 +293,7 @@ def project_detail(request, workspace_slug, project_slug):
         "project": project,
         "documents": documents,
         "can_write": can_write,
+        "tree_rows": _folder_tree_rows(workspace, project, request.user),
         **_git_panel(workspace, project),
         **_access_context(request, project.resource),
     }
@@ -234,6 +335,63 @@ def document_detail(request, pk):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+def document_bulk_upload(request, workspace_slug, project_slug=None):
+    """Upload many .md files into a folder of a workspace/project at once."""
+    from apps.documents.folders import ensure_folder
+    from apps.documents.services import DocumentService
+
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    project = (
+        get_object_or_404(Project, workspace=workspace, slug=project_slug)
+        if project_slug
+        else None
+    )
+    target = project.resource if project else workspace.resource
+    if not _can(request.user, target, Permission.WRITE):
+        return HttpResponseForbidden("You do not have write access here.")
+
+    if request.method == "POST":
+        folder = (request.POST.get("folder") or "").strip()
+        uploads = [
+            (uploaded.name, uploaded.read()) for uploaded in request.FILES.getlist("files")
+        ]
+        if not uploads:
+            messages.error(request, "Válassz ki legalább egy fájlt.")
+        else:
+            if folder:
+                ensure_folder(workspace, project, folder, created_by=request.user)
+            result = DocumentService.bulk_create_from_files(
+                workspace=workspace,
+                project=project,
+                folder=folder,
+                uploads=uploads,
+                created_by=request.user,
+                source=ChangeSource.WEB,
+                request=request,
+            )
+            messages.success(request, f"{len(result['created'])} fájl betöltve.")
+            for skipped in result["skipped"]:
+                messages.warning(f"{skipped['file']}: {skipped['reason']}")
+        if project:
+            return redirect(
+                "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug
+            )
+        return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+
+    folders = [
+        row["path"]
+        for row in _folder_tree_rows(workspace, project, request.user)
+        if row["type"] == "dir"
+    ]
+    return render(
+        request,
+        "document_bulk_form.html",
+        {"workspace": workspace, "project": project, "folders": folders},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
 def document_create(request, workspace_slug, project_slug=None):
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
     project = None
@@ -244,14 +402,22 @@ def document_create(request, workspace_slug, project_slug=None):
         return HttpResponseForbidden("You do not have write access here.")
 
     if request.method == "POST":
+        from apps.documents.folders import ensure_folder
+
+        path = (request.POST.get("path") or "").strip()
+        if path:
+            parent = path.rsplit("/", 1)[0] if "/" in path else ""
+            if parent:
+                ensure_folder(workspace, project, parent, created_by=request.user)
         document = DocumentService.create(
             workspace=workspace,
             project=project,
             title=request.POST.get("title", ""),
-            path=request.POST.get("path") or None,
+            path=path or None,
             content=request.POST.get("content", ""),
             summary=request.POST.get("summary", ""),
             status=request.POST.get("status") or None,
+            is_template=request.POST.get("is_template") == "on",
             created_by=request.user,
             source=ChangeSource.WEB,
             request=request,
@@ -259,6 +425,21 @@ def document_create(request, workspace_slug, project_slug=None):
         messages.success(request, f"Document '{document.title}' created.")
         return redirect("web:document_detail", pk=document.pk)
 
+    templates = [
+        t
+        for t in Document.objects.filter(
+            workspace=workspace, project=project, is_template=True
+        )
+        if _can(request.user, t.resource, Permission.READ)
+    ]
+    prefill = ""
+    template_id = request.GET.get("template")
+    if template_id:
+        chosen = next((t for t in templates if str(t.pk) == str(template_id)), None)
+        if chosen is not None:
+            from apps.documents.services import DocumentService as _Svc
+
+            prefill = _Svc.read_content(chosen)
     return render(
         request,
         "document_form.html",
@@ -266,8 +447,13 @@ def document_create(request, workspace_slug, project_slug=None):
             "workspace": workspace,
             "project": project,
             "document": None,
-            "content": "",
+            "content": prefill,
             "statuses": DocumentStatus.choices,
+            "folders": _folder_tree_rows(workspace, project, request.user),
+            "prefill_path": (request.GET.get("folder", "") + "/")
+            if request.GET.get("folder")
+            else "",
+            "templates": templates,
         },
     )
 
@@ -303,6 +489,8 @@ def document_edit(request, pk):
             "document": document,
             "content": DocumentService.read_content(document),
             "statuses": DocumentStatus.choices,
+            "folders": _folder_tree_rows(document.workspace, document.project, request.user),
+            "prefill_path": "",
         },
     )
 
@@ -600,6 +788,25 @@ def settings_page(request):
         grouped.setdefault(row["category"], []).append(row)
 
     return render(request, "settings.html", {"grouped": grouped})
+
+
+@login_required
+def settings_test(request):
+    """Run a connectivity probe for one setting (the 'tesztelés' button)."""
+    from apps.settings_store.probes import probe_for_key
+
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Superuser access required.")
+
+    key = request.POST.get("key", "")
+    deep = request.POST.get("deep") == "1"
+    try:
+        result = probe_for_key(key, deep=deep)
+    except Exception as exc:  # noqa: BLE001 - surface the error in the UI
+        result = {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+
+    request.session["settings_probe"] = {"key": key, **result}
+    return redirect(f"{reverse('web:settings_page')}#probe")
 
 
 @login_required

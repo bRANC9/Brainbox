@@ -55,6 +55,9 @@ services:
       BRAINBOX_DATA_ROOT: ${BRAINBOX_DATA_ROOT:-/data/knowledge}
       BRAINBOX_SECRET_KEY: ${BRAINBOX_SECRET_KEY:-}
       BRAINBOX_GIT_TOKEN: ${BRAINBOX_GIT_TOKEN:-}
+      # Reported by /healthz and /readyz. Baked in by the Dockerfile build arg
+      # on CI; this default only matters for local runs.
+      APP_GIT_SHA: ${APP_GIT_SHA:-dev}
       BRAINBOX_GIT_AUTHOR_NAME: ${BRAINBOX_GIT_AUTHOR_NAME:-Brainbox}
       BRAINBOX_GIT_AUTHOR_EMAIL: ${BRAINBOX_GIT_AUTHOR_EMAIL:-brainbox@localhost}
       BRAINBOX_GITHUB_TOKEN: ${BRAINBOX_GITHUB_TOKEN:-}
@@ -93,9 +96,10 @@ services:
       BRAINBOX_ADMIN_PASSWORD: ${BRAINBOX_ADMIN_PASSWORD:-}
     volumes:
       - knowledge_data:${BRAINBOX_DATA_ROOT:-/data/knowledge}
-    # Static files are regenerated on boot into a tmpfs, so no host-side
-    # ownership is required (avoids "Permission denied" on collectstatic).
-    tmpfs: ["/app/staticfiles"]
+    # Static files are regenerated on boot, so no host-side data is needed. A
+    # bare tmpfs mount is created root-owned, which the app user (uid 1000)
+    # cannot write -- that is what makes collectstatic fail. Pin the ownership.
+    tmpfs: ["/app/staticfiles:uid=1000,gid=1000,mode=0755"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     labels:

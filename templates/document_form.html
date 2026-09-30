@@ -11,6 +11,12 @@
   </div>
 </section>
 
+{% if not document and templates %}
+  <div class="muted">Vagy indulj egy sablonból:
+    {% for t in templates %}<a href="?template={{ t.pk }}">{{ t.title }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+  </div>
+{% endif %}
+
 <form method="post" class="form">
   {% csrf_token %}
   <div class="row">
@@ -19,8 +25,11 @@
     </label>
     {% if not document %}
       <label>Path (optional)
-        <input type="text" name="path" placeholder="skills/azure-bicep/SKILL.md">
-      </label>
+        <input type="text" name="path" value="{% if document %}{{ document.path }}{% else %}{{ prefill_path }}{% endif %}" placeholder="skills/azure-bicep/SKILL.md" list="folder-paths">
+      <datalist id="folder-paths">
+        {% for row in folders %}{% if row.type == "dir" %}<option value="{{ row.path }}/">{% endif %}{% endfor %}
+      </datalist>
+    </label>
     {% endif %}
   </div>
   <div class="row">
@@ -35,8 +44,11 @@
       <input type="number" name="priority" value="{{ document.priority|default:0 }}">
     </label>
   </div>
-  <label>Summary
+  <label>Összefoglaló
     <input type="text" name="summary" value="{{ document.summary|default:'' }}">
+  </label>
+  <label>Ez egy sablon (új dokumentumok példányosíthatók belőle)
+    <input type="checkbox" name="is_template" {% if document.is_template %}checked{% endif %}>
   </label>
 
   <label>Content (Markdown, YAML frontmatter supported)

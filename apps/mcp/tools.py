@@ -858,7 +858,75 @@ def tool_discover(ctx: ToolContext, args: dict) -> dict:
 
 
 @tool(
-    "knowledge_related",
+    "knowledge_list_templates",
+    "List reusable document templates (markdown skeletons for deploy types, "
+    "runbooks, review notes...).",
+    {"type": "object", "properties": {"workspace": {"type": "string"}, "project": {"type": "string"}}},
+)
+def tool_list_templates(ctx: ToolContext, args: dict) -> dict:
+    templates = [
+        doc
+        for doc in Document.objects.filter(
+            is_template=True,
+            **({"workspace_id": args["workspace"]} if args.get("workspace") else {}),
+            **({"project_id": args["project"]} if args.get("project") else {}),
+        )
+        if _may_read(ctx, doc.resource)
+    ]
+    return {
+        "templates": [
+            {
+                "document_id": str(doc.pk),
+                "title": doc.title,
+                "path": doc.path,
+                "workspace": str(doc.workspace_id),
+                "project": str(doc.project_id) if doc.project_id else None,
+            }
+            for doc in templates
+        ]
+    }
+
+
+@tool(
+    "knowledge_create_from_template",
+    "Create a new document from a template (placeholders {{title}}/{{date}} are filled).",
+    {
+        "type": "object",
+        "properties": {
+            "template_id": {"type": "string"},
+            "workspace": {"type": "string"},
+            "project": {"type": "string"},
+            "title": {"type": "string"},
+            "path": {"type": "string"},
+        },
+        "required": ["template_id", "workspace"],
+    },
+)
+def tool_create_from_template(ctx: ToolContext, args: dict) -> dict:
+    from apps.documents.services import DocumentService
+
+    template = _get_document(args["template_id"])
+    if not template.is_template:
+        raise ToolError(f"Document '{template.pk}' is not a template.")
+    workspace = _get_workspace(args["workspace"])
+    project = _get_project(args["project"]) if args.get("project") else None
+    target = project.resource if project else workspace.resource
+    _require(ctx, target, Permission.WRITE)
+    document = DocumentService.instantiate_template(
+        template=template,
+        workspace=workspace,
+        project=project,
+        title=args.get("title", ""),
+        path=args.get("path", ""),
+        created_by=ctx.user,
+        request=ctx.request,
+        api_key=ctx.api_key,
+    )
+    return _document_brief(document)
+
+
+@tool(
+    "knowledge_get_related",
     "Get related knowledge via the link graph around a resource (permission-filtered).",
     {
         "type": "object",

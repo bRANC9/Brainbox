@@ -9,7 +9,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from apps.accounts.models import ApiKey, ApiKeyScope, User
 from apps.audit.models import AuditEvent
 from apps.deadlines.models import KnowledgeDeadline
-from apps.documents.models import Document, DocumentVersion
+from apps.documents.models import Document, DocumentFolder, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File, FileVersion
 from apps.git.models import GitCommitReference, GitRepository, GitSyncState
@@ -289,6 +289,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             "path",
             "summary",
             "mime_type",
+            "is_template",
             "status",
             "priority",
             "frontmatter",
@@ -630,6 +631,23 @@ class SecretCreateSerializer(serializers.ModelSerializer):
             "secret_type": {"required": False},
         }
         validators: list = []
+
+
+# ---------------------------------------------------------------------------
+# Folders
+# ---------------------------------------------------------------------------
+class FolderSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True)
+    workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all())
+    project = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(), required=False, allow_null=True
+    )
+
+    class Meta:
+        model = DocumentFolder
+        fields = ["id", "workspace", "project", "path", "created_by", "created_at"]
+        read_only_fields = ["id", "created_by", "created_at"]
+        extra_kwargs = {"path": {"required": True}}
 
 
 # ---------------------------------------------------------------------------
