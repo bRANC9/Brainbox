@@ -158,6 +158,19 @@ USE_TZ = True
 
 
 # ---------------------------------------------------------------------------
+# Build identity
+# ---------------------------------------------------------------------------
+# The commit the image was built from, baked in by the Dockerfile's
+# ``APP_GIT_SHA`` build arg (the build workflow passes ``github.sha``). It is
+# surfaced by ``/healthz`` and ``/readyz`` so a running instance can be
+# identified without shell access -- which matters because the only other way to
+# tell two deployments apart is to diff behaviour from the outside. ``"dev"``
+# means "not baked in" (local runs, tests).
+
+APP_GIT_SHA = os.environ.get("APP_GIT_SHA", "dev")
+
+
+# ---------------------------------------------------------------------------
 # Static / media
 # ---------------------------------------------------------------------------
 STATIC_URL = "/static/"

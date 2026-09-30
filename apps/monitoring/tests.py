@@ -19,6 +19,27 @@ class MonitoringTests(TestCase):
         self.assertEqual(response.json()["status"], "ok")
         self.assertIn("database", response.json())
 
+    def test_both_probes_report_the_built_commit(self):
+        """"Which build is this?" must be answerable without shell access."""
+        with override_settings(APP_GIT_SHA="deadbeefcafe0123456789abcdef0123456789abcd"):
+            for url in ("/healthz", "/readyz"):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200, url)
+                self.assertEqual(
+                    response.json()["git_sha"],
+                    "deadbeefcafe0123456789abcdef0123456789abcd",
+                    url,
+                )
+
+    def test_git_sha_is_never_blank(self):
+        """A missing/empty setting must degrade to a visible 'dev', not ''."""
+        for value in ("", None):
+            with override_settings(APP_GIT_SHA=value):
+                for url in ("/healthz", "/readyz"):
+                    body = self.client.get(url).json()
+                    self.assertIn("git_sha", body, url)
+                    self.assertIsInstance(body["git_sha"], str, url)
+
     def test_metrics_endpoint_exposes_brainbox_gauges(self):
         response = self.client.get("/metrics")
         body = response.content.decode()

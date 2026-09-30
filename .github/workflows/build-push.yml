@@ -58,6 +58,10 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          # Bake the commit into the image so /healthz and /readyz can report
+          # which build a running instance actually is.
+          build-args: |
+            APP_GIT_SHA=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

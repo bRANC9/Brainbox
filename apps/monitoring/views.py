@@ -48,6 +48,12 @@ def readyz(request):
         healthy = False
 
     return JsonResponse(
-        {"status": "ok" if healthy else "degraded", **checks},
+        {
+            "status": "ok" if healthy else "degraded",
+            # Which build is actually answering, so a deploy can be confirmed
+            # with a single curl instead of diffing behaviour.
+            "git_sha": str(getattr(settings, "APP_GIT_SHA", "") or ""),
+            **checks,
+        },
         status=200 if healthy else 503,
     )
