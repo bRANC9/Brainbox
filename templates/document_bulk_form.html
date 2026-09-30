@@ -23,6 +23,14 @@
   <label>Fájlok (.md)
     <input type="file" name="files" multiple accept=".md,.markdown,.txt">
   </label>
+  <label>Vagy válassz ki egy teljes mappát (a mappa-struktúra megmarad)
+    <input type="file" name="files" multiple webkitdirectory>
+  </label>
+  <p class="muted">
+    Ha egy teljes mappát választasz ki (pl. egy helyi <code>dotnet/</code> könyvtárat),
+    a almappák is megmaradnak: <code>dotnet/legacy/x.md</code>. Ha a „Célmappa" meg van adva,
+    az az összes feltöltött fa gyökere lesz.
+  </p>
   <div class="row">
     <button class="button primary" type="submit">Betöltés</button>
     {% if project %}

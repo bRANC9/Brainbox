@@ -169,16 +169,27 @@ def folder_create(request, workspace_slug, project_slug=None):
         return HttpResponseForbidden("You do not have write access here.")
 
     if request.method == "POST":
-        try:
-            create_folder(
-                workspace=workspace,
-                project=project,
-                path=request.POST.get("path", ""),
-                created_by=request.user,
-            )
-            messages.success(request, "Folder created.")
-        except ValidationError as exc:
-            messages.error(request, "; ".join(exc.messages))
+        raw_paths = [
+            line.strip()
+            for line in (request.POST.get("paths") or request.POST.get("path") or "").splitlines()
+            if line.strip()
+        ]
+        if not raw_paths:
+            messages.error(request, "Adj meg legalább egy mappanevet.")
+        else:
+            ok, failed = 0, []
+            for raw in raw_paths:
+                try:
+                    create_folder(
+                        workspace=workspace, project=project, path=raw, created_by=request.user
+                    )
+                    ok += 1
+                except ValidationError as exc:
+                    failed.append(f"{raw}: {'; '.join(exc.messages)}")
+            if ok:
+                messages.success(request, f"{ok} mappa létrehozva.")
+            for item in failed:
+                messages.warning(item)
         if project:
             return redirect(
                 "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug

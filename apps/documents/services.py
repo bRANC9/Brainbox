@@ -7,6 +7,7 @@ immutable :class:`DocumentVersion` snapshot for history/diff/restore.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import yaml
@@ -383,27 +384,37 @@ class DocumentService:
         """Create one Document per uploaded markdown file into a folder.
 
         ``uploads`` is an iterable of ``(filename, content_bytes)``. Each file
-        lands at ``<folder>/<filename>``; duplicates and unreadable files are
+        lands at ``<folder>/<path>``, preserving any sub-paths the client sent
+        (e.g. picking a whole ``dotnet/`` folder in the browser keeps the tree),
+        with traversal segments stripped. Duplicates and unreadable files are
         reported instead of aborting the whole batch.
         """
         created = []
         skipped = []
+        prefix = folder.strip("/")
         for name, data in uploads:
-            filename = (name or "").strip().split("/")[-1]
-            if not filename:
+            raw = (name or "").strip().replace("\\", "/")
+            raw = re.sub(r"^[A-Za-z]:", "", raw).lstrip("/")
+            segments = [
+                segment
+                for segment in raw.split("/")
+                if segment and segment not in {".", ".."}
+            ]
+            if not segments:
                 continue
+            safe_rel = "/".join(segments)
             try:
                 content = data.decode("utf-8") if isinstance(data, (bytes, bytearray)) else str(data)
             except UnicodeDecodeError:
-                skipped.append({"file": filename, "reason": "nem utf-8 szöveg"})
+                skipped.append({"file": safe_rel, "reason": "nem utf-8 szöveg"})
                 continue
-            rel_path = f"{folder.strip('/')}/{filename}" if folder else filename
-            title = Path(filename).stem.replace("_", " ").replace("-", " ").strip()
+            rel_path = f"{prefix}/{safe_rel}" if prefix else safe_rel
+            title = Path(safe_rel).stem.replace("_", " ").replace("-", " ").strip()
             try:
                 document = DocumentService.create(
                     workspace=workspace,
                     project=project,
-                    title=title or filename,
+                    title=title or segments[-1],
                     path=rel_path,
                     content=content,
                     created_by=created_by,
@@ -411,7 +422,7 @@ class DocumentService:
                     request=request,
                 )
             except ValidationError as exc:
-                skipped.append({"file": filename, "reason": "; ".join(exc.messages)})
+                skipped.append({"file": safe_rel, "reason": "; ".join(exc.messages)})
                 continue
             created.append(document)
         return {"created": created, "skipped": skipped}

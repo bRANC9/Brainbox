@@ -60,6 +60,62 @@ class BulkAndTemplateTests(TestCase):
         self.assertEqual(result["created"], [])
         self.assertEqual(result["skipped"][0]["reason"], "nem utf-8 szöveg")
 
+    def test_bulk_preserves_folder_structure_from_directory_pick(self):
+        result = DocumentService.bulk_create_from_files(
+            workspace=self.workspace,
+            project=self.project,
+            folder="",
+            uploads=[
+                ("dotnet/Program.cs.md", b"# Program\n"),
+                ("dotnet/legacy/old.md", b"# Old\n"),
+                ("python/main.py.md", b"# Main\n"),
+                ("django/settings.md", b"# Settings\n"),
+            ],
+            created_by=self.user,
+        )
+        self.assertEqual(len(result["created"]), 4)
+        paths = {doc.path for doc in result["created"]}
+        self.assertIn("dotnet/legacy/old.md", paths)
+        self.assertIn("django/settings.md", paths)
+        # intermediate folders registered
+        from apps.documents.models import DocumentFolder
+
+        self.assertTrue(DocumentFolder.objects.filter(path="dotnet/legacy").exists())
+
+    def test_bulk_with_target_folder_prefixes_everything(self):
+        result = DocumentService.bulk_create_from_files(
+            workspace=self.workspace,
+            project=self.project,
+            folder="deploy",
+            uploads=[("dotnet/x.md", b"# X\n"), ("python/y.md", b"# Y\n")],
+            created_by=self.user,
+        )
+        self.assertEqual(
+            {doc.path for doc in result["created"]},
+            {"deploy/dotnet/x.md", "deploy/python/y.md"},
+        )
+
+    def test_bulk_strips_traversal_from_paths(self):
+        result = DocumentService.bulk_create_from_files(
+            workspace=self.workspace,
+            project=self.project,
+            folder="",
+            uploads=[("../../etc/passwd.md", b"# evil\n")],
+            created_by=self.user,
+        )
+        self.assertEqual({doc.path for doc in result["created"]}, {"etc/passwd.md"})
+
+    def test_web_bulk_folder_pick_creates_stack_folders(self):
+        from apps.documents.models import DocumentFolder
+
+        self.client.force_login(self.user)
+        url = f"/workspaces/{self.workspace.slug}/{self.project.slug}/folders/"
+        response = self.client.post(url, {"paths": "dotnet\npython\ndjango\nlegacy/dotnet"})
+        self.assertEqual(response.status_code, 302)
+        created = set(DocumentFolder.objects.values_list("path", flat=True))
+        self.assertIn("dotnet", created)
+        self.assertIn("legacy/dotnet", created)
+
     def test_template_flag_and_instantiate(self):
         template = DocumentService.create(
             workspace=self.workspace,
