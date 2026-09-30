@@ -181,6 +181,10 @@ button.link { background: none; border: none; color: var(--accent); cursor: poin
 
 .auth { max-width: 360px; margin: 4rem auto; }
 
+.file-tree td { cursor: grab; }
+.file-tree tr.dragging { opacity: 0.4; }
+.file-tree tr.drop-target td { background: rgba(79, 140, 255, 0.18); box-shadow: inset 0 0 0 1px var(--accent); }
+
 .settings-row { display: flex; gap: 0.4rem; align-items: center; }
 .settings-row input, .settings-row select { min-width: 220px; }
 

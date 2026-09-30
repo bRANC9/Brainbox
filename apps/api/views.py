@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse
@@ -334,6 +335,26 @@ class DocumentViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
             s.DocumentSerializer(document).data, status=status.HTTP_201_CREATED
         )
 
+    @action(detail=True, methods=["post", "patch"], url_path="move")
+    def move(self, request, pk=None):
+        """Move a document to another folder (path or folder prefix)."""
+        from apps.documents.services import DocumentService
+
+        document = self.get_object()
+        if not PermissionService.check(
+            request.user, document.resource, Permission.WRITE, api_key=api_key_from_request(request)
+        ):
+            raise PermissionDenied("Write permission required.")
+        new_path = request.data.get("path")
+        if not new_path:
+            folder = (request.data.get("folder") or "").strip("/")
+            new_path = f"{folder}/{Path(document.path).name}" if folder else Path(document.path).name
+        DocumentService.move(
+            document, new_path, user=request.user, request=request,
+            api_key=api_key_from_request(request),
+        )
+        return Response(self.get_serializer(document).data)
+
     @action(detail=True, methods=["get"])
     def related(self, request, pk=None):
         document = self.get_object()
@@ -452,7 +473,20 @@ class UserViewSet(viewsets.ModelViewSet):
     search_fields = ["username", "email", "display_name"]
     ordering_fields = ["username", "date_joined"]
 
+    #: Actions that mutate a row. The access panel needs a *directory* lookup to
+    #: find users worth granting access to, but a non-superuser may only ever
+    #: write their own row.
+    WRITE_ACTIONS = {"update", "partial_update"}
+
     def get_queryset(self):
+        user = self.request.user
+        if user.is_superuser:
+            return User.objects.all()
+        # Scoped on write. Without this, SelfUserSerializer -- which keeps
+        # `password` writable so people can change their own -- also let any
+        # authenticated user rewrite any other account's password.
+        if getattr(self, "action", None) in self.WRITE_ACTIONS:
+            return User.objects.filter(pk=user.pk)
         return User.objects.all()
 
     def get_serializer_class(self):
@@ -890,6 +924,30 @@ class FolderViewSet(viewsets.ModelViewSet):
         serializer.instance = DocumentFolder.objects.get(
             workspace=data["workspace"], project=data.get("project"), path=serializer.validated_data["path"]
         )
+
+    def partial_update(self, request, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+
+        from apps.documents.folders import move_folder, rename_folder
+
+        folder = self.get_object()
+        resource = folder.project.resource if folder.project else folder.workspace.resource
+        if not PermissionService.check(request.user, resource, Permission.WRITE):
+            raise PermissionDenied("Write permission required.")
+        new_path = (request.data.get("path") or "").strip()
+        try:
+            if new_path and new_path != folder.path and "/" not in new_path:
+                rename_folder(folder=folder, path=new_path)
+            elif new_path and new_path.startswith(folder.path + "/"):
+                rename_folder(folder=folder, path=new_path)
+            elif new_path and new_path != folder.path:
+                # Re-parent: strip the old name, append the new one.
+                parent, _sep, _name = new_path.rpartition("/")
+                move_folder(folder=folder, new_parent=parent, user=request.user)
+        except ValidationError as exc:
+            raise ValidationError(exc.message_dict) from exc
+        folder.refresh_from_db()
+        return Response(self.get_serializer(folder).data)
 
     def destroy(self, request, *args, **kwargs):
         from django.core.exceptions import ValidationError

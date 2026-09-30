@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import difflib
+from pathlib import Path
 
 import markdown as md
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
@@ -149,6 +151,48 @@ def _folder_tree_rows(workspace, project=None, user=None) -> list[dict]:
 
     walk(root, 0, "")
     return rows
+
+
+@login_required
+@require_http_methods(["POST"])
+def tree_move(request):
+    """Drag-and-drop endpoint: move a document or a folder into a target folder."""
+    import json as _json
+
+    from django.core.exceptions import ValidationError
+    from django.http import JsonResponse
+
+    from apps.documents.folders import DocumentFolder, move_folder
+    from apps.documents.services import DocumentService
+
+    try:
+        payload = _json.loads(request.body.decode("utf-8") or "{}")
+    except ValueError:
+        return JsonResponse({"ok": False, "error": "rossz JSON"}, status=400)
+
+    target = (payload.get("target") or "").strip("/")
+    kind = payload.get("type")
+    try:
+        if kind in {"document", "doc"}:
+            document = get_object_or_404(Document, pk=payload.get("id"))
+            _require_write_or_403(request, document.resource)
+            filename = Path(document.path).name
+            new_path = f"{target}/{filename}" if target else filename
+            DocumentService.move(document, new_path, user=request.user, request=request)
+        elif kind == "folder":
+            folder = get_object_or_404(DocumentFolder, pk=payload.get("id"))
+            _require_write_or_403(request, folder.project.resource if folder.project else folder.workspace.resource)
+            move_folder(folder=folder, new_parent=target, user=request.user)
+        else:
+            return JsonResponse({"ok": False, "error": "ismeretlen típus"}, status=400)
+    except ValidationError as exc:
+        return JsonResponse({"ok": False, "error": "; ".join(exc.messages)}, status=400)
+    return JsonResponse({"ok": True})
+
+
+def _require_write_or_403(request, resource):
+    if not _can(request.user, resource, Permission.WRITE):
+        raise HttpResponseForbidden("Nincs írási jogosultságod ehhez a mappához.")
 
 
 @login_required
@@ -477,6 +521,15 @@ def document_edit(request, pk):
         return HttpResponseForbidden("You do not have write access to this document.")
 
     if request.method == "POST":
+        new_path = (request.POST.get("path") or "").strip()
+        if new_path and new_path != document.path:
+            try:
+                DocumentService.move(document, new_path, user=request.user, request=request)
+                document.refresh_from_db()
+                messages.success(request, f"Áthelyezve ide: {document.path}")
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+                return redirect("web:document_edit", pk=document.pk)
         DocumentService.update_content(
             document=document,
             content=request.POST.get("content", ""),

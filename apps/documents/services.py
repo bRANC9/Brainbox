@@ -462,7 +462,9 @@ class DocumentService:
                 + body.lstrip("\n")
             )
         rel_path = path or (
-            f"{folder.strip('/')}/{title}.md" if folder else f"{title}.md"
+            f"{folder.strip('/')}/{slugify(title) or 'document'}.md"
+            if folder
+            else f"{slugify(title) or 'document'}.md"
         )
         return cls.create(
             workspace=workspace,
@@ -477,9 +479,51 @@ class DocumentService:
             request=request,
         )
 
-    @staticmethod
+    @classmethod
     @transaction.atomic
-    def delete(*, document: Document, user=None, request=None, api_key=None) -> None:
+    def move(cls, document, new_path: str, *, user=None, request=None, api_key=None):
+        """Move a document to another path (folder), renaming the file on disk."""
+        from pathlib import Path as _Path
+
+        new_path = (new_path or "").strip().lstrip("/")
+        if not new_path:
+            raise ValidationError({"path": "Path is required."})
+        if new_path == document.path:
+            return document
+
+        storage = get_storage()
+        old_file = cls.storage_path(document)
+        new_file = storage.path_for(
+            workspace_id=document.workspace_id,
+            project_id=document.project_id,
+            kind="documents",
+            rel_path=new_path,
+        )
+        storage.ensure_parent(new_file)
+        if old_file.exists():
+            _Path(old_file).replace(new_file)
+        document.path = new_path
+        document.save(update_fields=["path", "updated_at"])
+
+        _register_folders(document)
+        _rebuild_links(document, user=user, request=request)
+        _reindex(document)
+        AuditService.log(
+            AuditAction.UPDATE,
+            user=user,
+            api_key=api_key,
+            resource=document.resource,
+            workspace=document.workspace,
+            project=document.project,
+            source=AuditSource.API if request is not None else AuditSource.WEB,
+            request=request,
+            detail={"type": "document_move", "from": old_file.name, "to": new_path},
+        )
+        return document
+
+    @classmethod
+    @transaction.atomic
+    def delete(cls, *, document: Document, user=None, request=None, api_key=None) -> None:
         storage = get_storage()
         path = DocumentService.storage_path(document)
         AuditService.log(

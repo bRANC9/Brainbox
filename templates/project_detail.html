@@ -11,35 +11,12 @@
     <h1>{{ project.name }}</h1>
     <p class="muted">{{ project.description|default:"No description" }}</p>
   </div>
-  {% if can_write %}
-    <a class="button" href="{% url 'web:project_document_create' workspace.slug project.slug %}">New document</a>
-  {% endif %}
   {% if can_admin %}
-    <a class="button" href="{% url 'web:resource_permissions' project.resource_id %}">Permissions</a>
+    <a class="button" href="{% url 'web:resource_permissions' project.resource_id %}">Jogosultságok</a>
   {% endif %}
 </section>
 
 {% include "_git_panel.html" %}
 {% include "_file_tree.html" %}
 {% if access_url %}{% include "_access_panel.html" %}{% endif %}
-
-{% if documents %}
-  <div class="scroll-x">
-  <table class="table">
-    <thead><tr><th>Title</th><th>Status</th><th>Priority</th><th>Updated</th></tr></thead>
-    <tbody>
-      {% for document in documents %}
-        <tr>
-          <td><a href="{% url 'web:document_detail' document.pk %}">{{ document.title }}</a></td>
-          <td><span class="badge badge-{{ document.status }}">{{ document.get_status_display }}</span></td>
-          <td>{{ document.priority }}</td>
-          <td>{{ document.updated_at|date:"Y-m-d H:i" }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-{% else %}
-  <p class="muted">No documents in this project.</p>
-{% endif %}
 {% endblock %}

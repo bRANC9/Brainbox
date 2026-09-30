@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import F, Value
+from django.db.models.functions import Concat
 
 from apps.resources.storage import get_storage
 
@@ -78,6 +80,69 @@ def rename_folder(*, folder: DocumentFolder, path: str) -> DocumentFolder:
     ).update(path=new_path + folder.path[len(old_path) :])
     folder.path = new_path
     folder.save(update_fields=["path", "updated_at"])
+    return folder
+
+
+@transaction.atomic
+def move_folder(*, folder: DocumentFolder, new_parent: str = "", user=None) -> DocumentFolder:
+    """Move a folder (and its whole subtree) under ``new_parent``.
+
+    Documents and on-disk files below the folder are relocated too, so a
+    drag-and-drop in the tree never leaves dangling paths.
+    """
+    from .models import Document
+
+    parent = normalize_folder_path(new_parent)
+    if parent and (parent == folder.path or parent.startswith(f"{folder.path}/")):
+        raise ValidationError({"path": "A mappa nem mogatható saját magába."})
+
+    old_path = folder.path
+    new_path = f"{parent}/{old_path}" if parent else old_path
+    if new_path == old_path:
+        return folder
+
+    storage = get_storage()
+    for document in Document.objects.filter(
+        workspace=folder.workspace, project=folder.project, path__startswith=f"{old_path}/"
+    ):
+        target = new_path + document.path[len(old_path) :]
+        source = storage.path_for(
+            workspace_id=folder.workspace.pk,
+            project_id=folder.project.pk if folder.project else None,
+            kind="documents",
+            rel_path=document.path,
+        )
+        destination = storage.path_for(
+            workspace_id=folder.workspace.pk,
+            project_id=folder.project.pk if folder.project else None,
+            kind="documents",
+            rel_path=target,
+        )
+        storage.ensure_parent(destination)
+        if source.exists():
+            source.replace(destination)
+        document.path = target
+        document.save(update_fields=["path"])
+
+    # Empty dirs left behind by the move.
+    old_disk = _disk_path(folder.workspace, folder.project, old_path)
+    if old_disk.exists():
+        try:
+            old_disk.rmdir()
+        except OSError:
+            pass
+
+    DocumentFolder.objects.filter(
+        workspace=folder.workspace,
+        project=folder.project,
+        path__startswith=f"{old_path}/",
+    ).exclude(path=old_path).update(
+        path=Concat(Value(new_path), F("path")[len(old_path) :])
+    )
+    folder.path = new_path
+    folder.save(update_fields=["path", "updated_at"])
+    if parent:
+        ensure_folder(folder.workspace, folder.project, parent, created_by=user)
     return folder
 
 

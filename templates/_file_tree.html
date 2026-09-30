@@ -2,9 +2,9 @@
 Folder + document tree for a workspace/project. 'tree_rows' is a flat list with
 a 'depth' so it renders without recursive template tags.
 {% endcomment %}
-<section class="git-panel">
+<section class="git-panel" id="tree-root">
   <div class="page-head" style="margin-bottom:.5rem">
-    <h2 style="margin:0">Fájlok és mappák</h2>
+    <h2 style="margin:0">Fájlok és mappák <span class="muted" style="font-size:.8rem">(húzd a sorokat mappák közé)</span></h2>
     {% if can_write %}
       <span>
         {% if project %}
@@ -24,7 +24,11 @@ a 'depth' so it renders without recursive template tags.
     <table class="table file-tree">
       <tbody>
         {% for row in tree_rows %}
-          <tr>
+          <tr class="tree-row"
+              draggable="true"
+              data-type="{{ row.type }}"
+              data-id="{% if row.type == 'doc' %}{{ row.doc.pk }}{% else %}folder:{{ row.path }}{% endif %}"
+              {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% else %}data-folder="{{ row.path }}"{% endif %}>
             <td style="padding-left: {{ row.depth }}rem">
               {% if row.type == "dir" %}
                 <span class="muted">📁 {{ row.name }}/</span>
@@ -35,6 +39,9 @@ a 'depth' so it renders without recursive template tags.
                 📄 <a href="{% url 'web:document_detail' row.doc.pk %}">{{ row.name }}</a>
                 <span class="muted">{{ row.doc.path }}</span>
                 <span class="badge badge-{{ row.doc.status }}">{{ row.doc.status }}</span>
+                {% if can_write %}
+                  <a class="link" href="{% url 'web:document_edit' row.doc.pk %}">szerk</a>
+                {% endif %}
               {% endif %}
             </td>
           </tr>
@@ -42,6 +49,72 @@ a 'depth' so it renders without recursive template tags.
       </tbody>
     </table>
   {% else %}
-    <p class="muted">Még nincs mappa vagy dokumentum ebben a scope-ban.</p>
+    <p class="muted">Még nincs mappa vagy dokumentum. Húzz fel egy .md fájlt, vagy hozz létre mappát.</p>
   {% endif %}
 </section>
+
+{% if can_write %}
+<script>
+(function () {
+  const csrf = document.querySelector('[name=csrfmiddlewaretoken]');
+  if (!csrf) return;
+  const url = "{% url 'web:tree_move' %}";
+  let dragging = null;
+
+  document.querySelectorAll('.tree-row').forEach(function (row) {
+    row.addEventListener('dragstart', function (e) {
+      dragging = row;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', row.dataset.type + ':' + row.dataset.id);
+    });
+    row.addEventListener('dragend', function () {
+      row.classList.remove('dragging');
+      document.querySelectorAll('.drop-target').forEach(function (el) {
+        el.classList.remove('drop-target');
+      });
+      dragging = null;
+    });
+  });
+
+  // Drop targets: folder rows + the panel itself (move to root).
+  document.querySelectorAll('.tree-row[data-type="dir"]').forEach(function (row) {
+    row.addEventListener('dragover', function (e) {
+      if (!dragging || dragging === row) return;
+      e.preventDefault();
+      row.classList.add('drop-target');
+    });
+    row.addEventListener('dragleave', function () {
+      row.classList.remove('drop-target');
+    });
+    row.addEventListener('drop', function (e) {
+      e.preventDefault();
+      row.classList.remove('drop-target');
+      if (!dragging || dragging === row) return;
+      send(dragging, row.dataset.folder);
+    });
+  });
+
+  const panel = document.getElementById('tree-root');
+  if (panel) {
+    panel.addEventListener('dragover', function (e) { e.preventDefault(); });
+    panel.addEventListener('drop', function (e) {
+      e.preventDefault();
+      if (dragging) send(dragging, '');
+    });
+  }
+
+  function send(source, target) {
+    const payload = { type: source.dataset.type, id: source.dataset.id, target: target };
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf.value },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data && data.ok) { window.location.reload(); }
+      else { alert('Nem sikerült áthelyezni: ' + (data.error || 'ismeretlen hiba')); }
+    });
+  }
+})();
+</script>
+{% endif %}

@@ -136,7 +136,7 @@ class BulkAndTemplateTests(TestCase):
             folder="deploy",
             created_by=self.user,
         )
-        self.assertEqual(instance.path, "deploy/Docker deploy.md")
+        self.assertEqual(instance.path, "deploy/docker-deploy.md")
         content = DocumentService.read_content(instance)
         self.assertIn("# Docker deploy", content)
         self.assertIn("Deploy:", content)

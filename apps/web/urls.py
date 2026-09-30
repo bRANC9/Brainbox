@@ -8,6 +8,7 @@ app_name = "web"
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
+    path("tree/move/", views.tree_move, name="tree_move"),
     path("search/", views.search, name="search"),
     path("workspaces/<slug:workspace_slug>/folders/", views.folder_create, name="workspace_folder_create"),
     path(

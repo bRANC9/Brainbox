@@ -7,11 +7,8 @@
     <h1>{{ workspace.name }}</h1>
     <p class="muted">{{ workspace.description|default:"No description" }}</p>
   </div>
-  {% if can_write %}
-    <a class="button" href="{% url 'web:workspace_document_create' workspace.slug %}">New document</a>
-  {% endif %}
   {% if can_admin %}
-    <a class="button" href="{% url 'web:resource_permissions' workspace.resource_id %}">Permissions</a>
+    <a class="button" href="{% url 'web:resource_permissions' workspace.resource_id %}">Jogosultságok</a>
   {% endif %}
 </section>
 
@@ -19,38 +16,17 @@
 {% include "_file_tree.html" %}
 {% if access_url %}{% include "_access_panel.html" %}{% endif %}
 
-<h2>Projects</h2>
+<h2>Projektek</h2>
 {% if projects %}
   <div class="grid">
     {% for project in projects %}
       <a class="card" href="{% url 'web:project_detail' workspace.slug project.slug %}">
         <h3>{{ project.name }}</h3>
-        <p class="meta">{{ project.document_count }} documents</p>
+        <p class="meta">{{ project.document_count }} dokumentum</p>
       </a>
     {% endfor %}
   </div>
 {% else %}
-  <p class="muted">No projects.</p>
-{% endif %}
-
-<h2>Documents</h2>
-{% if documents %}
-  <div class="scroll-x">
-  <table class="table">
-    <thead><tr><th>Title</th><th>Status</th><th>Priority</th><th>Updated</th></tr></thead>
-    <tbody>
-      {% for document in documents %}
-        <tr>
-          <td><a href="{% url 'web:document_detail' document.pk %}">{{ document.title }}</a></td>
-          <td><span class="badge badge-{{ document.status }}">{{ document.get_status_display }}</span></td>
-          <td>{{ document.priority }}</td>
-          <td>{{ document.updated_at|date:"Y-m-d H:i" }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-{% else %}
-  <p class="muted">No workspace-level documents.</p>
+  <p class="muted">Nincs projekt.</p>
 {% endif %}
 {% endblock %}
