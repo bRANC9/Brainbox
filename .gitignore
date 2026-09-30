@@ -37,3 +37,6 @@ desktop.ini
 
 # Docker
 .docker/
+
+# graphify (local knowledge graph, generated — stays out of the repo)
+graphify-out/
