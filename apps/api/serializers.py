@@ -82,7 +82,18 @@ class UserSerializer(serializers.ModelSerializer):
 
 class SelfUserSerializer(UserSerializer):
     class Meta(UserSerializer.Meta):
-        read_only_fields = ["id", "is_active", "is_staff", "is_superuser", "date_joined"]
+        # ``email`` is read-only on purpose: ``apps.accounts.oidc`` links an
+        # incoming OIDC identity to an existing account by email, so letting a
+        # user edit their own would let them claim someone else's IdP account.
+        # Only a superuser changes it.
+        read_only_fields = [
+            "id",
+            "email",
+            "is_active",
+            "is_staff",
+            "is_superuser",
+            "date_joined",
+        ]
 
 
 class GroupMembershipSerializer(serializers.ModelSerializer):

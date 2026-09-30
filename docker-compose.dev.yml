@@ -99,8 +99,10 @@ services:
       - knowledge_data_dev:/data/knowledge
     # The bind mount shadows the image's /app/staticfiles, so give collectstatic
     # a tmpfs owned by the container user instead of a host directory that may
-    # belong to someone else. Same trick the production compose uses.
-    tmpfs: ["/app/staticfiles"]
+    # belong to someone else. The uid/gid are required: a bare tmpfs mount is
+    # created root-owned, which is what makes collectstatic fail with
+    # "Permission denied". Same mount as the production compose.
+    tmpfs: ["/app/staticfiles:uid=1000,gid=1000,mode=0755"]
 
 volumes:
   pgdata_dev:

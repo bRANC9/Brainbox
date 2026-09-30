@@ -8,7 +8,7 @@ from pathlib import Path
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from rest_framework import status, viewsets
+from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -468,10 +468,23 @@ class FileViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelVi
 # ---------------------------------------------------------------------------
 # Accounts / groups
 # ---------------------------------------------------------------------------
+class UserQSearchFilter(filters.SearchFilter):
+    """DRF's ``SearchFilter`` reads ``?search=``, but this endpoint's contract
+    (and the access panel that calls it) is ``?q=``.
+
+    Without this the query parameter was silently ignored, so ``?q=<anything>``
+    returned the *whole* user table to any authenticated caller -- the directory
+    gate in ``list()`` only required the parameter to be present.
+    """
+
+    search_param = "q"
+
+
 class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     search_fields = ["username", "email", "display_name"]
     ordering_fields = ["username", "date_joined"]
+    filter_backends = [UserQSearchFilter, filters.OrderingFilter]
 
     #: Actions that mutate a row. The access panel needs a *directory* lookup to
     #: find users worth granting access to, but a non-superuser may only ever

@@ -377,8 +377,9 @@ class DocumentCountRegressionTests(TestCase):
         response = self.client.get(reverse("web:workspace_detail", args=[self.workspace.slug]))
         self.assertEqual(response.context["projects"][0].document_count, 1)
         html = response.content.decode()
-        self.assertIn("1 documents", html)
-        self.assertNotIn("> documents", html)
+        # The card label is localised; what matters is that it shows 1 and not 2.
+        self.assertIn("1 dokumentum", html)
+        self.assertNotIn("2 dokumentum", html)
 
 
 class CalendarParamRegressionTests(TestCase):

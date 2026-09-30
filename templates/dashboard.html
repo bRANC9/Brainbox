@@ -16,7 +16,7 @@
     {% endfor %}
   </div>
 {% else %}
-  <p class="muted">No workspaces available. Create one via the <a href="/api/v1/workspaces/">API</a> or the <a href="/admin/">admin</a>.</p>
+  <p class="muted">No workspaces available. Create one with <code>manage.py bootstrap</code> on first boot, or <code>POST /api/v1/workspaces/</code> with an API key. The Django admin cannot create them: a workspace is created together with its access-control entry, and the admin bypasses that.</p>
 {% endif %}
 
 <section class="page-head">
