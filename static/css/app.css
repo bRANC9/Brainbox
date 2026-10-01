@@ -230,6 +230,51 @@ a.chip:hover { border-color: var(--accent); color: var(--text); text-decoration:
 .settings-row { display: flex; gap: 0.4rem; align-items: center; }
 .settings-row input, .settings-row select { min-width: 220px; }
 
+/* /llm manifest page */
+pre.code {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  margin: 0.5rem 0 1rem;
+  white-space: pre;
+}
+.llm-note {
+  background: var(--panel-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+}
+.llm-notes { color: var(--muted); padding-left: 1.2rem; }
+.llm-notes li { margin-bottom: 0.3rem; }
+.llm-steps { margin-bottom: 0; }
+.llm-steps li { margin-bottom: 0.25rem; }
+.llm-verbs { white-space: nowrap; }
+.verb {
+  display: inline-block;
+  min-width: 3.6rem;
+  margin-right: 0.2rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  text-align: center;
+}
+.verb-get { border-color: var(--success); color: var(--success); }
+.verb-post, .verb-patch { border-color: var(--accent); color: var(--accent); }
+.verb-delete { border-color: var(--danger); color: var(--danger); }
+.llm-endpoints td:first-child { width: 1%; }
+.llm-endpoints code { white-space: nowrap; }
+details summary { cursor: pointer; }
+details pre.code { max-height: 320px; }
+
 .cal-nav { display: flex; gap: 0.5rem; margin: 0 0 1rem; }
 .cal-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .cal-grid th { color: var(--muted); font-size: 0.8rem; padding: 0.4rem; }

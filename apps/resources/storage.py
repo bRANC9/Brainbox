@@ -26,7 +26,13 @@ class LocalStorage:
 
     # -- path helpers --------------------------------------------------------
     def _validate(self, path: Path) -> Path:
-        resolved = path.resolve()
+        # Reject `..` explicitly on both separators. Relying on resolve() alone is
+        # not enough: a Windows-style `..\..\` segment collapses into a single
+        # Linux filename, so the resolved path can look harmless.
+        raw = str(path).replace("\\", "/")
+        if ".." in [segment for segment in raw.split("/")]:
+            raise StorageError(f"Path traversal is not allowed: {path}")
+        resolved = Path(path).resolve()
         if resolved != self.root and self.root not in resolved.parents:
             raise StorageError(f"Path escapes storage root: {path}")
         return resolved
@@ -135,12 +141,25 @@ def _allowed_roots() -> list[Path]:
 
 
 def resolve_path(*, workspace, project, kind: str, rel_path: str = "") -> Path:
-    """Absolute path of a document/file in the correct storage backend."""
+    """Absolute path of a document/file in the correct storage backend.
+
+    The caller-supplied ``rel_path`` may come from a form or an API key, so it
+    is normalised first: ``..`` segments and absolute paths cannot be used to
+    step outside the configured storage roots (knowledge root, or the git root
+    when the resource is a checkout).
+    """
     root, git_backed = resolve_base(workspace=workspace, project=project)
     base = root if git_backed else root / kind
-    path = base / rel_path if rel_path else base
+    raw = (rel_path or "").replace("\\", "/")
+    if raw.startswith("/") or (len(raw) > 1 and raw[1] == ":"):
+        raise StorageError(f"Absolute paths are not allowed: {rel_path!r}")
+    parts = [p for p in raw.split("/") if p not in ("", ".")]
+    if any(part == ".." for part in parts):
+        raise StorageError(f"Path traversal is not allowed: {rel_path!r}")
+    path = base.joinpath(*parts) if parts else base
 
     resolved = path.resolve()
-    if not any(resolved == root or root in resolved.parents for root in _allowed_roots()):
+    allowed = [r.resolve() for r in _allowed_roots()]
+    if not any(resolved == r or r in resolved.parents for r in allowed):
         raise StorageError(f"Path escapes the configured storage roots: {path}")
     return resolved

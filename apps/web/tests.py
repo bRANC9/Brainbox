@@ -340,8 +340,8 @@ class CardCountRegressionTests(TestCase):
 
     def test_counts_reach_the_rendered_card(self):
         html = self.client.get(reverse("web:dashboard")).content.decode()
-        self.assertIn("1 projects", html)
-        self.assertIn("0 documents", html)
+        self.assertIn("1 projekt", html)
+        self.assertIn("0 dokumentum", html)
         # A blank counter rendered as "projects ·  documents" with no number.
         self.assertNotIn("projects &middot;  documents", html)
 

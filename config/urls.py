@@ -6,6 +6,7 @@ from django.contrib import admin
 from django.urls import include, path
 
 from apps.api.health import healthz
+from apps.api.llm_guide import llm_page
 from apps.monitoring.views import readyz
 
 
@@ -29,6 +30,7 @@ urlpatterns = [
     path("healthz", healthz, name="healthz"),
     path("readyz", readyz, name="readyz"),
     path("metrics", _metrics_view, name="metrics"),
+    path("llm", llm_page, name="llm-manifest"),
     path("accounts/", include("apps.accounts.urls")),
     path("accounts/", include("django.contrib.auth.urls")),
     path("api/v1/", include("apps.api.urls")),

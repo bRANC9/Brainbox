@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}AI önbeállítás — Brainbox{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="crumbs">Brainbox / AI</p>
+    <h1>AI önbeállítás</h1>
+    <p class="muted">{{ manifest.what_this_is }}</p>
+  </div>
+  <div class="actions">
+    <a class="button" href="/llm?format=json">JSON</a>
+    <a class="button" href="/api/v1/llm/">API-válasz</a>
+  </div>
+</div>
+
+<p class="summary">
+  Ez az oldal a Brainbox teljes agent-felülete: hitelesítés, végpontok, MCP eszközök,
+  konvenciók és kész workflow-k. Bármelyik LLM modell ezt elolvasva magára állíthatja a
+  rendszert — a lista a DRF routerből, az MCP tool regiszterből és a beállítás
+  definíciókból épül, ezért nem tud elavulni.
+</p>
+
+<div class="llm-note">
+  {% if caller %}
+    <strong>Bejelentkezve:</strong> {{ caller.username }}
+    {% if caller.api_key %}
+      · kulcs <code>{{ caller.api_key.name }}</code> ({{ caller.api_key.prefix }}…)
+      {% if caller.api_key.scopes %}
+        · {{ caller.api_key.scopes|length }} scope
+      {% endif %}
+    {% endif %}
+    {% if caller.is_superuser %}
+      · <span class="badge">superuser</span> (beállítás értékek is látszanak)
+    {% endif %}
+  {% else %}
+    <strong>Nincs hitelesítés.</strong> A beállítások aktuális értékei és a hívó adatai csak
+    kulccsal vagy sessionnel jelennek meg.
+  {% endif %}
+</div>
+
+<h2>1 · Hitelesítés</h2>
+<div class="grid">
+  <div class="card">
+    <h3>Header</h3>
+    <pre class="code">{{ auth.header }}
+{{ auth.alternative_header }}</pre>
+    <p class="meta">Nem működik: {% for item in auth.not_supported %}<code>{{ item }}</code>{% endfor %}</p>
+  </div>
+  <div class="card">
+    <h3>Kulcs szerzés</h3>
+    <p><strong>UI:</strong> <a href="/manage/api-keys/">/manage/api-keys/</a> (emberi session)</p>
+    <p><strong>API:</strong> <code>POST /api/v1/api-keys/</code></p>
+    <p class="meta">{{ auth.how_to_get_a_key.raw_key_returned }}</p>
+  </div>
+  <div class="card">
+    <h3>Kulcs tulajdonságok</h3>
+    <p><strong>Öröklődik:</strong> {{ auth.key_properties.inherits }}</p>
+    <p><strong>Scope-ok:</strong> {{ auth.key_properties.scopes }}</p>
+    <p><strong>Élettartam:</strong> {{ auth.key_properties.lifecycle }}</p>
+    <p class="meta">Formátum: {{ auth.key_properties.format }}</p>
+  </div>
+  <div class="card">
+    <h3>Hibák</h3>
+    <p><span class="badge">401</span> {{ auth.failures.401 }}</p>
+    <p><span class="badge">403</span> {{ auth.failures.403 }}</p>
+    <p class="meta">{{ auth.failures.note }}</p>
+  </div>
+</div>
+
+<h2>2 · Első lépések</h2>
+<div class="scroll-x">
+  <table class="table">
+    <thead><tr><th>#</th><th>Auth</th><th>Lépés</th><th>Példa</th></tr></thead>
+    <tbody>
+      {% for step in manifest.configure_yourself %}
+        <tr>
+          <td>{{ step.step }}</td>
+          <td><span class="chip chip-sm">{{ step.auth }}</span></td>
+          <td>{{ step.action }}</td>
+          <td><code>{{ step.request }}</code></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<pre class="code"># 1. olvasd el ezt a manifestet
+{{ curl_manifest }}
+
+# 2. ellenőrizd a kulcsod: mit látsz?
+{{ curl_workspaces }}
+{{ curl_projects }}
+
+# 3. keress a tudásbázisban
+{{ curl_search }}</pre>
+
+<h2>3 · REST végpontok ({{ endpoints|length }})</h2>
+<p class="muted">{{ rest_notes.pagination }} · {{ rest_notes.trailing_slash }}</p>
+<div class="scroll-x">
+  <table class="table llm-endpoints">
+    <thead>
+      <tr><th>Métodus</th><th>Útvonal</th><th>Jogosultság</th><th>Megjegyzés</th></tr>
+    </thead>
+    <tbody>
+      {% for row in endpoints %}
+        <tr>
+          <td class="llm-verbs">
+            {% for verb in row.methods %}<span class="verb verb-{{ verb|lower }}">{{ verb }}</span>{% endfor %}
+          </td>
+          <td><code>{{ row.path }}</code></td>
+          <td>{% for perm in row.requires %}<span class="chip chip-sm">{{ perm }}</span>{% endfor %}</td>
+          <td class="meta">{% for rule in row.access %}{{ rule }}{% if not forloop.last %} + {% endif %}{% endfor %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2>4 · MCP eszközök ({{ tool_count }})</h2>
+<p class="muted">
+  <code>{{ mcp.endpoint }}</code> · {{ mcp.protocol }} ·
+  protokoll {{ mcp.protocol_version }} · {{ mcp.server.name }} {{ mcp.server.version }}
+</p>
+<ul class="llm-notes">
+  {% for note in mcp.transport_notes %}<li>{{ note }}</li>{% endfor %}
+</ul>
+<pre class="code">{{ mcp_call }}</pre>
+<div class="scroll-x">
+  <table class="table">
+    <thead><tr><th>Eszköz</th><th>Leírás</th><th>Argumentumok</th></tr></thead>
+    <tbody>
+      {% for tool in tools %}
+        <tr>
+          <td><code>{{ tool.name }}</code></td>
+          <td>{{ tool.description }}</td>
+          <td>
+            <details>
+              <summary class="meta">JSON séma</summary>
+              <pre class="code">{{ tool.schema_json }}</pre>
+            </details>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h3>Kliens konfigurációk</h3>
+<div class="grid">
+  {% for entry in client_configs %}
+    <div class="card">
+      <h3>{{ entry.target }}</h3>
+      <pre class="code">{{ entry.config_json }}</pre>
+    </div>
+  {% endfor %}
+</div>
+
+<h2>5 · Konvenciók</h2>
+<div class="grid">
+  {% for rule in manifest.conventions %}
+    <div class="card">
+      <h3>{{ rule.rule }}</h3>
+      <p class="meta">{{ rule.why }}</p>
+      <p><strong>Hogyan:</strong> {{ rule.how }}</p>
+    </div>
+  {% endfor %}
+</div>
+
+<h2>6 · Workflow-k</h2>
+{% for flow in manifest.workflows %}
+  <div class="git-panel">
+    <h3>{{ flow.name }} — <span class="meta">{{ flow.goal }}</span></h3>
+    <ol class="llm-steps">
+      {% for item in flow.steps %}<li>{{ item }}</li>{% endfor %}
+    </ol>
+  </div>
+{% endfor %}
+
+<h2>7 · Domain modell</h2>
+<p>{{ domain.tree }}</p>
+<p class="meta">{{ domain.identity }}</p>
+<div class="scroll-x">
+  <table class="table">
+    <thead><tr><th>Entitás</th><th>Leírás</th></tr></thead>
+    <tbody>
+      {% for name, description in domain.entities.items %}
+        <tr><td><code>{{ name }}</code></td><td>{{ description }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% for name, values in domain.vocabularies.items %}
+  <p><strong>{{ name }}:</strong> {% for value in values %}<span class="chip chip-sm">{{ value }}</span>{% endfor %}</p>
+{% endfor %}
+
+<h2>8 · Runtime beállítások ({{ settings.catalog|length }})</h2>
+<p class="muted">{{ settings.note }}</p>
+<div class="scroll-x">
+  <table class="table">
+    <thead>
+      <tr><th>Kulcs</th><th>Típus</th><th>Leírás</th>{% if settings.values_visible %}<th>Aktuális</th>{% endif %}</tr>
+    </thead>
+    <tbody>
+      {% for row in settings.catalog %}
+        <tr>
+          <td>
+            <code>{{ row.key }}</code>
+            {% if row.secret %}<span class="chip chip-sm">titkos</span>{% endif %}
+            {% if row.requires_restart %}<span class="chip chip-sm">újraindítás</span>{% endif %}
+          </td>
+          <td>
+            {{ row.value_type }}
+            {% if row.choices %}<span class="meta">{{ row.choices|join:", " }}</span>{% endif %}
+          </td>
+          <td>{{ row.label }}{% if row.description %} — <span class="meta">{{ row.description }}</span>{% endif %}</td>
+          {% if settings.values_visible %}
+            <td><code>{{ row.current|default_if_none:"" }}</code></td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="meta">Olvasás: <code>{{ settings.read }}</code> · írás: <code>{{ settings.write }}</code></p>
+
+<h2>9 · Hibaértékek és korlátok</h2>
+<div class="scroll-x">
+  <table class="table">
+    <thead><tr><th>Kód</th><th>Jelentés</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge">400</span></td><td>{{ errors.400 }}</td></tr>
+      <tr><td><span class="badge">401</span></td><td>{{ errors.401 }}</td></tr>
+      <tr><td><span class="badge">403</span></td><td>{{ errors.403 }}</td></tr>
+      <tr><td><span class="badge">404</span></td><td>{{ errors.404 }}</td></tr>
+      <tr><td><span class="badge">405</span></td><td>{{ errors.405 }}</td></tr>
+      <tr><td><code>isError</code></td><td>{{ errors.mcp_is_error }}</td></tr>
+    </tbody>
+  </table>
+</div>
+<ul class="llm-notes">
+  {% for item in guardrails %}<li>{{ item }}</li>{% endfor %}
+</ul>
+
+<p class="meta">
+  A fenti szövegek az agent gépi szerződése, ezért angolul maradtak — ugyanaz a
+  nyelv, amit a REST és az MCP eszközszinten is használsz. A teljes nyers JSON:
+  <a href="/llm?format=json">/llm?format=json</a> vagy <a href="/api/v1/llm/">/api/v1/llm/</a>.
+</p>
+{% endblock %}

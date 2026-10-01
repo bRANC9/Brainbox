@@ -199,6 +199,34 @@ links/  git/  secrets/  users/  groups/  permissions/  api-keys/  audit/
 search/  discovery/  quality/  drafts/
 ```
 
+### `GET /llm` – önleíró manifest
+
+`http://localhost:8123/llm` az agent-felület: hitelesítési séma (melyik header,
+hogyan kérünk kulcsot, mit jelent a scope), a teljes REST végpontlista a
+szükséges jogosultsággal, az MCP szerver + minden tool a JSON sémájával, a
+domain modell, a kötelező konvenciók (AI írás mindig `draft`, ember hagyja
+jóvá, secret soha ne menjen dokumentumba), kész workflow-k és a runtime
+beállítások katalógusa.
+
+Böngészőben HTML oldal, agentnek JSON – ugyanaz a tartalom:
+
+| Hívás | Válasz |
+| --- | --- |
+| `GET /llm` böngészőből (`Accept: text/html`) | emberi olvasásra szánt oldal |
+| `GET /llm` (`curl`, SDK, `Accept: */*` vagy `application/json`) | manifest JSON |
+| `GET /llm?format=json` / `?format=html` | explicit választás |
+| `GET /api/v1/llm/` | manifest JSON (DRF, az API névtérben) |
+
+A manifest **nyilvános** (auth nélkül is megy), hogy egy agent kulcs előtt el
+tudja olvasni, mit kell kérnie; hívóazonosítás (`current_caller`) és a
+beállítások aktuális értékei csak hitelesített kérésnél jelennek meg, és a
+titkolt értékek maszkoltan (`***`). A lista a DRF routerből, az MCP tool
+regiszterből és a settings definíciókból épül, ezért nem tud elavulni.
+
+Megjegyzés: `/api/v1/` **nem** szolgál felületként – a DRF böngészhető
+`APIRootView` nincs bekapcsolva (`ApiRouter.include_root_view = False`), mert
+csak a kollekcióneveket ismételte volna sémák és jogosultságok nélkül.
+
 Néhány hasznos művelet:
 
 ```text
@@ -210,6 +238,10 @@ GET    /api/v1/files/<id>/download/
 POST   /api/v1/api-keys/                                # a nyers kulcs csak itt jelenik meg
 POST   /api/v1/api-keys/<id>/revoke/
 ```
+
+> Biztonság: kulcsmenedzselés csak sessionnel megy — **API kulccsal új kulcs nem
+> hozható létre**, különben egy kiszivárgott agent kulcsból korlátlan, örök
+> hitelesítő lehetne.
 
 Példa API key létrehozásra (scope: csak a Company workspace olvasható):
 

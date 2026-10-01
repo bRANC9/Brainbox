@@ -12,7 +12,7 @@ from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -43,6 +43,7 @@ from apps.settings_store.services import describe
 from apps.workspaces.models import Project, Workspace
 
 from . import serializers as s
+from .llm_guide import build_manifest
 from .permissions import (
     PermissionFilterMixin,
     ResourcePermission,
@@ -568,6 +569,13 @@ class ApiKeyViewSet(viewsets.ModelViewSet):
         return s.ApiKeySerializer
 
     def create(self, request, *args, **kwargs):
+        if api_key_from_request(request) is not None:
+            # An agent key must not be able to mint a permanent credential for its
+            # owner: a scoped key could bootstrap an unscoped one and shed the
+            # scope it was given. Key management stays a human, session-only action.
+            raise PermissionDenied(
+                "An API key cannot create another API key; sign in with a session."
+            )
         serializer = s.ApiKeyCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         scopes = [dict(scope) for scope in serializer.validated_data.get("scopes", [])]
@@ -1047,6 +1055,20 @@ class SearchView(APIView):
             detail={"q": query, "mode": mode, "count": len(results)},
         )
         return Response({"query": query, "mode": mode, "count": len(results), "results": results})
+
+
+class LLMGuideView(APIView):
+    """`GET /llm` -- self-describing manifest for an LLM agent.
+
+    Public on purpose: an agent must be able to read how to obtain a key before
+    it has one. Values that depend on the caller (current_caller, current
+    settings) are only filled in when the request is authenticated.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(build_manifest(request))
 
 
 class DiscoveryView(APIView):

@@ -7,7 +7,19 @@ from apps.jobs import api as jobs_views
 
 from . import views
 
-router = DefaultRouter()
+
+class ApiRouter(DefaultRouter):
+    """DefaultRouter without its API root view.
+
+    `/api/v1/` used to answer with DRF's browsable index: a second surface that
+    only repeated the collection names, without schemas, permissions or a single
+    instruction an agent could follow. `/llm` is that surface now.
+    """
+
+    include_root_view = False
+
+
+router = ApiRouter()
 router.register("workspaces", views.WorkspaceViewSet, basename="workspace")
 router.register("projects", views.ProjectViewSet, basename="project")
 router.register("resources", views.ResourceViewSet, basename="resource")
@@ -28,6 +40,7 @@ router.register("folders", views.FolderViewSet, basename="folder")
 router.register("settings", views.RuntimeSettingViewSet, basename="setting")
 
 urlpatterns = router.urls + [
+    path("llm/", views.LLMGuideView.as_view(), name="llm"),
     path("search/", views.SearchView.as_view(), name="search"),
     path("discovery/", views.DiscoveryView.as_view(), name="discovery"),
     path("quality/", views.QualityView.as_view(), name="quality"),

@@ -104,6 +104,11 @@ class GitImportTests(TestCase):
         (path / "bicep.md").write_text("# Bicep\n\nContent\n", encoding="utf-8")
         (path / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n fake")
         _git(path, "init", "-b", "main")
+        # The "remote" is a normal checkout, so git refuses pushes into its
+        # checked-out branch by default. Allow them, so the export path and the
+        # autocommit tests exercise a real successful push instead of always
+        # erroring (which used to spam every test run with a push failure).
+        _git(path, "config", "receive.denyCurrentBranch", "ignore")
         _commit_remote(path, "init")
         return path
 
@@ -225,6 +230,7 @@ class CommitAuthorshipTests(TestCase):
         path.mkdir(parents=True)
         (path / "note.md").write_text("# Note\n", encoding="utf-8")
         _git(path, "init", "-b", "main")
+        _git(path, "config", "receive.denyCurrentBranch", "ignore")
         _commit_remote(path, "init")
         return path
 

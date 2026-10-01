@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import tempfile
@@ -8,7 +9,7 @@ from django.test import SimpleTestCase, override_settings
 from rest_framework import status, viewsets
 from rest_framework.test import APITestCase
 
-from apps.accounts.models import User
+from apps.accounts.models import ApiKey, User
 from apps.accounts.services import ApiKeyService
 from apps.documents.services import DocumentService
 from apps.git.services import GitService
@@ -24,6 +25,15 @@ class ApiTests(APITestCase):
         self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
         self.bob = User.objects.create_user("bob", "bob@example.com", "pw")
         self.company = WorkspaceService.create(name="Company", created_by=self.alice)
+
+    def test_api_key_cannot_mint_another_api_key(self):
+        """A leaked agent key must not be able to bootstrap a permanent one."""
+        _api_key, raw_key = ApiKeyService.create(user=self.alice, name="agent")
+        response = self.client.post(
+            "/api/v1/api-keys/", {"name": "escalated"}, format="json", HTTP_X_API_KEY=raw_key
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+        self.assertEqual(ApiKey.objects.filter(user=self.alice).count(), 1)
 
     def test_workspace_list_only_returns_visible(self):
         self.client.force_authenticate(self.alice)
@@ -236,6 +246,100 @@ class GroupMembersTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class LLMManifestTests(APITestCase):
+    """`GET /llm` is the agent's own docs -- it must stay truthful and leak nothing."""
+
+    def manifest(self, **extra):
+        return self.client.get("/llm", **extra).json()
+
+    def test_manifest_is_public(self):
+        self.assertIsNone(self.manifest()["current_caller"])
+
+    def test_manifest_documents_api_key_auth(self):
+        auth = self.manifest()["authentication"]
+        self.assertEqual(auth["header"], "Authorization: ApiKey <API_KEY>")
+        self.assertEqual(auth["alternative_header"], "X-API-Key: <API_KEY>")
+
+    def test_manifest_lists_every_registered_collection_and_mcp_tool(self):
+        from apps.api.urls import router
+        from apps.mcp.tools import definitions
+
+        data = self.manifest()
+        paths = {row["path"] for row in data["transports"]["rest"]["endpoints"]}
+        for prefix, _viewset, _basename in router.registry:
+            self.assertIn(f"/api/v1/{prefix}/", paths)
+        self.assertIn("/api/v1/search/", paths)
+        self.assertIn("/api/v1/llm/", paths)
+
+        tools = {row["name"] for row in data["transports"]["mcp"]["tools"]}
+        self.assertEqual(tools, {row["name"] for row in definitions()})
+
+    def test_manifest_reports_the_caller_but_never_the_key(self):
+        alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        _api_key, raw_key = ApiKeyService.create(user=alice, name="agent")
+
+        data = self.manifest(HTTP_X_API_KEY=raw_key)
+        self.assertEqual(data["current_caller"]["username"], "alice")
+        self.assertEqual(data["current_caller"]["api_key"]["name"], "agent")
+        self.assertNotIn(raw_key, json.dumps(data, default=str))
+
+    def test_setting_values_are_superuser_only(self):
+        runtime = self.manifest()["runtime_settings"]
+        self.assertFalse(runtime["values_visible"])
+        for row in runtime["catalog"]:
+            self.assertNotIn("current", row)
+
+        admin = User.objects.create_user(
+            "root", "root@example.com", "pw", is_staff=True, is_superuser=True
+        )
+        self.client.force_login(admin)
+        self.assertTrue(self.manifest()["runtime_settings"]["values_visible"])
+
+    def test_endpoint_table_is_clean(self):
+        """No regex routes, no format-suffix clones, no methodless rows."""
+        seen: set[str] = set()
+        rows = self.manifest()["transports"]["rest"]["endpoints"]
+        self.assertTrue(rows)
+        for row in rows:
+            path = row["path"]
+            self.assertTrue(path.startswith("/api/v1/"), path)
+            for leaked in ("^", "$", "\\", "(?", "format"):
+                self.assertNotIn(leaked, path, f"{path} leaks a raw route pattern")
+            self.assertTrue(row["methods"], path)
+            self.assertNotIn(path, seen, f"{path} listed twice")
+            seen.add(path)
+
+    def test_browsers_get_the_page_agents_get_json(self):
+        page = self.client.get("/llm", HTTP_ACCEPT="text/html,application/xhtml+xml")
+        self.assertEqual(page.status_code, status.HTTP_200_OK)
+        self.assertIn("text/html", page["Content-Type"])
+        self.assertIn("Authorization: ApiKey", page.content.decode())
+        # No browser Accept header (curl, SDKs) must stay machine readable.
+        self.assertEqual(self.client.get("/llm")["Content-Type"], "application/json")
+        self.assertEqual(
+            self.client.get("/llm", HTTP_ACCEPT="*/*")["Content-Type"], "application/json"
+        )
+        self.assertEqual(
+            self.client.get("/llm", HTTP_ACCEPT="application/json")["Content-Type"],
+            "application/json",
+        )
+
+    def test_json_contract_also_lives_under_the_api_namespace(self):
+        response = self.client.get("/api/v1/llm/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["authentication"]["header"], "Authorization: ApiKey <API_KEY>")
+
+    def test_invalid_key_is_rejected_on_the_page(self):
+        response = self.client.get("/llm", HTTP_X_API_KEY="definitely-not-a-key")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_api_root_is_not_a_surface(self):
+        """`/api/v1/` used to be DRF's browsable index; `/llm` replaced it."""
+        self.assertEqual(
+            self.client.get("/api/v1/").status_code, status.HTTP_404_NOT_FOUND
+        )
 
 
 class ActionRouteTests(SimpleTestCase):
