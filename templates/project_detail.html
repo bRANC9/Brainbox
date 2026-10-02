@@ -9,7 +9,7 @@
       {{ project.name }}
     </p>
     <h1>{{ project.name }}</h1>
-    <p class="muted">{{ project.description|default:"No description" }}</p>
+    {% if project.description %}<p class="muted">{{ project.description }}</p>{% else %}<p class="meta">Nincs leírás.</p>{% endif %}
     <p class="meta">Tulajdonos: {% if owner %}{{ owner.display_name|default:owner.username }}{% if owner.display_name and owner.display_name != owner.username %} ({{ owner.username }}){% endif %}{% else %}nincs (örökség){% endif %}</p>
   </div>
   {% if can_admin and not is_personal %}

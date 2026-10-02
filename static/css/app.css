@@ -12,12 +12,26 @@
 
 * { box-sizing: border-box; }
 
+:root {
+  /* Reading width. Without a ceiling the whole layout stretches to the viewport,
+     which at 2560px turns the file tree into a 2500px-wide table with the row
+     actions a screen away, and prose into 150-character lines. */
+  --content-max: 1360px;
+  --prose-max: 78ch;
+}
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.55;
+}
+
+main {
+  max-width: min(var(--content-max), 100%);
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -41,7 +55,9 @@ a:hover { text-decoration: underline; }
 .topbar .user { color: var(--muted); }
 .inline { display: inline; margin: 0; }
 
-main { max-width: 1080px; margin: 0 auto; padding: 1.5rem; }
+/* Superseded by the `main` rule near the top, which owns the max-width; this
+   only keeps the padding so the two cannot drift apart silently. */
+main { margin: 0 auto; padding: 1.5rem; }
 
 .footer { text-align: center; color: var(--muted); padding: 2rem; font-size: 0.85rem; }
 
@@ -324,6 +340,21 @@ details pre.code { max-height: 320px; }
 .commits li { padding: 0.2rem 0; font-size: 0.9rem; }
 .commits code, .git-panel code { background: var(--panel-2); padding: 0.05rem 0.35rem; border-radius: 4px; }
 .member-list { margin: 0 0 1rem; }
+
+@media (max-width: 1100px) {
+  /* Tablet / narrow-desktop: the page-head row (title + buttons) has no room,
+     and the file tree's action column pushes the names out of view. */
+  .page-head { flex-direction: column; align-items: flex-start; }
+  .page-head .actions { width: 100%; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}
+
+@media (min-width: 1800px) {
+  /* WQHD and up: give the dashboards room instead of a column of content
+     stranded in the middle, but stop before the lines get unreadable. */
+  :root { --content-max: 1560px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}
 
 @media (max-width: 720px) {
   main { padding: 1rem 0.75rem; }

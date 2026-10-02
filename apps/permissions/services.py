@@ -101,6 +101,68 @@ class PermissionService:
         return [rid for rid in ids if rid in allowed]
 
     @classmethod
+    def can_browse(cls, user, resource, api_key=None) -> bool:
+        """Whether the caller may open this container's page at all.
+
+        Reading is not enough to *reach* a grant. If somebody was given
+        ``Ecoform/Fejlesztoi resz/runbooks/2024`` and nothing above it, they can
+        open that document and find it in search - but a plain READ check on the
+        project 404s, so the tree that would show them the way in is never
+        rendered. The trail closure that makes the folder navigable
+        (:meth:`visible_resource_ids`) has to apply to the container page too,
+        otherwise "grant me a deep folder" silently does not work.
+
+        Cheap by construction: the caller either already has READ on the
+        container, or there is an ALLOW entry of theirs (or of one of their
+        groups) on some resource below it. No subtree walk needed, because any
+        ancestor ALLOW would already have satisfied the first check.
+        """
+        if resource is None:
+            return False
+        if user is None or not getattr(user, "is_authenticated", False):
+            return False
+        if resource.resource_type == ResourceType.FOLDER:
+            return False
+        # Absolute DENY wins first. The subtree shortcut below is only a way of
+        # *reaching* a grant that already exists further down; it must never be a
+        # way around a DENY sitting on the container itself, or a denied
+        # project would be opened by the very helper meant to make grants
+        # navigable.
+        if cls._denied_on_chain(user, resource, Permission.READ, api_key):
+            return False
+        if cls.check(user, resource, Permission.READ, api_key=api_key):
+            return True
+        subtree = cls._descendant_resource_ids(resource)
+        subtree.discard(resource.id)
+        if not subtree:
+            return False
+        query = Q(subject_type=SubjectType.USER, subject_id=user.id)
+        group_ids = cls._group_ids(user)
+        if group_ids:
+            query |= Q(subject_type=SubjectType.GROUP, subject_id__in=group_ids)
+        return (
+            ResourceACL.objects.filter(resource_id__in=subtree)
+            .filter(effect=Effect.ALLOW)
+            .filter(query)
+            .exists()
+        )
+
+    @classmethod
+    def _denied_on_chain(cls, user, resource, permission: str, api_key=None) -> bool:
+        """True when a DENY on this resource or an ancestor blocks ``permission``."""
+        group_ids = cls._group_ids(user)
+        for index, node in enumerate(resource.ancestors()):
+            entries = cls._entries_for(node, user, group_ids)
+            if index > 0:
+                entries = [entry for entry in entries if entry.inherit]
+            if any(
+                entry.effect == Effect.DENY and deny_blocks(entry.permission, permission)
+                for entry in entries
+            ):
+                return True
+        return False
+
+    @classmethod
     def superuser_bypass(cls) -> bool:
         """Temporary rollout escape hatch; off unless explicitly enabled."""
         return bool(getattr(settings, "BRAINBOX_SUPERUSER_BYPASS", False))

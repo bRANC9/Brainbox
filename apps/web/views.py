@@ -34,7 +34,7 @@ from apps.groups.models import Group, GroupMembership
 from apps.knowledge.services import DiscoveryService, DraftService, GraphService
 from apps.permissions.constants import Effect, Permission, SubjectType
 from apps.permissions.services import PermissionService
-from apps.resources.models import Resource
+from apps.resources.models import Resource, ResourceType
 from apps.search.services import SearchService
 from apps.workspaces.models import Project, Workspace
 from apps.workspaces.ownership import OwnershipService
@@ -476,6 +476,7 @@ def _access_context(request, resource) -> dict:
             "can_share": False,
             "is_owner": PermissionService.is_scope_owner(request.user, resource),
             "is_personal": True,
+            "is_workspace_resource": resource.resource_type == ResourceType.WORKSPACE,
             "no_takeover": resource.takeover_locked(),
             "can_take_over": False,
             "access_url": reverse("web:resource_permissions", args=[resource.pk]),
@@ -488,6 +489,7 @@ def _access_context(request, resource) -> dict:
         "can_share": can_share,
         "is_owner": PermissionService.is_scope_owner(request.user, resource),
         "is_personal": False,
+        "is_workspace_resource": resource.resource_type == ResourceType.WORKSPACE,
         "no_takeover": resource.takeover_locked(),
         "can_take_over": PermissionService.can_take_over(request.user, resource),
         "publish_titles": _publish_titles(workspace) if workspace else False,
@@ -502,7 +504,9 @@ def _access_context(request, resource) -> dict:
 @login_required
 def workspace_detail(request, workspace_slug):
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
-    if not _can(request.user, workspace.resource, Permission.READ):
+    # can_browse, not check: somebody granted a deep folder inside this
+    # workspace has to be able to open it, or the grant is unusable.
+    if not PermissionService.can_browse(request.user, workspace.resource):
         raise Http404
 
     projects = [
@@ -519,6 +523,14 @@ def workspace_detail(request, workspace_slug):
     ]
     can_write = _can(request.user, workspace.resource, Permission.WRITE)
     tag_filter = request.GET.get("tag", "")
+    tree_rows = _folder_tree_rows(workspace, None, request.user, tag_filter)
+    # A workspace's own tree only ever holds content that sits at the workspace
+    # root. Knowledge normally lives in projects, so an empty tree here used to
+    # read as "this workspace is empty" while it held ten documents. Say where
+    # the content actually is instead of pretending.
+    content_in_projects = bool(projects) and not any(
+        row["type"] == "doc" for row in tree_rows
+    )
     context = {
         "workspace": workspace,
         "projects": projects,
@@ -527,8 +539,9 @@ def workspace_detail(request, workspace_slug):
         "is_personal": workspace.is_personal,
         "owner": workspace.owner,
         "can_rename": _can(request.user, workspace.resource, Permission.ADMIN),
+        "content_in_projects": content_in_projects,
         **_access_context(request, workspace.resource),
-        "tree_rows": _folder_tree_rows(workspace, None, request.user, tag_filter),
+        "tree_rows": tree_rows,
         "tag_filter": tag_filter,
         "available_tags": _available_tags(workspace, None),
         **_git_panel(workspace),
@@ -540,7 +553,7 @@ def workspace_detail(request, workspace_slug):
 def project_detail(request, workspace_slug, project_slug):
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
     project = get_object_or_404(Project, workspace=workspace, slug=project_slug)
-    if not _can(request.user, project.resource, Permission.READ):
+    if not PermissionService.can_browse(request.user, project.resource):
         raise Http404
 
     documents = [
@@ -1582,6 +1595,7 @@ def resource_permissions(request, resource_id):
             "can_share": can_share,
             "is_owner": PermissionService.is_scope_owner(request.user, resource),
             "is_personal": is_personal,
+            "is_workspace_resource": resource.resource_type == ResourceType.WORKSPACE,
             "no_takeover": resource.takeover_locked(),
             "can_take_over": PermissionService.can_take_over(request.user, resource),
             "owner_rows": owner_rows,
