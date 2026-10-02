@@ -97,6 +97,20 @@ class SuperuserTests(TestCase):
         with self.assertRaises(PermissionDenied):
             OwnershipService.take_over(resource=self.workspace.resource, actor=self.root)
 
+    def test_takeover_is_not_offered_on_what_you_already_administer(self):
+        """Taking over something you own is meaningless - and it was being offered."""
+        self.assertTrue(PermissionService.can_take_over(self.root, self.workspace.resource))
+        OwnershipService.take_over(resource=self.workspace.resource, actor=self.root)
+        self.assertFalse(
+            PermissionService.can_take_over(self.root, self.workspace.resource),
+            "the superuser now holds an explicit ADMIN entry, so there is nothing to take over",
+        )
+        self.assertFalse(PermissionService.can_take_over(self.alice, self.workspace.resource))
+
+    def test_takeover_stays_available_for_a_sibling_the_caller_cannot_reach(self):
+        other = WorkspaceService.create(name="Zárt", created_by=self.alice)
+        self.assertTrue(PermissionService.can_take_over(self.root, other.resource))
+
     def test_no_takeover_is_inherited_by_the_subtree(self):
         self.workspace.resource.no_takeover = True
         self.workspace.resource.save(update_fields=["no_takeover"])

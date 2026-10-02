@@ -1,4 +1,4 @@
-﻿{% load ui %}
+{% load ui %}
 {% comment %}
 Shared access panel. Included inline by the workspace/project/document pages and
 as the whole page by /resources/<id>/permissions/.
@@ -31,7 +31,11 @@ looking like it was doing something random.
 {% endcomment %}
 
 <div class="git-panel" id="access-panel">
-  <h2>{{ standalone|yesno:"Hozzáférés (ACL),Tagok és hozzáférés" }}</h2>
+  {% comment %}
+  The standalone page already has an <h1>; repeating it inside the panel put the
+  same title on screen twice. Inline, the panel keeps its own heading.
+  {% endcomment %}
+  {% if not standalone %}<h2>Tagok és hozzáférés</h2>{% endif %}
 
   <div class="scroll-x">
     <table class="table">

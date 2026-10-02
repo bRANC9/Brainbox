@@ -460,12 +460,21 @@ class PermissionService:
     # -- takeover ------------------------------------------------------------
     @classmethod
     def can_take_over(cls, user, resource) -> bool:
-        """The explicit, audited way in for a superuser. Off by design everywhere else."""
+        """The explicit, audited way in for a superuser. Off by design everywhere else.
+
+        Only offered for what the caller *cannot* reach: taking over something you
+        already administer is meaningless, and offering it there put a
+        full-width "jogosultság-átvétel" bar at the top of the owner's own pages.
+        """
         if resource is None or user is None:
             return False
         if not getattr(user, "is_authenticated", False) or not user.is_superuser:
             return False
-        return not resource.takeover_locked()
+        if resource.takeover_locked():
+            return False
+        if cls.check(user, resource, Permission.ADMIN):
+            return False
+        return True
 
     # -- mutations -----------------------------------------------------------
     @classmethod

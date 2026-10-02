@@ -18,14 +18,23 @@
 {% endif %}
 
 {% if can_take_over %}
-  <form method="post" action="{% url 'web:resource_takeover' workspace.resource_id %}" class="form"
-        onsubmit="return confirm('Átveszed a jogosultságot erre a workspace-re? A művelet az audit naplóba kerül.');">
-    {% csrf_token %}
-    <input type="hidden" name="action" value="takeover">
-    <input type="hidden" name="next" value="{{ request.get_full_path }}">
-    <button type="submit" class="button">Jogosultság-átvétel</button>
-    <p class="meta">Figyelem: az átvétel naplózott művelet, de nem változtatja meg a tulajdonost.</p>
-  </form>
+  {% comment %}
+  Deliberately small and below the content: this is a break-glass action for a
+  superuser who cannot see the page, not a primary action. It used to render as a
+  full-width bar above the file tree on the owner's own pages, because
+  can_take_over did not check whether the caller already had access.
+  {% endcomment %}
+  <details class="banner warn">
+    <summary>Nincs hozzáférésed? Kérj jogosultság-átvételt</summary>
+    <form method="post" action="{% url 'web:resource_takeover' workspace.resource_id %}"
+          onsubmit="return confirm('Átveszed a jogosultságot erre a workspace-re? A művelet az audit naplóba kerül, és nem változtatja meg a tulajdonost.');">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="takeover">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button type="submit" class="button">Jogosultság-átvétel</button>
+      <p class="meta">A művelet naplózott, de nem változtatja meg a tulajdonost.</p>
+    </form>
+  </details>
 {% elif no_takeover and user.is_superuser %}
   <p class="banner warn">A tulajdonos letiltotta a jogosultság-átvételt ezen a workspace-en.</p>
 {% endif %}

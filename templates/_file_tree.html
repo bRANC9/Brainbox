@@ -1,4 +1,4 @@
-﻿{% load ui %}
+{% load ui %}
 {% comment %}
 Folder + document tree for a workspace/project. 'tree_rows' is a flat list with
 a 'depth' so it renders without recursive template tags.
@@ -10,7 +10,7 @@ a 'depth' so it renders without recursive template tags.
          data-folder-create="{% if project %}{% url 'web:project_folder_create' workspace.slug project.slug %}{% else %}{% url 'web:workspace_folder_create' workspace.slug %}{% endif %}"
          data-folder-op="{% url 'web:tree_folder_op' %}">
   <div class="page-head" style="margin-bottom:.5rem">
-    <h2 style="margin:0">Fájlok és mappák <span class="muted" style="font-size:.8rem">(húzd a sorokat mappák közé)</span></h2>
+    <h2 style="margin:0">Fájlok és mappák {% if can_write %}<span class="muted" style="font-size:.8rem">(húzd a sorokat mappák közé)</span>{% endif %}</h2>
     {% if can_write %}
       <span>
         {% if project %}
@@ -69,7 +69,7 @@ a 'depth' so it renders without recursive template tags.
                 {% endif %}
               {% else %}
                 📄 <a href="{% url 'web:document_detail' row.doc.pk %}">{{ row.name }}</a>
-                <span class="muted">{{ row.doc.path }}</span>
+                <span class="tree-path muted" title="{{ row.doc.path }}">{{ row.doc.path }}</span>
                 {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
                 <span class="badge badge-{{ row.doc.status|hu }}">{{ row.doc.status|hu }}</span>
                 {% if can_write %}
