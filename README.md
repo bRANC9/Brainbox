@@ -541,29 +541,88 @@ provider (terv 20):
 > **„Knowledge groups"**-ot használják (`/manage/groups/`, `apps.groups.Group`).
 > A Django saját „Groups" (admin/site jogosultságok) **nem számít** az ACL-ben.
 
+### A modell röviden
+
+| Szint | Alapértelmezett láthatóság | Ki kezeli a jogait |
+|---|---|---|
+| Szuperuser | **semmi implicit** | csak az auditált *jogosultság-átvétel* |
+| Personal workspace | csak a tulajdonos, automatikus | kizárólag a tulajdonos |
+| Workspace | privát, amíg nincs megosztva; a megosztás **dinamikusan** öröklődik a gyerekekre | **csak a workspace tulajdonosa** |
+| Project | a workspace ACL-jét örökli | a workspace- vagy a project-tulajdonos |
+| Dokumentum / fájl | a konténerét örökli | a konténer ACL-je |
+| Mappa | önálló ACL a `Resource` láncon, öröklődő | a legközelebbi ACL-kezelő |
+
+A négy jogszint szigorúan beágyazott: `read` ⊂ `write` ⊂ `delete` ⊂ `admin`.
+Az `admin` a jogosultság-kezelést jelenti; `write` csak `read`-et oszthat
+(megosztás), `delete` magával vonja a `write`-ot. A **DENY abszolút**: bármelyik
+ős szinten blokkol, még ha alatta szűkebb ALLOW is van.
+
+**Szuperuser bypass:** a rendszeradmin *nem* látja a tartalmat. Az egyetlen út
+be egy auditált átvétel (a jogosultságok oldalon vagy shellből), amit a
+workspace tulajdonosa `no_takeover` kapcsolóval letilthat. Csak a
+`BRAINBOX_SUPERUSER_BYPASS=1` kapcsoló állítja vissza a régi viselkedést —
+átállás előtt futtasd a `manage.py access_audit`-ot.
+
+**Megosztási korlát:** a megosztás a workspace-en *belül* működik, kívülre nem
+(titok, MCP szerver, root git repo). A workspace/project **tulajdonosa** látja a
+teljes felhasználókönyvtárat; a delegált admin és a writer csak azt látja, ami
+a workspace-en már jogot kapott, plusz a saját csoportjait. Így egy közvetített
+admin nem bővítheti a kört a tulajdonos által megengedettnél tovább, és nem
+láthatja a cégtáblázatot.
+
+### Parancsok
+
+```bash
+python manage.py access_audit              # ki mit lát csak a bypass miatt (+ --json)
+python manage.py backfill_owners           # owner = created_by a hiányzó sorokra
+python manage.py ensure_personal_workspaces  # minden aktív usernek a saját Personal
+python manage.py drop_empty_workspace --slug personal --yes   # a közös Personal törlése
+```
+
+### Szokásos műveletek
+
 **1. User felvétele** – Django admin (`/admin/`, staff kell):
 `Authentication → Users → Add user` (username, email, display_name). Az első
 superuser-t a `BRAINBOX_ADMIN_*` env-ből hozza létre a rendszer bootkor.
+A bejelentkezéskor automatikusan létrejön a user **Personal workspace-e**.
 
 **2. Csoport létrehozás + tagok** – bármelyik úton:
 - Web UI: `/manage/groups/` (staff) – csoport + tagok hozzáadása,
 - Admin: `Knowledge groups` (a `description` + tag inline a kulcs).
 
+Csoportot csak superuser hozhat létre; a csoport **manager**ei (a
+`GroupMembership.role`) módosíthatják a taglistát. Az `is_staff` szándékosan nem
+tud csoportot kezelni: egy csoporthoz valaki hozzáadása maga a jogbővítés.
+
 **3. Jogosultság kiosztása** (ACL) – ahol a user **admin** a resource-ön:
 
-- **Web UI (ajánlott)**: a Workspace/Project/Document oldalon a
-  **Permissions** gomb → `/resources/<id>/permissions/`. Itt lehet
+- **Web UI (ajánlott)**: a Workspace/Project/Document/Mappa oldalon a
+  **Jogosultságok** gomb → `/resources/<id>/permissions/`. Itt lehet
   subject=user **vagy** group, permission=read/write/delete/admin/use,
   effect=allow/deny, és az `inherit` (öröklik-e a gyerekekre).
 - **Admin**: a Workspace/Project szerkesztőoldalon a **„Manage permissions →"**
-  link ugyanoda visz.
+  link ugyanoda visz. Az admin csak **olvasható** és csak a jogos ACL-lel
+  szűkített lista (a változtatás mindig a service-en át megy).
 
-**Öröklés:** a workspace-en (vagy projekten) adott jog **lefelé öröklődik**
-(document/file). Ha egy gyereken explicit DENY-t adsz, az felülírja az öröklést.
-Egy API key **szűkítheti** a felhasználó jogát (scope), de nem bővítheti.
+**Öröklés:** a workspace-en (vagy projekten vagy mappán) adott jog **lefelé
+öröklődik** (document/file). Ha egy gyereken explicit DENY-t adsz, az
+**abszolút** – felülírja az öröklést és a szűkebb ALLOW-t is. Egy API key
+**szűkítheti** a felhasználó jogát (scope), de nem bővítheti.
+
+**Mappák:** a mappa önálló `Resource`, tehát a `A/B/C` útvonalra adott jog
+lefedezi a tartalmát, de a testvér-mappákat nem. A fán a köztes ősök
+(`A`, `A/B`) **szerkezeti** csomópontként látszanak — a nevük szükséges az
+útvonalhoz —, de a többi gyermekük és a mellettük lévő doksik nem, és rajtuk
+nincs műveleti gomb.
+
+**Tulajdon:** minden workspace és projectnek van `owner` mezője (alapból a
+létrehozó), amit a jogosultságok oldalon a tulajdonos **átadhat** egy másik
+usernek. Az átadás az átvevő `admin` jogával jár, a régi owner veszíti az
+`admin`-t (hacsak `read`/`write` megtartást nem kér). A **Personal workspace
+nem adható tovább** — előbb alakítsd megosztottá.
 
 **Példa (céges tudástár):**
-1. Csoport: „Engineering"
+1. Csoport: „Engineering" (superuser hozza létre, manager = a csoport gazdája)
 2. Tagok: alice, bob
 3. Workspace-en: subject=group(Engineering), permission=read, effect=allow, inherit=on
 4. Ha kell írni egy külön csapatnak: külön csoport + `write` jog a workspace-en.
@@ -572,7 +631,10 @@ Egy API key **szűkítheti** a felhasználó jogát (scope), de nem bővítheti.
    (csak cím/összefoglaló látszik).
 
 **Audit:** minden változtatás `change_permission` eseményként kerül az
-`/manage/audit/`-ba (és `/api/v1/audit/`).
+`/manage/audit/`-ba (és `/api/v1/audit/`). Az átvétel `detail.type="takeover"`,
+a tulajdonos-átadás `detail.type="ownership_transfer"` jelöléssel. A superuser
+**saját** ACL-je nélküli resource-ökhöz tartozó eseményeknél az audit nézet
+kitölti a `detail`-t (nevek nem szivárognak át).
 
 ---
 

@@ -83,6 +83,7 @@ class AccessPanelTests(TestCase):
         self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
         self.writer = User.objects.create_user("writer", "writer@example.com", "pw")
         self.bob = User.objects.create_user("bob", "bob@example.com", "pw")
+        self.outsider = User.objects.create_user("outsider", "outsider@example.com", "pw")
         self.workspace = WorkspaceService.create(name="Company", created_by=self.alice)
         # writer gets write (not admin) on the workspace
         from apps.permissions.constants import Permission, SubjectType
@@ -93,7 +94,14 @@ class AccessPanelTests(TestCase):
             subject_type=SubjectType.USER,
             subject_id=self.writer.id,
             permission=Permission.WRITE,
+            created_by=self.alice,
         )
+        # bob is a colleague of the writer (same work group), so the writer may
+        # share with him; `outsider` shares no group and is not in the workspace
+        # audience, so the writer must not even be able to see him offered.
+        self.team = Group.objects.create(name="Writer team")
+        GroupMembership.objects.create(user=self.writer, group=self.team, role="member")
+        GroupMembership.objects.create(user=self.bob, group=self.team, role="member")
 
     def test_writer_can_open_access_panel(self):
         self.client.force_login(self.writer)

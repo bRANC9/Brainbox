@@ -42,10 +42,21 @@ class Group(models.Model):
 
 
 class GroupMembership(models.Model):
+    """Membership in a knowledge group.
+
+    ``MANAGER`` administers the group: it can add and remove members. There is
+    no separate owner role - the managers *are* the group's owners, which is why
+    a group needs no owner field of its own.
+
+    The role is deliberately **not** part of the permission engine: holding
+    ``MANAGER`` grants no access to any resource. It only governs who may change
+    the group's membership. (Adding yourself to a group that has access *is* an
+    escalation, so group administration is not available to ``is_staff``.)
+    """
+
     class Role(models.TextChoices):
         MEMBER = "member", "Member"
         MANAGER = "manager", "Manager"
-        OWNER = "owner", "Owner"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(

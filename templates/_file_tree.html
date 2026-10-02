@@ -39,18 +39,33 @@ a 'depth' so it renders without recursive template tags.
     <table class="table file-tree">
       <tbody>
         {% for row in tree_rows %}
-          <tr class="tree-row"
-              draggable="true"
+          {% comment %}
+          A dir row with can_read=False is only on the path to something readable
+          (its name is part of the path), so it gets no actions and is not a drag
+          source or a drop target. `row.folder` is None when the segment exists
+          only as a prefix - then there is nothing to grant access to.
+          {% endcomment %}
+          <tr class="tree-row{% if row.type == 'dir' and not row.can_read %} trail-row{% endif %}"
+              {% if row.type == "doc" or row.can_read %}draggable="true"{% endif %}
               data-type="{{ row.type }}"
+              data-can-read="{% if row.type == 'doc' or row.can_read %}1{% else %}0{% endif %}"
               data-id="{% if row.type == 'doc' %}{{ row.doc.pk }}{% else %}folder:{{ row.path }}{% endif %}"
               {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% else %}data-folder="{{ row.path }}"{% endif %}
               data-tags="{{ row.tags|join:',' }}">
             <td style="padding-left: {{ row.depth }}rem">
               {% if row.type == "dir" %}
-                <span class="muted">📁 {{ row.name }}/</span>
-                {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
-                {% if can_write %}
-                  <a class="link" href="{% if project %}{% url 'web:project_document_create' workspace.slug project.slug %}?folder={{ row.path|urlencode }}{% else %}{% url 'web:workspace_document_create' workspace.slug %}?folder={{ row.path|urlencode }}{% endif %}">+ doku</a>
+                {% if row.can_read %}
+                  <span class="muted">📁 {{ row.name }}/</span>
+                  {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
+                  {% if can_write %}
+                    <a class="link" href="{% if project %}{% url 'web:project_document_create' workspace.slug project.slug %}?folder={{ row.path|urlencode }}{% else %}{% url 'web:workspace_document_create' workspace.slug %}?folder={{ row.path|urlencode }}{% endif %}">+ doku</a>
+                  {% endif %}
+                  {% if can_admin and row.folder %}
+                    <a class="link" href="{% url 'web:resource_permissions' row.folder.resource_id %}">Jogosultságok</a>
+                  {% endif %}
+                {% else %}
+                  <span class="trail-name" title="Nincs hozzáférésed ehhez a mappához, de az alatta lévő tartalom látható.">📁 {{ row.name }}/</span>
+                  <span class="chip chip-sm" title="Nincs hozzáférésed ehhez a mappához, de az alatta lévő tartalom látható.">nincs hozzáférésed</span>
                 {% endif %}
               {% else %}
                 📄 <a href="{% url 'web:document_detail' row.doc.pk %}">{{ row.name }}</a>
@@ -88,6 +103,9 @@ a 'depth' so it renders without recursive template tags.
   // ---- drag & drop (move) ----------------------------------------------
   document.querySelectorAll('.tree-row').forEach(function (row) {
     row.addEventListener('dragstart', function (e) {
+      // A trail node (data-can-read="0") is not a drag source: you cannot even
+      // read it, so you cannot move it either.
+      if (row.dataset.canRead !== '1') { e.preventDefault(); return; }
       dragging = row;
       row.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
@@ -105,6 +123,8 @@ a 'depth' so it renders without recursive template tags.
   document.querySelectorAll('.tree-row[data-type="dir"]').forEach(function (row) {
     row.addEventListener('dragover', function (e) {
       if (!dragging || dragging === row) return;
+      // No preventDefault() on a trail node, so the drop is refused here.
+      if (row.dataset.canRead !== '1') { e.dataTransfer.dropEffect = 'none'; return; }
       e.preventDefault();
       row.classList.add('drop-target');
     });
@@ -112,6 +132,7 @@ a 'depth' so it renders without recursive template tags.
       row.classList.remove('drop-target');
     });
     row.addEventListener('drop', function (e) {
+      if (row.dataset.canRead !== '1') return;
       e.preventDefault();
       row.classList.remove('drop-target');
       if (!dragging || dragging === row) return;
@@ -183,7 +204,7 @@ a 'depth' so it renders without recursive template tags.
     });
   }
 
-  document.querySelectorAll('.tree-row[data-type="dir"]').forEach(function (row) {
+  document.querySelectorAll('.tree-row[data-type="dir"][data-can-read="1"]').forEach(function (row) {
     row.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       const folder = row.dataset.folder;

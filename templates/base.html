@@ -16,6 +16,10 @@
       <a href="{% url 'web:discovery' %}">Felfedezés</a>
       <a href="{% url 'web:calendar' %}">Naptár</a>
       <a href="{% url 'web:agenda' %}">Agenda</a>
+      {% if user.is_authenticated %}
+        {# Always reachable: the view creates the Personal workspace lazily. #}
+        <a class="nav-personal" href="{% url 'web:personal_workspace' %}">Személyes</a>
+      {% endif %}
       <a href="/admin/">Admin</a>
       <a href="{% url 'llm-manifest' %}">AI</a>
       {% if user.is_authenticated %}

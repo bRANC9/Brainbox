@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `development` is the integration branch: work lands there first, so it has
+    # to be tested on push rather than only through a PR. Only `main` builds the
+    # deployable image (see build-push.yml) - an unreviewed change on development
+    # must never be able to reach the NAS.
+    branches: [main, development]
   pull_request:
 
 jobs:

@@ -5,7 +5,11 @@ name: Build and push image
 
 on:
   push:
-    branches: [main]
+    # `main` also moves `:latest` (see the raw tag below), so it stays the
+    # stable channel. `development` builds as `:development` only - a
+    # pre-production instance points BRAINBOX_TAG at it explicitly, which is
+    # what keeps an unreviewed change from reaching a stable deployment.
+    branches: [main, development]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -48,6 +52,8 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            # `latest` follows the default branch only, so a development build
+            # can never become what a stable deployment resolves.
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 

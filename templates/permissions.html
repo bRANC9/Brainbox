@@ -6,7 +6,13 @@
     <p class="crumbs">{{ resource.resource_type }}: {{ resource.name }}</p>
     <h1>{{ standalone|yesno:"Hozzáférés (ACL),Tagok és hozzáférés" }}</h1>
     <p class="muted">
-      {% if can_admin %}Admin vagy – bármit adhatsz.{% else %}Író vagy – megoszthatod olvasásra.{% endif %}
+      {% if is_personal %}
+        Személyes workspace &ndash; csak te láthatod, megosztani nem lehet.
+      {% elif can_admin %}
+        Admin vagy &ndash; bármit adhatsz.
+      {% else %}
+        Író vagy &ndash; megoszthatod olvasásra.
+      {% endif %}
     </p>
   </div>
 </section>

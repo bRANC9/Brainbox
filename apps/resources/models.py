@@ -7,6 +7,7 @@ from django.db import models
 class ResourceType(models.TextChoices):
     WORKSPACE = "workspace", "Workspace"
     PROJECT = "project", "Project"
+    FOLDER = "folder", "Folder"
     DOCUMENT = "document", "Document"
     FILE = "file", "File"
     GIT_REPOSITORY = "git_repository", "Git repository"
@@ -34,6 +35,12 @@ class Resource(models.Model):
         related_name="children",
     )
     metadata = models.JSONField(default=dict, blank=True)
+    no_takeover = models.BooleanField(
+        default=False,
+        help_text="Zárja ki a superuser 'jogosultság átvétel' útját. Öröklődik: "
+        "ha egy workspace-en be van kapcsolva, az egész fán nem lehet "
+        "ADMIN-t szerezni. Csak a workspace tulajdonosa kapcsolhatja be.",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -73,3 +80,11 @@ class Resource(models.Model):
 
     def project_resource(self):
         return self.ancestor_of_type(ResourceType.PROJECT)
+
+    def folder_resource(self):
+        """The innermost folder on the chain, if the resource lives in one."""
+        return self.ancestor_of_type(ResourceType.FOLDER)
+
+    def takeover_locked(self) -> bool:
+        """True when this resource or any ancestor forbids the takeover path."""
+        return any(node.no_takeover for node in self.ancestors())

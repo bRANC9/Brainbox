@@ -17,6 +17,7 @@ from apps.groups.models import Group, GroupMembership
 from apps.links.models import ResourceLink
 from apps.permissions.constants import Effect, Permission
 from apps.permissions.models import ResourceACL
+from apps.permissions.services import PermissionService
 from apps.resources.models import Resource
 from apps.secrets.models import Secret, SecretAttachment
 from apps.workspaces.models import Project, Workspace
@@ -29,6 +30,48 @@ def _actor(serializer):
     if user is not None and getattr(user, "is_authenticated", False):
         return user
     return None
+
+
+def _readable_resources(user, queryset, resource_field: str = "resource_id"):
+    """Narrow a related-object queryset to what ``user`` may READ.
+
+    An unscoped ``PrimaryKeyRelatedField`` queryset is an existence oracle: the
+    validation error for "this id exists but you may not have it" differs from
+    the one for "this id does not exist", so the caller can map the whole table
+    from the error messages alone.
+    """
+    if user is None:
+        return queryset
+    resource_ids = queryset.values_list(resource_field, flat=True)
+    allowed = PermissionService.allowed_resource_ids(user, resource_ids, Permission.READ)
+    return queryset.filter(**{f"{resource_field}__in": allowed})
+
+
+class ReadableRelatedField(serializers.PrimaryKeyRelatedField):
+    """A related field whose accepted ids are the caller's readable resources.
+
+    Serialised *output* is unaffected (a pk is echoed straight back), so this
+    only narrows what may be written - which is the whole point.
+    """
+
+    def get_queryset(self):
+        return _readable_resources(_actor(self), super().get_queryset())
+
+
+class OwnedSecretField(serializers.PrimaryKeyRelatedField):
+    """A secret field that only accepts the caller's own secrets.
+
+    A ``Secret`` has no ``Resource``: it lives outside every workspace and is
+    reachable only through its owner, exactly like ``SecretViewSet``'s
+    queryset. Same reasoning as :class:`ReadableRelatedField` - accepting
+    somebody else's secret id here would both confirm it exists and point the
+    repository at a credential the caller cannot use.
+    """
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = _actor(self)
+        return queryset if user is None else queryset.filter(owner=user)
 
 
 def _rethrow(exc: DjangoValidationError):
@@ -212,7 +255,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
 class ProjectSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="pk", read_only=True)
     resource = serializers.UUIDField(source="resource_id", read_only=True)
-    workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all())
+    workspace = ReadableRelatedField(queryset=Workspace.objects.all())
     document_count = serializers.IntegerField(source="documents.count", read_only=True)
 
     class Meta:
@@ -283,8 +326,8 @@ class DocumentVersionSerializer(serializers.ModelSerializer):
 class DocumentSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="pk", read_only=True)
     content = serializers.SerializerMethodField()
-    workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all())
-    project = serializers.PrimaryKeyRelatedField(
+    workspace = ReadableRelatedField(queryset=Workspace.objects.all())
+    project = ReadableRelatedField(
         queryset=Project.objects.all(), required=False, allow_null=True
     )
 
@@ -519,14 +562,14 @@ class GitCommitReferenceSerializer(serializers.ModelSerializer):
 class GitRepositorySerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="pk", read_only=True)
     resource = serializers.UUIDField(source="resource_id", read_only=True)
-    workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all())
-    project = serializers.PrimaryKeyRelatedField(
+    workspace = ReadableRelatedField(queryset=Workspace.objects.all())
+    project = ReadableRelatedField(
         queryset=Project.objects.all(), required=False, allow_null=True
     )
     scope_label = serializers.CharField(read_only=True)
     sync_state = GitSyncStateSerializer(read_only=True)
     commits = GitCommitReferenceSerializer(many=True, read_only=True)
-    secret = serializers.PrimaryKeyRelatedField(
+    secret = OwnedSecretField(
         queryset=Secret.objects.filter(is_active=True),
         required=False,
         allow_null=True,
@@ -649,8 +692,8 @@ class SecretCreateSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 class FolderSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True)
-    workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all())
-    project = serializers.PrimaryKeyRelatedField(
+    workspace = ReadableRelatedField(queryset=Workspace.objects.all())
+    project = ReadableRelatedField(
         queryset=Project.objects.all(), required=False, allow_null=True
     )
 
@@ -659,6 +702,13 @@ class FolderSerializer(serializers.ModelSerializer):
         fields = ["id", "workspace", "project", "path", "created_by", "created_at"]
         read_only_fields = ["id", "created_by", "created_at"]
         extra_kwargs = {"path": {"required": True}}
+        # The uniq_folder_path constraint covers (workspace, project, path),
+        # which DRF turns into a UniqueTogetherValidator that force-requires
+        # every field it names -- including the *nullable* ``project``. Creating
+        # a workspace-level folder therefore answered 400 "project: This field is
+        # required." Uniqueness is the DB constraint's job here, exactly as for
+        # Document/File/GitRepository above.
+        validators: list = []
 
 
 # ---------------------------------------------------------------------------

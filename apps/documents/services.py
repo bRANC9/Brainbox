@@ -218,7 +218,16 @@ class DocumentService:
         if duplicate:
             raise ValidationError({"path": f"A document already exists at '{rel_path}'."})
 
-        parent = project.resource if project is not None else workspace.resource
+        # The document hangs off its folder when the path is nested, so access
+        # granted on a deep folder reaches its contents.
+        from .folders import resource_for_path
+
+        folder_path = rel_path.rsplit("/", 1)[0] if "/" in rel_path else ""
+        parent = (
+            resource_for_path(workspace, project, folder_path)
+            if folder_path
+            else (project.resource if project is not None else workspace.resource)
+        )
         resource = ResourceService.create(
             resource_type=ResourceType.DOCUMENT,
             name=title,
@@ -486,6 +495,42 @@ class DocumentService:
 
     @classmethod
     @transaction.atomic
+    def set_published_summary(cls, document, published: bool, *, user=None, request=None):
+        """Publish (or unpublish) a document's title/summary to readers without access.
+
+        A publication, not a default: it is stored as the boolean ``True`` so a
+        stray ``public_summary: "..."`` in a template or a frontmatter block
+        cannot switch it on by accident, and it only takes effect in a workspace
+        whose owner turned titles on (``publish_titles``) - see
+        :func:`apps.knowledge.services.publishes_summary`.
+
+        Audited, because an un-audited existence oracle is a hole: a published
+        title still answers "does this exist and what is it called".
+        """
+        metadata = dict(document.resource.metadata or {})
+        if published:
+            metadata["public_summary"] = True
+        else:
+            metadata.pop("public_summary", None)
+        document.resource.metadata = metadata
+        document.resource.save(update_fields=["metadata", "updated_at"])
+        AuditService.log(
+            AuditAction.UPDATE,
+            user=user,
+            resource=document.resource,
+            workspace=document.workspace,
+            project=document.project,
+            source=AuditSource.WEB if request is not None else AuditSource.SYSTEM,
+            request=request,
+            detail={
+                "type": "published_summary",
+                "published": bool(published),
+            },
+        )
+        return document
+
+    @classmethod
+    @transaction.atomic
     def move(cls, document, new_path: str, *, user=None, request=None, api_key=None):
         """Move a document to another path (folder), renaming the file on disk."""
         from pathlib import Path as _Path
@@ -511,6 +556,11 @@ class DocumentService:
         document.save(update_fields=["path", "updated_at"])
 
         _register_folders(document)
+        # Re-parent after the move: a document that changes folder changes the
+        # ACL it inherits, otherwise it would keep the access of its old home.
+        from .folders import reparent_document
+
+        reparent_document(document)
         _rebuild_links(document, user=user, request=request)
         _reindex(document)
         AuditService.log(

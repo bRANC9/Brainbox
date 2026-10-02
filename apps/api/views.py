@@ -6,6 +6,8 @@ import difflib
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, status, viewsets
@@ -32,7 +34,7 @@ from apps.groups.models import Group
 from apps.knowledge.services import DiscoveryService, DraftService, GraphService, QualityService
 from apps.links.models import ResourceLink
 from apps.links.services import LinkService
-from apps.permissions.constants import Permission
+from apps.permissions.constants import Effect, Permission
 from apps.permissions.models import ResourceACL
 from apps.permissions.services import PermissionService
 from apps.resources.models import Resource
@@ -41,22 +43,53 @@ from apps.secrets.models import Secret
 from apps.secrets.services import SecretService
 from apps.settings_store.services import describe
 from apps.workspaces.models import Project, Workspace
+from apps.workspaces.ownership import OwnershipService
+from apps.workspaces.services import WorkspaceService
 
 from . import serializers as s
 from .llm_guide import build_manifest
 from .permissions import (
+    GroupAdminPermission,
     PermissionFilterMixin,
+    RelatedResourcePermission,
+    ResourceACLPermission,
     ResourcePermission,
+    SuperuserOnly,
     api_key_from_request,
 )
 
 User = get_user_model()
+
+#: Answer for every ownership refusal, so the four REST paths (workspace/project
+#: x transfer/takeover) are identical and never echo the engine's wording.
+_OWNERSHIP_DENIED = "Nincs jogosultságod ehhez a művelethez."
+
+
+def _first_message(exc: DjangoValidationError) -> str:
+    messages = getattr(exc, "messages", None) or [str(exc)]
+    return str(messages[0])
+
+
+def _resolve_new_owner(request):
+    """The user id in the payload, as a row. 400 when absent or unknown."""
+    raw = request.data.get("new_owner")
+    if not raw:
+        raise ValidationError({"new_owner": "Ez a mező kötelező."})
+    new_owner = User.objects.filter(pk=raw).first()
+    if new_owner is None:
+        raise ValidationError({"new_owner": "Nincs ilyen felhasználó."})
+    return new_owner
 
 
 class CreatePermissionMixin:
     """Checks write/admin permission against the create target resource."""
 
     create_permission = Permission.WRITE
+
+    #: Payload keys whose value *is* a Resource id (workspace, project, resource,
+    #: link source/target - they are all resource-backed with the Resource as the
+    #: primary key), most specific first. Empty means "no resource in the payload".
+    create_target_fields: tuple[str, ...] = ()
 
     def get_create_target(self, validated_data):
         return None
@@ -68,7 +101,34 @@ class CreatePermissionMixin:
         ):
             raise PermissionDenied("Write permission required on this resource.")
 
+    def _require_readable_payload(self, request):
+        """403 when a resource named in the payload is not readable.
+
+        The serializers now reject an id the caller may not READ with a "does not
+        exist" validation error - that is what closes the existence oracle, since
+        an unreadable id and a nonexistent one are then indistinguishable. This
+        check runs *before* validation so a create that is simply not allowed
+        still answers 403 (the answer the manifest tells an agent not to retry)
+        instead of degrading into a 400 about a workspace the caller cannot even
+        see. Unknown ids take the same branch: ``check`` is False for a missing
+        resource, so nothing here distinguishes the two cases either.
+        """
+        if not self.create_target_fields:
+            return
+        api_key = api_key_from_request(request)
+        for field in self.create_target_fields:
+            raw = request.data.get(field)
+            if not raw:
+                continue
+            resource = Resource.objects.filter(pk=raw).first()
+            if not PermissionService.check(
+                request.user, resource, Permission.READ, api_key=api_key
+            ):
+                raise PermissionDenied("You do not have permission to create this resource.")
+            return
+
     def create(self, request, *args, **kwargs):
+        self._require_readable_payload(request)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         target = self.get_create_target(serializer.validated_data)
@@ -91,6 +151,74 @@ class WorkspaceViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mo
     search_fields = ["name", "slug"]
     ordering_fields = ["name", "created_at"]
 
+    def partial_update(self, request, *args, **kwargs):
+        """Rename / re-describe, through the service so it is checked and audited.
+
+        A plain ModelViewSet write would bypass both: the ACL and the audit
+        trail. ``slug`` is ignored on purpose - it is in every URL and in the
+        on-disk layout.
+        """
+        workspace = self.get_object()
+        data = request.data
+        try:
+            WorkspaceService.update(
+                workspace=workspace,
+                name=data.get("name"),
+                description=data.get("description"),
+                actor=request.user,
+                request=request,
+            )
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(str(exc)) from exc
+        workspace.refresh_from_db()
+        return Response(self.get_serializer(workspace).data)
+
+    @action(detail=True, methods=["post"])
+    def transfer(self, request, pk=None):
+        """Hand this workspace to somebody else.
+
+        Ownership is not a shareable grant: the engine deliberately keeps it
+        out of ``grant`` so it can never be escalated, which is why the only
+        way to change it is this audited service call.
+        """
+        workspace = self.get_object()
+        new_owner = _resolve_new_owner(request)
+        try:
+            OwnershipService.transfer(
+                resource=workspace.resource,
+                new_owner=new_owner,
+                actor=request.user,
+                keep_old_access=request.data.get("keep_old_access") or None,
+                request=request,
+            )
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(_OWNERSHIP_DENIED) from exc
+        except DjangoValidationError as exc:
+            raise ValidationError({"detail": _first_message(exc)}) from exc
+        workspace.refresh_from_db()
+        return Response(self.get_serializer(workspace).data)
+
+    @action(detail=True, methods=["post"])
+    def takeover(self, request, pk=None):
+        """The audited way in for a superuser who has no access at all.
+
+        It deliberately does not go through ``get_object()``: that would need
+        READ on the workspace, which is exactly what the caller does not have.
+        ``can_take_over`` (inside the service) is the gate, and it refuses
+        anything but a superuser, so the row is only resolved once the caller
+        has proved it is one.
+        """
+        if not request.user.is_superuser:
+            raise PermissionDenied(_OWNERSHIP_DENIED)
+        workspace = get_object_or_404(Workspace, pk=pk)
+        try:
+            OwnershipService.take_over(
+                resource=workspace.resource, actor=request.user, request=request
+            )
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(_OWNERSHIP_DENIED) from exc
+        return Response(self.get_serializer(workspace).data)
+
 
 class ProjectViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):
     queryset = Project.objects.select_related("resource", "workspace")
@@ -98,6 +226,7 @@ class ProjectViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mode
     permission_classes = [IsAuthenticated, ResourcePermission]
     search_fields = ["name", "slug"]
     ordering_fields = ["name", "created_at"]
+    create_target_fields = ("workspace",)
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -109,6 +238,38 @@ class ProjectViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mode
     def get_create_target(self, validated_data):
         workspace = validated_data.get("workspace")
         return workspace.resource if workspace else None
+
+    @action(detail=True, methods=["post"])
+    def transfer(self, request, pk=None):
+        project = self.get_object()
+        new_owner = _resolve_new_owner(request)
+        try:
+            OwnershipService.transfer(
+                resource=project.resource,
+                new_owner=new_owner,
+                actor=request.user,
+                keep_old_access=request.data.get("keep_old_access") or None,
+                request=request,
+            )
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(_OWNERSHIP_DENIED) from exc
+        except DjangoValidationError as exc:
+            raise ValidationError({"detail": _first_message(exc)}) from exc
+        project.refresh_from_db()
+        return Response(self.get_serializer(project).data)
+
+    @action(detail=True, methods=["post"])
+    def takeover(self, request, pk=None):
+        if not request.user.is_superuser:
+            raise PermissionDenied(_OWNERSHIP_DENIED)
+        project = get_object_or_404(Project, pk=pk)
+        try:
+            OwnershipService.take_over(
+                resource=project.resource, actor=request.user, request=request
+            )
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(_OWNERSHIP_DENIED) from exc
+        return Response(self.get_serializer(project).data)
 
 
 # ---------------------------------------------------------------------------
@@ -130,12 +291,12 @@ class ResourceViewSet(PermissionFilterMixin, viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
-class ResourceACLViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):
+class ResourceACLViewSet(CreatePermissionMixin, viewsets.ModelViewSet):
     queryset = ResourceACL.objects.select_related("resource")
     serializer_class = s.ResourceACLSerializer
-    permission_classes = [IsAuthenticated, ResourcePermission]
+    permission_classes = [IsAuthenticated, ResourceACLPermission]
     create_permission = Permission.ADMIN
-    required_permission = Permission.ADMIN
+    create_target_fields = ("resource",)
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -144,18 +305,92 @@ class ResourceACLViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.
             queryset = queryset.filter(resource_id=resource_id)
         return queryset
 
-    def required_for_action(self, action):
-        return Permission.ADMIN
+    def filter_queryset(self, queryset):
+        """Scope to the resources whose ACL this caller may manage.
+
+        ``can_manage_acl`` is the engine's own answer to "who may change this
+        ACL", and it is the identical question the web UI's access panel asks -
+        so the two surfaces cannot drift apart, and a delegated admin sees
+        exactly the entries they can change there.
+        """
+        queryset = super().filter_queryset(queryset)
+        resources = {
+            row.id: row
+            for row in Resource.objects.filter(
+                id__in=queryset.values_list("resource_id", flat=True)
+            ).select_related("parent")
+        }
+        manageable = [
+            resource_id
+            for resource_id, resource in resources.items()
+            if PermissionService.can_manage_acl(self.request.user, resource)
+        ]
+        return queryset.filter(resource_id__in=manageable)
 
     def get_create_target(self, validated_data):
         return validated_data.get("resource")
+
+    @staticmethod
+    def _acl_values(serializer, instance=None):
+        """The resulting entry, whichever fields the caller left out."""
+        data = serializer.validated_data
+        get = data.get
+        return {
+            "resource": get("resource", getattr(instance, "resource", None)),
+            "subject_type": get("subject_type", getattr(instance, "subject_type", None)),
+            "subject_id": get("subject_id", getattr(instance, "subject_id", None)),
+            "permission": get("permission", getattr(instance, "permission", None)),
+            "effect": get("effect", getattr(instance, "effect", Effect.ALLOW)),
+            "inherit": get("inherit", getattr(instance, "inherit", True)),
+        }
+
+    def perform_create(self, serializer):
+        """Write through the validated engine path, not straight to the table.
+
+        ``grant`` checks the permission level *and* the subject against
+        ``grantable_subjects``, which is what keeps this collection from
+        becoming a way around the rules the web UI and the MCP surface enforce:
+        the REST caller cannot grant more than it holds, cannot share outside
+        its own work group, and cannot touch a personal workspace.
+        """
+        values = self._acl_values(serializer)
+        serializer.instance = PermissionService.grant(
+            values.pop("resource"),
+            created_by=self.request.user,
+            **values,
+        )
+
+    def perform_update(self, serializer):
+        """Re-validate through ``grant`` before writing.
+
+        The same argument as ``perform_create`` applies with more force: a
+        PATCH that flips ``effect`` to ``deny`` or swaps the subject is a
+        grant, and it must not be able to walk past the checks a POST is held
+        to. ``grant`` upserts on (resource, subject, permission), so when the
+        request *moved* the entry the old row is dropped afterwards - otherwise
+        it would keep granting exactly what the caller just took away.
+        """
+        instance = serializer.instance
+        values = self._acl_values(serializer, instance)
+        resource = values.pop("resource")
+        entry = PermissionService.grant(resource, created_by=self.request.user, **values)
+        if entry.pk != instance.pk:
+            PermissionService.revoke(
+                instance.resource,
+                subject_type=instance.subject_type,
+                subject_id=instance.subject_id,
+                permission=instance.permission,
+                actor=self.request.user,
+            )
+        serializer.instance = entry
 
 
 class ResourceLinkViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):
     queryset = ResourceLink.objects.select_related("source", "target")
     serializer_class = s.ResourceLinkSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RelatedResourcePermission]
     resource_field = "source_id"
+    create_target_fields = ("source", "target")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -169,10 +404,52 @@ class ResourceLinkViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets
         return queryset
 
     def required_for_action(self, action):
+        # The *source* is the side that gets modified, so it carries the
+        # permission: read to see the link, write to create or retarget it,
+        # delete to remove it. The target is a second, separate check - see
+        # ``perform_create`` and ``filter_queryset``.
+        if action in {"create", "update", "partial_update"}:
+            return Permission.WRITE
+        if action == "destroy":
+            return Permission.DELETE
         return Permission.READ
 
     def get_create_target(self, validated_data):
         return validated_data.get("source")
+
+    def filter_queryset(self, queryset):
+        """Also require READ on the target of every listed link.
+
+        A link row names its other end (``target_name`` is serialised), so a
+        list filtered on the source alone would be a directory of resource names
+        the caller has no access to - and a retrieve of such a link would be a
+        one-row version of the same leak.
+        """
+        queryset = super().filter_queryset(queryset)
+        readable = PermissionService.allowed_resource_ids(
+            self.request.user,
+            queryset.values_list("target_id", flat=True),
+            Permission.READ,
+            api_key=api_key_from_request(self.request),
+        )
+        return queryset.filter(target_id__in=readable)
+
+    def perform_create(self, serializer):
+        """Creating a link needs READ on both ends, not just on the source.
+
+        Without the target check any authenticated caller could link any two
+        resources by id: a write into a workspace they cannot even see, and an
+        existence oracle for every resource id in the instance.
+        """
+        target = serializer.validated_data.get("target")
+        if not PermissionService.check(
+            self.request.user,
+            target,
+            Permission.READ,
+            api_key=api_key_from_request(self.request),
+        ):
+            raise PermissionDenied("Read access required on the link target.")
+        serializer.save()
 
     def perform_destroy(self, instance):
         LinkService.delete(source=instance.source, target=instance.target, link_type=instance.link_type)
@@ -187,6 +464,7 @@ class DocumentViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
     permission_classes = [IsAuthenticated, ResourcePermission]
     search_fields = ["title", "summary", "path"]
     ordering_fields = ["updated_at", "created_at", "title", "priority"]
+    create_target_fields = ("project", "workspace")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -400,6 +678,7 @@ class FileViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelVi
     serializer_class = s.FileSerializer
     permission_classes = [IsAuthenticated, ResourcePermission]
     search_fields = ["name", "path"]
+    create_target_fields = ("project", "workspace")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -530,16 +809,92 @@ class UserViewSet(viewsets.ModelViewSet):
             )
         return super().list(request, *args, **kwargs)
 
+    def destroy(self, request, *args, **kwargs):
+        """Delete a user, or explain what still blocks it.
+
+        ``Workspace.owner``/``Project.owner`` are PROTECT, so a user who owns
+        shared content cannot be deleted. Answering 409 with the list is the
+        point: the bare ``ProtectedError`` is a 500 and tells an operator
+        nothing. Their Personal workspace goes with them - one holder, no
+        meaning without them.
+        """
+        from apps.accounts.services import OwnerConflict, UserService
+
+        user = self.get_object()
+        try:
+            UserService.delete(user=user, actor=request.user, request=request)
+        except OwnerConflict as exc:
+            return Response(exc.detail, status=status.HTTP_409_CONFLICT)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, *args, **kwargs):
+        """Offboard without data loss: stop the account, keep the rows.
+
+        This is what "remove this user" usually means, and with OIDC it is the
+        only correct operation - the identity provider is the source of truth and
+        the local row mirrors it. Also revokes the user's live API keys and drops
+        superuser/staff, so a deactivated account cannot keep control-plane power.
+        """
+        from apps.accounts.services import UserService
+
+        user = self.get_object()
+        if user.pk == request.user.pk:
+            return Response(
+                {"detail": "You cannot deactivate your own account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        UserService.deactivate(user=user, actor=request.user, request=request)
+        return Response({"id": str(user.pk), "username": user.username, "is_active": False})
+
+    @action(detail=True, methods=["get"])
+    def ownership(self, request, *args, **kwargs):
+        """What this user owns, so an operator can see why a delete is blocked."""
+        from apps.accounts.services import UserService
+
+        user = self.get_object()
+        workspaces, projects = UserService.owned_by(user)
+        return Response(
+            {
+                "can_delete": not workspaces and not projects,
+                "owned_workspaces": [
+                    {"id": str(ws.pk), "name": ws.name, "slug": ws.slug, "kind": ws.kind}
+                    for ws in workspaces
+                ],
+                "owned_projects": [
+                    {"id": str(pr.pk), "name": pr.name} for pr in projects
+                ],
+            }
+        )
+
 
 class GroupViewSet(viewsets.ModelViewSet):
+    """Knowledge groups and their membership.
+
+    Administration is deliberately narrow. Creating a group is a superuser-only
+    move, and changing the group or its members belongs to that group's
+    managers (``GroupMembership.Role.MANAGER``) or a superuser. ``is_staff``
+    gets nothing here: a group that is granted access on some resource hands
+    that access to every member, so "add me to this group" is an escalation,
+    not administration.
+    """
+
     queryset = Group.objects.all()
     serializer_class = s.GroupSerializer
     search_fields = ["name"]
     ordering_fields = ["name", "created_at"]
+    #: Reads are open to any authenticated caller; ``get_permissions`` narrows
+    #: every write. Declared here so the /llm manifest reports it truthfully
+    #: instead of falling back to "default".
+    permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
-        if self.action in {"create", "update", "partial_update", "destroy", "members"}:
-            return [IsAdminUser()]
+        if self.action == "create":
+            return [SuperuserOnly()]
+        if self.action in {"update", "partial_update", "destroy"}:
+            return [GroupAdminPermission()]
+        if self.action == "members" and self.request.method == "POST":
+            return [GroupAdminPermission()]
         return [IsAuthenticated()]
 
     @action(detail=True, methods=["get", "post"], url_path="members")
@@ -616,6 +971,7 @@ class GitRepositoryViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
     permission_classes = [IsAuthenticated, ResourcePermission]
     search_fields = ["name", "remote_url"]
     ordering_fields = ["name", "created_at"]
+    create_target_fields = ("project", "workspace")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -675,11 +1031,14 @@ class GitRepositoryViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
     def credential(self, request, pk=None):
         """Register the caller's own PAT for this repository.
 
-        A user may always manage their own credential; staff can pass
-        ``?user=<uuid>`` to manage someone else's. With a personal credential the
-        push uses the caller's own PAT (no co-author trailer); without it the
-        repository/global credential is used and its owner is recorded as a
-        co-author.
+        A user may always manage their own credential. Acting on *another*
+        user's credential is a superuser-only, audited break-glass: it hands one
+        account a push credential of another, so it is not something ``is_staff``
+        may do - staff is not a trust level here, and a staff user with write
+        access to a repository could otherwise borrow somebody else's token.
+        With a personal credential the push uses the caller's own PAT (no
+        co-author trailer); without it the repository/global credential is used
+        and its owner is recorded as a co-author.
         """
         from apps.accounts.models import User as UserModel
         from apps.secrets.models import Secret as SecretModel
@@ -692,9 +1051,19 @@ class GitRepositoryViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
 
         target_user = request.user
         if request.query_params.get("user"):
-            if not request.user.is_staff:
-                raise PermissionDenied("Only staff can set another user's credential.")
+            if not request.user.is_superuser:
+                raise PermissionDenied(
+                    "Csak superuser kezelheti más felhasználó hitelesítő adatait."
+                )
             target_user = get_object_or_404(UserModel, pk=request.query_params["user"])
+            AuditService.log(
+                AuditAction.CHANGE_PERMISSION,
+                user=request.user,
+                resource=repository.resource,
+                source=AuditSource.API,
+                request=request,
+                detail={"type": "git_credential", "target_user": str(target_user.pk)},
+            )
 
         if request.method == "DELETE":
             GitCredential.objects.filter(repository=repository, user=target_user).delete()
@@ -911,14 +1280,27 @@ class DeadlineViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
-class FolderViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, IsAdminUser]
+class FolderViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):
+    """Folders are permission-managed objects, so they are not superuser-only.
+
+    Since ``documents/0004`` a folder carries its own ``Resource``, chained to
+    the enclosing folder, which is what the engine walks. So access is decided
+    on ``folder.resource``: read to see it, write to create/rename/move it,
+    delete to remove it - the same rule every other resource-backed viewset
+    uses, and the same rule the web UI applies.
+    """
+
+    permission_classes = [IsAuthenticated, ResourcePermission]
     serializer_class = s.FolderSerializer
+    resource_field = "resource_id"
     search_fields = ["path"]
     ordering_fields = ["path", "created_at"]
+    create_target_fields = ("project", "workspace")
 
     def get_queryset(self):
-        return DocumentFolder.objects.select_related("workspace", "project")
+        return DocumentFolder.objects.select_related(
+            "resource", "workspace", "project"
+        )
 
     def get_create_target(self, validated_data):
         project = validated_data.get("project")
@@ -952,9 +1334,10 @@ class FolderViewSet(viewsets.ModelViewSet):
         from apps.documents.folders import move_folder, rename_folder
 
         folder = self.get_object()
-        resource = folder.project.resource if folder.project else folder.workspace.resource
-        if not PermissionService.check(request.user, resource, Permission.WRITE):
-            raise PermissionDenied("Write permission required.")
+        # The folder's own resource, not the project/workspace it lives in: a
+        # grant on A/B/C must not be enough to move it, and access to the
+        # workspace must not be what makes A/B/C writable.
+        self._require_write(folder, request)
         new_path = (request.data.get("path") or "").strip()
         try:
             if new_path and new_path != folder.path and "/" not in new_path:
@@ -976,6 +1359,8 @@ class FolderViewSet(viewsets.ModelViewSet):
         from apps.documents.folders import delete_folder
 
         folder = self.get_object()
+        # DELETE is gated by PermissionFilterMixin/ResourcePermission on the
+        # folder's own resource.
         try:
             delete_folder(folder=folder, move_to_root=request.data.get("move") == "up")
         except ValidationError as exc:
@@ -1088,6 +1473,9 @@ class DiscoveryView(APIView):
 
 
 class QualityView(APIView):
+    # Superuser-only, and this must stay in step with the MCP
+    # ``knowledge_quality_metrics`` tool (which lives in apps.mcp): one gate or
+    # the other is a way around the other.
     permission_classes = [IsAdminUser]
 
     def get(self, request):
@@ -1144,3 +1532,54 @@ class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
         if params.get("resource"):
             queryset = queryset.filter(resource_id=params["resource"])
         return queryset
+
+    def _redact(self, rows):
+        """Blank the payload of events the caller has no access to.
+
+        Scoping the queryset to the caller's own events is not enough once the
+        caller is a superuser: they see every event, and an event's ``detail`` is
+        free text written by whichever service produced it - document titles,
+        workspace names, secret labels - plus the workspace/project the event
+        belongs to. A superuser has no implicit content access in Brainbox, so
+        without this the admin trail is a directory of every document and
+        workspace in the instance. Own events stay whole; someone else's are
+        only readable if the caller can READ the event's resource.
+        """
+        if not rows:
+            return rows
+        caller_id = str(self.request.user.pk)
+        candidates = {
+            row["resource"]
+            for row in rows
+            if row.get("resource") and str(row.get("user") or "") != caller_id
+        }
+        readable = {
+            str(resource_id)
+            for resource_id in PermissionService.allowed_resource_ids(
+                self.request.user,
+                candidates,
+                Permission.READ,
+                api_key=api_key_from_request(self.request),
+            )
+        }
+        for row in rows:
+            if str(row.get("user") or "") == caller_id:
+                continue
+            if row.get("resource") and str(row["resource"]) in readable:
+                continue
+            row["detail"] = {}
+            row["workspace"] = None
+            row["project"] = None
+        return rows
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        if isinstance(response.data, dict):
+            self._redact(response.data.get("results"))
+        return response
+
+    def retrieve(self, request, *args, **kwargs):
+        response = super().retrieve(request, *args, **kwargs)
+        if isinstance(response.data, dict):
+            self._redact([response.data])
+        return response

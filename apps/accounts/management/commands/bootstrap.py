@@ -1,20 +1,25 @@
-"""Idempotent first-boot bootstrap: ensure a superuser and a default workspace."""
+"""Idempotent first-boot bootstrap: ensure a superuser and its Personal workspace."""
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
 from apps.workspaces.models import Workspace
-from apps.workspaces.services import WorkspaceService
+from apps.workspaces.personal import PersonalWorkspaceService
 
 
 class Command(BaseCommand):
-    help = "Create or update the bootstrap superuser (and a default workspace)."
+    help = "Create or update the bootstrap superuser and its Personal workspace."
 
     def add_arguments(self, parser):
         parser.add_argument("--username", required=True)
         parser.add_argument("--password", required=True)
         parser.add_argument("--email", default="")
-        parser.add_argument("--workspace", default="Personal")
+        # Kept for backwards compatibility with older invocations. The default
+        # workspace is no longer a *shared* one called "Personal": a workspace
+        # whose name says "Personal" while everybody can see it is exactly the
+        # confusion this project is fixing. The bootstrap user gets a real
+        # Personal workspace instead, and every other user gets theirs on login.
+        parser.add_argument("--workspace", default="", help="(deprecated, unused)")
         parser.add_argument("--skip-workspace", action="store_true")
 
     def handle(self, *args, **options):
@@ -37,12 +42,10 @@ class Command(BaseCommand):
         if options["skip_workspace"]:
             return
         if Workspace.objects.exists():
-            self.stdout.write("Workspace already exists, skipping default workspace.")
+            self.stdout.write("A workspace already exists, skipping.")
             return
 
-        workspace = WorkspaceService.create(
-            name=options["workspace"],
-            description="Default workspace created on first boot.",
-            created_by=user,
+        workspace = PersonalWorkspaceService.get_or_create(user)
+        self.stdout.write(
+            self.style.SUCCESS(f"Personal workspace '{workspace.slug}' created.")
         )
-        self.stdout.write(self.style.SUCCESS(f"Default workspace '{workspace.slug}' created."))

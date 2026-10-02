@@ -106,9 +106,20 @@ class DocumentFolder(Taggable, models.Model):
     content of their own (files remain the source of truth). Creating a document
     with a nested path auto-registers the parent folders, so the tree stays
     correct even for folders imported from git.
+
+    Since 0004 a folder hangs off a Resource like every other permission-managed
+    object, so access can be granted on a deep folder ("A/B/C") without opening
+    the whole workspace. The folder's Resource ``parent`` is the enclosing
+    folder, or the project/workspace resource for a top-level folder - that chain
+    is what the permission engine walks, and what a move has to keep in sync.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    resource = models.OneToOneField(
+        "resources.Resource",
+        on_delete=models.CASCADE,
+        related_name="folder",
+    )
     workspace = models.ForeignKey(
         "workspaces.Workspace", on_delete=models.CASCADE, related_name="folders"
     )
@@ -141,6 +152,15 @@ class DocumentFolder(Taggable, models.Model):
 
     def __str__(self) -> str:
         return self.path
+
+    @property
+    def parent_path(self) -> str:
+        """The path of the enclosing folder, empty for a top-level folder."""
+        return self.path.rsplit("/", 1)[0] if "/" in self.path else ""
+
+    @property
+    def name(self) -> str:
+        return self.path.rsplit("/", 1)[-1]
 
 
 class DocumentVersion(models.Model):

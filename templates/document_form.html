@@ -53,6 +53,23 @@
     <input type="checkbox" name="is_template" {% if document.is_template %}checked{% endif %}>
   </label>
 
+  {% comment %}
+  Publication needs two decisions: the document opts in, the workspace owner
+  allows it. When the workspace has not allowed it the box is disabled rather
+  than silently inert, so nobody ticks it and wonders why nothing changed.
+  {% endcomment %}
+  <h3>Közzététel</h3>
+  <div class="row">
+    <label class="inline-check">
+      <input type="checkbox" name="publish_summary"{% if publish_summary %} checked{% endif %}{% if not publish_titles %} disabled{% endif %}>
+      A cím és az összefoglaló akkor is látható, ha nincs olvasási jogod
+    </label>
+  </div>
+  <p class="banner warn">Aki ezt a dokumentumot nem tudja olvasni, az is megtudja, hogy létezik, és hogy mi a neve. Minden ilyen olvasás az audit naplóba kerül.</p>
+  {% if not publish_titles %}
+    <p class="meta">A workspace tulajdonosa még nem engedélyezte a címek közzétételét ezen a workspace-en, és csak ő kapcsolhatja be (a workspace „Jogosultságok” oldalán). Amíg nincs bekapcsolva, a bejelölés nem tesz semmit.</p>
+  {% endif %}
+
   <label>Tartalom (Markdown, YAML frontmatter támogatott)
     <textarea name="content" id="editor" rows="20">{{ content }}</textarea>
   </label>

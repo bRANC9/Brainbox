@@ -6,18 +6,37 @@
   <h1>Workspaces</h1>
 </section>
 
-{% if workspaces %}
+{% if personal_workspace %}
+  <div class="grid">
+    <a class="card" href="{% url 'web:workspace_detail' personal_workspace.slug %}">
+      <h2>{{ personal_workspace.name }} <span class="badge">Személyes</span></h2>
+      <p class="muted">Személyes workspace: csak te látod, megosztani nem lehet.</p>
+      <p class="meta">{{ personal_workspace.documents.count }} dokumentum</p>
+    </a>
+  </div>
+{% else %}
+  <p class="muted">Nincs személyes workspace-ed. <a href="{% url 'web:personal_workspace' %}">Nyisd meg</a> &ndash; automatikusan létrejön.</p>
+{% endif %}
+
+<section class="page-head">
+  <h1>Megosztott workspace-ek</h1>
+</section>
+{# A shared card only exists if a workspace other than the personal one does.
+   `workspaces` still contains the personal one, hence the length check. #}
+{% if not personal_workspace or workspaces|length > 1 %}
   <div class="grid">
     {% for workspace in workspaces %}
-      <a class="card" href="{% url 'web:workspace_detail' workspace.slug %}">
-        <h2>{{ workspace.name }}</h2>
-        <p class="muted">{{ workspace.description|default:"Nincs leírás" }}</p>
-        <p class="meta">{{ workspace.project_count }} projekt &middot; {{ workspace.document_count }} dokumentum</p>
-      </a>
+      {% if not personal_workspace or workspace.pk != personal_workspace.pk %}
+        <a class="card" href="{% url 'web:workspace_detail' workspace.slug %}">
+          <h2>{{ workspace.name }}</h2>
+          <p class="muted">{{ workspace.description|default:"Nincs leírás" }}</p>
+          <p class="meta">{{ workspace.project_count }} projekt &middot; {{ workspace.document_count }} dokumentum</p>
+        </a>
+      {% endif %}
     {% endfor %}
   </div>
 {% else %}
-  <p class="muted">Nincs elérhető workspace. Hozz létre egyet az <a href="/api/v1/workspaces/">API</a>-n vagy az <a href="/admin/">admin</a>-ban.</p>
+  <p class="muted">Még nincs megosztott workspace-ed. Amit létrehozol, az csak hozzád tartozik: senki más nem látja, amíg te nem adsz rá hozzáférést. Újat az <a href="/api/v1/workspaces/">API</a>-n vagy az <a href="/admin/">admin</a>-ban hozhatsz létre.</p>
 {% endif %}
 
 <section class="page-head">
