@@ -1,72 +1,108 @@
-﻿{% load ui %}
+{% load ui %}
 {% comment %}
-Shared access (ACL) panel. Works inline on a workspace/project page and on the
-standalone /resources/<id>/permissions/ page. 'access_url' is where grant/revoke
-forms post; 'standalone' shows the heading.
+Shared access panel. Included inline by the workspace/project/document pages and
+as the whole page by /resources/<id>/permissions/.
 
-Context (both include sites): entry_rows, can_admin, can_share, is_owner,
-is_personal, no_takeover, can_take_over, access_url, search, publish_titles,
-can_publish_titles. The standalone page adds permissions/effects/subject_types,
-owner_rows, max_grantable and standalone.
-Keys that are absent here (max_grantable, owner_rows) resolve to empty in the
-inline case, which is what the guards below expect.
+Context keys (both call sites supply the first block; the standalone view adds
+the last three):
+
+    entry_rows            list of {entry, label} for the table below
+    can_admin             the caller manages this ACL
+    can_share             the caller may create an ACL entry at some level
+    is_owner              the caller owns the sharing scope
+    is_personal           a Personal workspace: one holder, never shareable
+    is_workspace_resource this resource *is* a workspace, not something inside
+                          one - several switches below only make sense there
+    no_takeover           takeover is forbidden here (or on an ancestor)
+    can_take_over         the caller is a superuser who may take over
+    publish_titles        workspace allows titles to be published to non-readers
+    can_publish_titles    ...and the caller may change that
+    access_url            where grant/revoke forms post
+    search                {query, users:[{id,label}], groups:[{id,label}], truncated}
+
+Standalone only: standalone, permissions, effects, subject_types, owner_rows,
+max_grantable.
+
+The split matters. Inline, this renders the table and a link. The five forms used
+to render on every workspace and project page, stacked under the content - and
+two of them (workspace kind, title publication) silently acted on the
+*workspace* while sitting on a *project* page, which is how the interface ended up
+looking like it was doing something random.
 {% endcomment %}
+
 <div class="git-panel" id="access-panel">
-  <h2>Tagok és hozzáférés</h2>
+  {% comment %}
+  The standalone page already has an <h1>; repeating it inside the panel put the
+  same title on screen twice. Inline, the panel keeps its own heading.
+  {% endcomment %}
+  {% if not standalone %}<h2>Tagok és hozzáférés</h2>{% endif %}
 
   <div class="scroll-x">
-  <table class="table">
-    <thead><tr><th>Tag / csoport</th><th>Tipus</th><th>Jogosultság</th><th>Hatás</th><th>Öröklik</th>{% if can_admin %}<th></th>{% endif %}</tr></thead>
-    <tbody>
-      {% for row in entry_rows %}
+    <table class="table">
+      <thead>
         <tr>
-          <td>{{ row.label }}</td>
-          <td>{{ row.entry.subject_type|hu }}</td>
-          <td>{{ row.entry.permission|hu }}</td>
-          <td>{{ row.entry.effect|hu }}</td>
-          <td>{{ row.entry.inherit|yesno:"igen,no" }}</td>
-          {% if can_admin %}
-            <td>
-              <form method="post" action="{{ access_url }}" class="inline">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="revoke">
-                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                <input type="hidden" name="subject_type" value="{{ row.entry.subject_type }}">
-                <input type="hidden" name="subject_id" value="{{ row.entry.subject_id }}">
-                <input type="hidden" name="permission" value="{{ row.entry.permission }}">
-                <button class="link" type="submit">elvétel</button>
-              </form>
-            </td>
-          {% endif %}
+          <th>Tag / csoport</th><th>Tipus</th><th>Jogosultság</th><th>Hatás</th><th>Öröklik</th>
+          {% if can_admin %}<th></th>{% endif %}
         </tr>
-      {% empty %}
-        <tr><td colspan="{% if can_admin %}6{% else %}5{% endif %}" class="muted">Nincs külön bejegyzés (minden öröklött).</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for row in entry_rows %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td>{{ row.entry.subject_type|hu }}</td>
+            <td>{{ row.entry.permission|hu }}</td>
+            <td>{{ row.entry.effect|hu }}</td>
+            <td>{% if row.entry.inherit %}igen{% else %}nem{% endif %}</td>
+            {% if can_admin %}
+              <td>
+                <form method="post" action="{{ access_url }}" class="inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="revoke">
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <input type="hidden" name="subject_type" value="{{ row.entry.subject_type }}">
+                  <input type="hidden" name="subject_id" value="{{ row.entry.subject_id|stringformat:'s' }}">
+                  <input type="hidden" name="permission" value="{{ row.entry.permission }}">
+                  <button class="link" type="submit">elvétel</button>
+                </form>
+              </td>
+            {% endif %}
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="{% if can_admin %}6{% else %}5{% endif %}" class="muted">
+              Nincs külön bejegyzés (minden öröklött).
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
   {% if is_personal %}
-    <p class="banner">Személyes workspace &ndash; csak te láthatod, megosztani nem lehet.</p>
-  {% elif can_share %}
+    <p class="banner">
+      Személyes workspace &ndash; csak te láthatod, megosztani nem lehet.
+    </p>
+
+  {% elif not standalone %}
     {% comment %}
-    A denied subject cannot be reached by adding an allow below it (a deny on the
-    chain always wins), so its picker option is disabled. `stringformat:"s"` is
-    what makes a UUIDField and the picker's string pk comparable.
+    Inline on a workspace/project/document page: show the state, then get out of
+    the way. Everything that writes lives on /resources/<id>/permissions/.
     {% endcomment %}
-    {% comment %}
-    `max_grantable` only exists on the standalone page. An undefined variable
-    compares equal to None, so the "cannot grant anything" guard is tied to
-    `standalone`; inline it falls through to the normal form, and the
-    `== "read"` narrowing below simply does not trigger.
-    {% endcomment %}
-    {% if standalone and max_grantable == None %}
+    <p class="muted"><a href="{{ access_url }}">Jogosultságok kezelése &rarr;</a></p>
+
+  {% elif not can_share %}
+    <p class="muted">Ehhez a resource-hez nincs írási jogod, így nem oszthatod meg.</p>
+
+  {% else %}
+    {% if max_grantable == None %}
       <p class="muted">Ezen a resource-on nem adhatsz hozzáférést.</p>
+
     {% else %}
       <h3>Új tag vagy csoport</h3>
       <form method="get" class="form row">
         <label style="flex:3">Szűrés (felhasználó vagy csoport)
-          <input type="text" name="q" value="{{ search.query|default:'' }}" placeholder="szűrés üresen hagyva: minden felhasználó látszik">
+          <input type="text" name="q" value="{{ search.query|default:'' }}"
+                 placeholder="szűrés felhasználóra vagy csoportra">
         </label>
         <button class="button" type="submit">Szűrés</button>
       </form>
@@ -78,23 +114,38 @@ inline case, which is what the guards below expect.
         <label>Tag kiválasztása
           <select name="subject_id" required>
             <option value="">-- válassz felhasználót vagy csoportot --</option>
-            <optgroup label="Felhasználók ({{ search.users|length }})">
-              {% for u in search.users %}
-                <option value="user:{{ u.id }}"{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "user" and row.entry.subject_id|stringformat:"s" == u.id %} disabled{% endif %}{% endfor %}>{{ u.label }}{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "user" and row.entry.subject_id|stringformat:"s" == u.id %} &ndash; tiltva{% endif %}{% endfor %}</option>
-              {% endfor %}
-            </optgroup>
-            <optgroup label="Csoportok ({{ search.groups|length }})">
-              {% for g in search.groups %}
-                <option value="group:{{ g.id }}"{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "group" and row.entry.subject_id|stringformat:"s" == g.id %} disabled{% endif %}{% endfor %}>{{ g.label }}{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "group" and row.entry.subject_id|stringformat:"s" == g.id %} &ndash; tiltva{% endif %}{% endfor %}</option>
-              {% endfor %}
-            </optgroup>
+            {% if search.users %}
+              <optgroup label="Felhasználók ({{ search.users|length }})">
+                {% for u in search.users %}
+                  {% comment %}
+                  A denied subject cannot be reached by adding an allow below it
+                  (a deny on the chain always wins), so the option is disabled.
+                  stringformat:"s" makes a UUIDField comparable to the picker's
+                  string pk.
+                  {% endcomment %}
+                  <option value="user:{{ u.id }}"{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "user" and row.entry.subject_id|stringformat:"s" == u.id %} disabled{% endif %}{% endfor %}>{{ u.label }}{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "user" and row.entry.subject_id|stringformat:"s" == u.id %} &ndash; tiltva{% endif %}{% endfor %}</option>
+                {% endfor %}
+              </optgroup>
+            {% endif %}
+            {% if search.groups %}
+              <optgroup label="Csoportok ({{ search.groups|length }})">
+                {% for g in search.groups %}
+                  <option value="group:{{ g.id }}"{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "group" and row.entry.subject_id|stringformat:"s" == g.id %} disabled{% endif %}{% endfor %}>{{ g.label }}{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "group" and row.entry.subject_id|stringformat:"s" == g.id %} &ndash; tiltva{% endif %}{% endfor %}</option>
+                {% endfor %}
+              </optgroup>
+            {% endif %}
           </select>
         </label>
         <p class="meta">
           {% if search.query %}
             "{{ search.query }}"-ra szűkítve.
+          {% elif is_owner %}
+            A teljes felhasználó- és csoportkönyvtár látszik, mert te határozod meg,
+            ki létezhet ebben a workspace-ben.
           {% else %}
-            Az összes felhasználó és csoport látszik; a fenti mezővel szűkíthetsz.
+            Csak azok látszanak, akik már kaptak jogot ezen a workspace-en, plusz a
+            saját csoportjaid. Nem oszthatod szélesebbre a kört, mint amit a
+            tulajdonos megengedett.
           {% endif %}
           {% if search.truncated %}Túl sok találat, a lista levágva.{% endif %}
         </p>
@@ -102,6 +153,7 @@ inline case, which is what the guards below expect.
           <label>Jogosultság
             <select name="permission">
               {% if max_grantable == "read" %}
+                {% comment %}A writer may only share read, so nothing else is offered.{% endcomment %}
                 <option value="read">Olvasás</option>
               {% else %}
                 <option value="read">Olvasás</option>
@@ -116,7 +168,10 @@ inline case, which is what the guards below expect.
           <label>Hatás
             <select name="effect">
               <option value="allow">Engedélyez</option>
-              {% if can_admin %}<option value="deny">Tiltás</option>{% endif %}
+              {% if can_admin and is_owner %}
+                {% comment %}A DENY takes access away: owner-only, everywhere.{% endcomment %}
+                <option value="deny">Tiltás</option>
+              {% endif %}
             </select>
           </label>
           <label class="inline-check">Öröklődik <input type="checkbox" name="inherit" checked></label>
@@ -140,11 +195,9 @@ inline case, which is what the guards below expect.
         </details>
       {% endif %}
     {% endif %}
-  {% else %}
-    <p class="muted">Ehhez a resource-hez nincs írási jogod, így nem oszthatod meg.</p>
   {% endif %}
 
-  {% if is_owner %}
+  {% if standalone and is_owner %}
     <h3>Tulajdon</h3>
     {% if not is_personal and owner_rows %}
       <form method="post" action="{{ access_url }}" class="form">
@@ -169,7 +222,7 @@ inline case, which is what the guards below expect.
       </form>
     {% endif %}
 
-    {% if not is_personal and resource.workspace %}
+    {% if not is_personal and is_workspace_resource %}
       <form method="post" action="{{ access_url }}" class="form">
         {% csrf_token %}
         <input type="hidden" name="action" value="set_kind">
@@ -185,26 +238,28 @@ inline case, which is what the guards below expect.
       </form>
     {% endif %}
 
-    <form method="post" action="{{ access_url }}" class="form">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="toggle_no_takeover">
-      <input type="hidden" name="next" value="{{ request.get_full_path }}">
-      <div class="row">
-        <label class="inline-check">
-          <input type="checkbox" name="no_takeover"{% if no_takeover %} checked{% endif %}>
-          Tilos a jogosultság-átvétel ezen a workspace-en (a rendszeradmin sem juthat be)
-        </label>
-      </div>
-      <button type="submit" class="button">Mentés</button>
-    </form>
+    {% if is_workspace_resource %}
+      <form method="post" action="{{ access_url }}" class="form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="toggle_no_takeover">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <div class="row">
+          <label class="inline-check">
+            <input type="checkbox" name="no_takeover"{% if no_takeover %} checked{% endif %}>
+            Tilos a jogosultság-átvétel ezen a workspace-en (a rendszeradmin sem juthat be)
+          </label>
+        </div>
+        <button type="submit" class="button">Mentés</button>
+      </form>
+    {% endif %}
   {% endif %}
 
   {% comment %}
-  Workspace-level, so it lives outside the is_owner block: a non-owner still
-  gets the state, just not the switch. Only the owner may decide who can learn
-  that a document exists.
+  Workspace-level, so it sits outside the is_owner block: a non-owner still gets
+  the state, just not the switch. Only the owner may decide who can learn that a
+  document exists.
   {% endcomment %}
-  {% if can_publish_titles %}
+  {% if standalone and can_publish_titles %}
     <h3>Címek közzététele</h3>
     <form method="post" action="{{ access_url }}" class="form">
       {% csrf_token %}
@@ -219,6 +274,7 @@ inline case, which is what the guards below expect.
       <p class="meta">Ha ez be van kapcsolva, egy dokumentum közzétételheti a saját címét és összefoglalóját. A cím és az összefoglaló így annak is láthatóvá válik, akinek nincs olvasási joga a dokumentumra, és minden ilyen olvasás az audit naplóba kerül.</p>
       <button type="submit" class="button">Mentés</button>
     </form>
-  {% elif publish_titles %}
+  {% elif standalone and publish_titles %}
     <p class="meta">A címek közzététele engedélyezve ezen a workspace-en (csak a tulajdonos állíthatja).</p>
-  {% endif %}</div>
+  {% endif %}
+</div>

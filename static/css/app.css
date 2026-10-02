@@ -12,12 +12,27 @@
 
 * { box-sizing: border-box; }
 
+:root {
+  /* Reading width. Without a ceiling the layout stretches to the viewport, which
+     at 2560px turns a four-column list into a row with the title in one corner
+     and its workspace in the middle. One width for the whole page keeps panels,
+     their tables and the header aligned instead of each having its own idea. */
+  --content-max: 1200px;
+  --prose-max: 78ch;
+}
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.55;
+}
+
+main {
+  max-width: min(var(--content-max), 100%);
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -41,7 +56,9 @@ a:hover { text-decoration: underline; }
 .topbar .user { color: var(--muted); }
 .inline { display: inline; margin: 0; }
 
-main { max-width: 1080px; margin: 0 auto; padding: 1.5rem; }
+/* Superseded by the `main` rule near the top, which owns the max-width; this
+   only keeps the padding so the two cannot drift apart silently. */
+main { margin: 0 auto; padding: 1.5rem; }
 
 .footer { text-align: center; color: var(--muted); padding: 2rem; font-size: 0.85rem; }
 
@@ -77,6 +94,25 @@ main { max-width: 1080px; margin: 0 auto; padding: 1.5rem; }
 .table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
 .table th, .table td { text-align: left; padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--border); }
 .table th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
+
+/* Wide screens get a little more room, but not the whole monitor: past ~1400px
+   a table's columns stop belonging to their rows. */
+.table { width: 100%; }
+
+/* A long document path in the tree used to push the whole page sideways on a
+   390px screen and then get clipped mid-word. max-width:0 lets the cell take
+   whatever is left, and the path ellipsises inside it. */
+.tree-path {
+  display: inline-block;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+@media (min-width: 720px) {
+  .tree-path { max-width: 46ch; vertical-align: baseline; }
+}
 
 /* Wide tables scroll inside their own box instead of widening the page. */
 .scroll-x { overflow-x: auto; margin-bottom: 1.5rem; }
@@ -244,6 +280,10 @@ a.chip:hover { border-color: var(--accent); color: var(--text); text-decoration:
 }
 .banner.warn { border-left-color: var(--danger); }
 
+details > summary { cursor: pointer; }
+details > summary:hover { text-decoration: underline; }
+details.banner > form { margin-top: 0.6rem; }
+
 .settings-row { display: flex; gap: 0.4rem; align-items: center; }
 .settings-row input, .settings-row select { min-width: 220px; }
 
@@ -324,6 +364,19 @@ details pre.code { max-height: 320px; }
 .commits li { padding: 0.2rem 0; font-size: 0.9rem; }
 .commits code, .git-panel code { background: var(--panel-2); padding: 0.05rem 0.35rem; border-radius: 4px; }
 .member-list { margin: 0 0 1rem; }
+
+@media (max-width: 1100px) {
+  /* Tablet / narrow-desktop: the page-head row (title + buttons) has no room,
+     and the file tree's action column pushes the names out of view. */
+  .page-head { flex-direction: column; align-items: flex-start; }
+  .page-head .actions { width: 100%; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}
+
+@media (min-width: 1800px) {
+  :root { --content-max: 1400px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}
 
 @media (max-width: 720px) {
   main { padding: 1rem 0.75rem; }

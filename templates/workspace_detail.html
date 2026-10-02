@@ -5,7 +5,7 @@
   <div>
     <p class="crumbs"><a href="{% url 'web:dashboard' %}">Dashboard</a> / {{ workspace.name }}</p>
     <h1>{{ workspace.name }}</h1>
-    <p class="muted">{{ workspace.description|default:"No description" }}</p>
+    {% if workspace.description %}<p class="muted">{{ workspace.description }}</p>{% else %}<p class="meta">Nincs leírás.</p>{% endif %}
     <p class="meta">Tulajdonos: {% if owner %}{{ owner.display_name|default:owner.username }}{% if owner.display_name and owner.display_name != owner.username %} ({{ owner.username }}){% endif %}{% else %}nincs (örökség){% endif %}</p>
   </div>
   {% if can_admin and not is_personal %}
@@ -18,14 +18,23 @@
 {% endif %}
 
 {% if can_take_over %}
-  <form method="post" action="{% url 'web:resource_takeover' workspace.resource_id %}" class="form"
-        onsubmit="return confirm('Átveszed a jogosultságot erre a workspace-re? A művelet az audit naplóba kerül.');">
-    {% csrf_token %}
-    <input type="hidden" name="action" value="takeover">
-    <input type="hidden" name="next" value="{{ request.get_full_path }}">
-    <button type="submit" class="button">Jogosultság-átvétel</button>
-    <p class="meta">Figyelem: az átvétel naplózott művelet, de nem változtatja meg a tulajdonost.</p>
-  </form>
+  {% comment %}
+  Deliberately small and below the content: this is a break-glass action for a
+  superuser who cannot see the page, not a primary action. It used to render as a
+  full-width bar above the file tree on the owner's own pages, because
+  can_take_over did not check whether the caller already had access.
+  {% endcomment %}
+  <details class="banner warn">
+    <summary>Nincs hozzáférésed? Kérj jogosultság-átvételt</summary>
+    <form method="post" action="{% url 'web:resource_takeover' workspace.resource_id %}"
+          onsubmit="return confirm('Átveszed a jogosultságot erre a workspace-re? A művelet az audit naplóba kerül, és nem változtatja meg a tulajdonost.');">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="takeover">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button type="submit" class="button">Jogosultság-átvétel</button>
+      <p class="meta">A művelet naplózott, de nem változtatja meg a tulajdonost.</p>
+    </form>
+  </details>
 {% elif no_takeover and user.is_superuser %}
   <p class="banner warn">A tulajdonos letiltotta a jogosultság-átvételt ezen a workspace-en.</p>
 {% endif %}
@@ -35,8 +44,13 @@
 {% if access_url %}{% include "_access_panel.html" %}{% endif %}
 
 {% if can_rename %}
-  <section class="git-panel">
-    <h2>Beállítások</h2>
+  {% comment %}
+  Collapsed: an open form with three inputs sitting under the file tree read as
+  a fifth administration block on every page. The controls stay here - it is the
+  same resource - but out of the way until asked for.
+  {% endcomment %}
+  <details class="git-panel">
+    <summary>Beállítások (név, leírás, címke)</summary>
     <form method="post" action="{% url 'web:workspace_rename' workspace.slug %}" class="form">
       {% csrf_token %}
       <div class="row">
@@ -57,10 +71,10 @@
       <button type="submit" class="button">Mentés</button>
       <p class="meta">A címke a webcímekben látszik és kisbetűs-kötőjelesre rövidül. <strong>Megváltoztatása megtöri a régi linkeket</strong> — nincs átirányítás. A fájlok útvonala nem ezt használja, hanem a workspace azonosítóját, szóval a tartalom nem mozdul.</p>
     </form>
-  </section>
+  </details>
 {% endif %}
 
-<h2>Projektek</h2>
+<h2 id="projektek">Projektek</h2>
 {% if projects %}
   <div class="grid">
     {% for project in projects %}
