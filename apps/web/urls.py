@@ -24,6 +24,13 @@ urlpatterns = [
     path("calendar/agenda/", views.agenda, name="agenda"),
     path("calendar/ical/", views.deadlines_ical, name="deadlines_ical"),
     path("workspaces/<slug:workspace_slug>/", views.workspace_detail, name="workspace_detail"),
+    # Must stay ABOVE the <project_slug> patterns: a three-segment path under
+    # workspaces/ is otherwise swallowed by them and 404s as a missing project.
+    path(
+        "workspaces/<slug:workspace_slug>/settings/",
+        views.workspace_rename,
+        name="workspace_rename",
+    ),
     path(
         "workspaces/<slug:workspace_slug>/documents/new/",
         views.document_create,

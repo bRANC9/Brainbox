@@ -44,6 +44,7 @@ from apps.secrets.services import SecretService
 from apps.settings_store.services import describe
 from apps.workspaces.models import Project, Workspace
 from apps.workspaces.ownership import OwnershipService
+from apps.workspaces.services import WorkspaceService
 
 from . import serializers as s
 from .llm_guide import build_manifest
@@ -149,6 +150,28 @@ class WorkspaceViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mo
     permission_classes = [IsAuthenticated, ResourcePermission]
     search_fields = ["name", "slug"]
     ordering_fields = ["name", "created_at"]
+
+    def partial_update(self, request, *args, **kwargs):
+        """Rename / re-describe, through the service so it is checked and audited.
+
+        A plain ModelViewSet write would bypass both: the ACL and the audit
+        trail. ``slug`` is ignored on purpose - it is in every URL and in the
+        on-disk layout.
+        """
+        workspace = self.get_object()
+        data = request.data
+        try:
+            WorkspaceService.update(
+                workspace=workspace,
+                name=data.get("name"),
+                description=data.get("description"),
+                actor=request.user,
+                request=request,
+            )
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(str(exc)) from exc
+        workspace.refresh_from_db()
+        return Response(self.get_serializer(workspace).data)
 
     @action(detail=True, methods=["post"])
     def transfer(self, request, pk=None):

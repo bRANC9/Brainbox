@@ -392,6 +392,38 @@ def tool_get_summary(ctx: ToolContext, args: dict) -> dict:
 
 
 @tool(
+    "knowledge_update_workspace",
+    "Rename a workspace or change its description. Needs admin on it, is audited, "
+    "and the slug is not editable (it is in every URL and in the on-disk layout).",
+    {
+        "type": "object",
+        "properties": {
+            "workspace": {"type": "string"},
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+        },
+        "required": ["workspace"],
+    },
+)
+def tool_update_workspace(ctx: ToolContext, args: dict) -> dict:
+    from apps.workspaces.services import WorkspaceService
+
+    workspace = _get_workspace(args.get("workspace"))
+    _require(ctx, workspace.resource, Permission.ADMIN)
+    try:
+        WorkspaceService.update(
+            workspace=workspace,
+            name=args.get("name"),
+            description=args.get("description"),
+            actor=ctx.user,
+            request=ctx.request,
+        )
+    except (ValidationError, PermissionDenied) as exc:
+        raise _service_error(exc) from exc
+    return {"id": str(workspace.pk), "name": workspace.name, "slug": workspace.slug}
+
+
+@tool(
     "knowledge_list_workspaces",
     "List workspaces the caller can read. `is_personal` marks a Personal workspace: "
     "exactly one holder, never shareable, so it only ever shows up for its own "

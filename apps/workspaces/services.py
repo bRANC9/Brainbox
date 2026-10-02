@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.utils.text import slugify
 
@@ -91,6 +92,44 @@ class WorkspaceService:
             source=AuditSource.API if request is not None else AuditSource.SYSTEM,
             request=request,
             detail={"type": "workspace", "name": name, "kind": kind},
+        )
+        return workspace
+
+    @staticmethod
+    @transaction.atomic
+    def update(*, workspace, name=None, description=None, actor, request=None) -> Workspace:
+        """Rename or re-describe a workspace, audited.
+
+        Every caller routes through here - the web form, the REST PATCH and the
+        MCP tool - so a rename is permission-checked and leaves an audit entry
+        like every other change, instead of being an unaudited ModelViewSet
+        write. Renaming is a workspace-level decision, so it needs ADMIN.
+
+        The slug is deliberately **not** updatable: it appears in every URL, in
+        the on-disk layout and in the git bookkeeping, so changing it would
+        silently break existing links and checkouts.
+        """
+        if not PermissionService.check(actor, workspace.resource, Permission.ADMIN):
+            raise PermissionDenied("You cannot rename this workspace.")
+        changed = {}
+        name = (name or "").strip()
+        if name and name != workspace.name:
+            changed["name"] = workspace.name
+            workspace.name = name[:255]
+        if description is not None and description != workspace.description:
+            changed["description"] = workspace.description
+            workspace.description = description
+        if not changed:
+            return workspace
+        workspace.save(update_fields=["name", "description", "updated_at"])
+        AuditService.log(
+            AuditAction.UPDATE,
+            user=actor,
+            resource=workspace.resource,
+            workspace=workspace,
+            source=AuditSource.API if request is not None else AuditSource.SYSTEM,
+            request=request,
+            detail={"type": "workspace_rename", "changed": changed},
         )
         return workspace
 

@@ -34,6 +34,27 @@
 {% include "_file_tree.html" %}
 {% if access_url %}{% include "_access_panel.html" %}{% endif %}
 
+{% if can_rename %}
+  <section class="git-panel">
+    <h2>Beállítások</h2>
+    <form method="post" action="{% url 'web:workspace_rename' workspace.slug %}" class="form">
+      {% csrf_token %}
+      <div class="row">
+        <label>Név
+          <input type="text" name="name" value="{{ workspace.name }}" required maxlength="255">
+        </label>
+      </div>
+      <div class="row">
+        <label>Leírás
+          <textarea name="description" rows="2">{{ workspace.description }}</textarea>
+        </label>
+      </div>
+      <button type="submit" class="button">Mentés</button>
+      <p class="meta">A címke (<code>{{ workspace.slug }}</code>) nem módosítható: minden linkben és a lemezen szerepel.</p>
+    </form>
+  </section>
+{% endif %}
+
 <h2>Projektek</h2>
 {% if projects %}
   <div class="grid">

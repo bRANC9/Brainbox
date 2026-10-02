@@ -39,6 +39,7 @@ from apps.search.services import SearchService
 from apps.workspaces.models import Project, Workspace
 from apps.workspaces.ownership import OwnershipService
 from apps.workspaces.personal import PersonalWorkspaceService
+from apps.workspaces.services import WorkspaceService
 
 User = get_user_model()
 
@@ -525,6 +526,7 @@ def workspace_detail(request, workspace_slug):
         "can_write": can_write,
         "is_personal": workspace.is_personal,
         "owner": workspace.owner,
+        "can_rename": _can(request.user, workspace.resource, Permission.ADMIN),
         **_access_context(request, workspace.resource),
         "tree_rows": _folder_tree_rows(workspace, None, request.user, tag_filter),
         "tag_filter": tag_filter,
@@ -1616,6 +1618,31 @@ def resource_takeover(request, resource_id):
     else:
         messages.success(request, "Jogosultság átvételve és naplózva.")
     return redirect(request.POST.get("next") or reverse("web:dashboard"))
+
+
+@login_required
+@require_http_methods(["POST"])
+def workspace_rename(request, workspace_slug):
+    """Rename a workspace or edit its description.
+
+    Routed through the service so the write is permission-checked and audited -
+    the same rule the REST PATCH and the MCP tool follow. The slug is not
+    editable: it is in every URL and in the on-disk layout.
+    """
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    try:
+        WorkspaceService.update(
+            workspace=workspace,
+            name=request.POST.get("name"),
+            description=request.POST.get("description"),
+            actor=request.user,
+            request=request,
+        )
+    except PermissionDenied:
+        messages.error(request, "Nincs jogosultságod átnevezni ezt a workspace-t.")
+    else:
+        messages.success(request, "Elmentve.")
+    return redirect("web:workspace_detail", workspace_slug=workspace.slug)
 
 
 @login_required
