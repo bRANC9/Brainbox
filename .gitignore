@@ -40,3 +40,9 @@ desktop.ini
 
 # graphify (local knowledge graph, generated — stays out of the repo)
 graphify-out/
+
+# Scratch files this tooling writes while working in the repo.
+.opencode/tmp_*.sh
+.opencode/tmp_*.py
+.opencode/tmp_*.txt
+.opencode/tmp_*.md
