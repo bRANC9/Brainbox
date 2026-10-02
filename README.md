@@ -576,7 +576,7 @@ láthatja a cégtáblázatot.
 python manage.py access_audit              # ki mit lát csak a bypass miatt (+ --json)
 python manage.py backfill_owners           # owner = created_by a hiányzó sorokra
 python manage.py ensure_personal_workspaces  # minden aktív usernek a saját Personal
-python manage.py drop_empty_workspace --slug personal --yes   # a közös Personal törlése
+python manage.py drop_empty_workspace --slug <slug> --yes   # üres megosztott workspace törlése
 ```
 
 ### Szokásos műveletek

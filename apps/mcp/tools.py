@@ -393,14 +393,17 @@ def tool_get_summary(ctx: ToolContext, args: dict) -> dict:
 
 @tool(
     "knowledge_update_workspace",
-    "Rename a workspace or change its description. Needs admin on it, is audited, "
-    "and the slug is not editable (it is in every URL and in the on-disk layout).",
+    "Rename a workspace, change its description, or change its slug (the URL key). "
+    "Needs admin on it and is audited. A slug change breaks links shared under the "
+    "old one - there is no redirect - but never moves the files: the on-disk layout "
+    "keys on the workspace UUID.",
     {
         "type": "object",
         "properties": {
             "workspace": {"type": "string"},
             "name": {"type": "string"},
             "description": {"type": "string"},
+            "slug": {"type": "string"},
         },
         "required": ["workspace"],
     },
@@ -410,17 +413,24 @@ def tool_update_workspace(ctx: ToolContext, args: dict) -> dict:
 
     workspace = _get_workspace(args.get("workspace"))
     _require(ctx, workspace.resource, Permission.ADMIN)
+    previous_slug = workspace.slug
     try:
         WorkspaceService.update(
             workspace=workspace,
             name=args.get("name"),
             description=args.get("description"),
+            slug=args.get("slug"),
             actor=ctx.user,
             request=ctx.request,
         )
     except (ValidationError, PermissionDenied) as exc:
         raise _service_error(exc) from exc
-    return {"id": str(workspace.pk), "name": workspace.name, "slug": workspace.slug}
+    return {
+        "id": str(workspace.pk),
+        "name": workspace.name,
+        "slug": workspace.slug,
+        "slug_changed": workspace.slug != previous_slug,
+    }
 
 
 @tool(

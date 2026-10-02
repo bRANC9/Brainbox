@@ -1623,25 +1623,37 @@ def resource_takeover(request, resource_id):
 @login_required
 @require_http_methods(["POST"])
 def workspace_rename(request, workspace_slug):
-    """Rename a workspace or edit its description.
+    """Rename, re-describe or re-slug a workspace.
 
     Routed through the service so the write is permission-checked and audited -
-    the same rule the REST PATCH and the MCP tool follow. The slug is not
-    editable: it is in every URL and in the on-disk layout.
+    the same rule the REST PATCH and the MCP tool follow. After a slug change the
+    canonical URL is different, so the redirect goes to the *new* one.
     """
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    slug_changed = False
     try:
         WorkspaceService.update(
             workspace=workspace,
             name=request.POST.get("name"),
             description=request.POST.get("description"),
+            slug=request.POST.get("slug"),
             actor=request.user,
             request=request,
         )
+        workspace.refresh_from_db()
+        slug_changed = workspace.slug != workspace_slug
     except PermissionDenied:
-        messages.error(request, "Nincs jogosultságod átnevezni ezt a workspace-t.")
+        messages.error(request, "Nincs jogosultságod módosítani ezt a workspace-t.")
+    except ValidationError as exc:
+        messages.error(request, "; ".join(exc.messages))
     else:
-        messages.success(request, "Elmentve.")
+        if slug_changed:
+            messages.warning(
+                request,
+                "Elmentve. A címke változott, ezért a régi linkek nem működnek.",
+            )
+        else:
+            messages.success(request, "Elmentve.")
     return redirect("web:workspace_detail", workspace_slug=workspace.slug)
 
 

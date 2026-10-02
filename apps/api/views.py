@@ -152,11 +152,11 @@ class WorkspaceViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mo
     ordering_fields = ["name", "created_at"]
 
     def partial_update(self, request, *args, **kwargs):
-        """Rename / re-describe, through the service so it is checked and audited.
+        """Rename / re-describe / re-slug, through the service.
 
         A plain ModelViewSet write would bypass both: the ACL and the audit
-        trail. ``slug`` is ignored on purpose - it is in every URL and in the
-        on-disk layout.
+        trail. A ``slug`` change breaks links shared under the old one - there is
+        no redirect table - and the audit entry flags it with ``broke_links``.
         """
         workspace = self.get_object()
         data = request.data
@@ -165,11 +165,14 @@ class WorkspaceViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mo
                 workspace=workspace,
                 name=data.get("name"),
                 description=data.get("description"),
+                slug=data.get("slug"),
                 actor=request.user,
                 request=request,
             )
         except DjangoPermissionDenied as exc:
             raise PermissionDenied(str(exc)) from exc
+        except DjangoValidationError as exc:
+            raise ValidationError(exc.message_dict) from exc
         workspace.refresh_from_db()
         return Response(self.get_serializer(workspace).data)
 

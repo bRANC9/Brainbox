@@ -49,8 +49,13 @@
           <textarea name="description" rows="2">{{ workspace.description }}</textarea>
         </label>
       </div>
+      <div class="row">
+        <label>Címke (URL)
+          <input type="text" name="slug" value="{{ workspace.slug }}" maxlength="255">
+        </label>
+      </div>
       <button type="submit" class="button">Mentés</button>
-      <p class="meta">A címke (<code>{{ workspace.slug }}</code>) nem módosítható: minden linkben és a lemezen szerepel.</p>
+      <p class="meta">A címke a webcímekben látszik és kisbetűs-kötőjelesre rövidül. <strong>Megváltoztatása megtöri a régi linkeket</strong> — nincs átirányítás. A fájlok útvonala nem ezt használja, hanem a workspace azonosítóját, szóval a tartalom nem mozdul.</p>
     </form>
   </section>
 {% endif %}
