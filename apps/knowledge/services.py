@@ -25,6 +25,28 @@ def _may_read(user, resource, api_key=None) -> bool:
     return PermissionService.check(user, resource, Permission.READ, api_key=api_key)
 
 
+def publishes_summary(resource) -> bool:
+    """Whether a document's title/summary may be shown without read access.
+
+    A deliberate publication, so it has to be deliberate in every sense:
+
+    * the flag must be the boolean ``True``. Truthiness is not enough - a stray
+      ``public_summary: "..."`` left in a template or a frontmatter block would
+      otherwise start leaking titles, which is exactly the accident this guards.
+    * a workspace can turn the whole area on once (``publish_titles`` on the
+      workspace Resource) instead of it being set per document.
+
+    Reading a published summary is still audited by the caller, because an
+    un-audited existence oracle is a hole and an audited one is a feature.
+    """
+    if (resource.metadata or {}).get("public_summary") is not True:
+        return False
+    workspace = resource.workspace_resource()
+    if workspace is None:
+        return False
+    return (workspace.metadata or {}).get("publish_titles") is True
+
+
 class DiscoveryService:
     """Agent-facing discovery of skills/patterns/conventions/decisions/examples."""
 
@@ -77,11 +99,28 @@ class DiscoveryService:
 
 
 class GraphService:
-    """BFS over ResourceLink, always permission-filtered."""
+    """BFS over ResourceLink, always permission-filtered.
+
+    A neighbour the caller may not read is **omitted entirely** - not emitted
+    with ``accessible: false``, because the row carries the neighbour's name and
+    that answers "does this exist and what is it called" for something the caller
+    was never allowed to know. The filtering lives here rather than in the
+    callers because this is the single implementation the web UI, the REST API
+    and the MCP server all share: filtering in one of them is how the three end
+    up disagreeing about who can see what. ``include_inaccessible`` keeps the
+    old payload available as an explicit opt-in.
+    """
 
     @classmethod
     def neighbors(
-        cls, user, resource: Resource, *, api_key=None, depth: int = 1, limit: int = 25
+        cls,
+        user,
+        resource: Resource,
+        *,
+        api_key=None,
+        depth: int = 1,
+        limit: int = 25,
+        include_inaccessible: bool = False,
     ) -> list[dict]:
         seen = {resource.id}
         frontier = [resource]
@@ -97,8 +136,12 @@ class GraphService:
                     other = link.target if link.source_id == node.id else link.source
                     if other.id in seen:
                         continue
+                    # Marked seen before the check so an unreadable node is never
+                    # re-examined (or traversed) further down the walk.
                     seen.add(other.id)
                     accessible = _may_read(user, other, api_key)
+                    if not accessible and not include_inaccessible:
+                        continue
                     results.append(
                         {
                             "resource_id": str(other.id),
@@ -106,7 +149,7 @@ class GraphService:
                             "type": other.resource_type,
                             "link_type": link.link_type,
                             "accessible": accessible,
-                            "summary_visible": bool((other.metadata or {}).get("public_summary")),
+                            "summary_visible": publishes_summary(other),
                         }
                     )
                     if accessible:

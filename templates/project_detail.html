@@ -10,11 +10,29 @@
     </p>
     <h1>{{ project.name }}</h1>
     <p class="muted">{{ project.description|default:"No description" }}</p>
+    <p class="meta">Tulajdonos: {% if owner %}{{ owner.display_name|default:owner.username }}{% if owner.display_name and owner.display_name != owner.username %} ({{ owner.username }}){% endif %}{% else %}nincs (örökség){% endif %}</p>
   </div>
-  {% if can_admin %}
+  {% if can_admin and not is_personal %}
     <a class="button" href="{% url 'web:resource_permissions' project.resource_id %}">Jogosultságok</a>
   {% endif %}
 </section>
+
+{% if is_personal %}
+  <p class="banner">A(z) {{ workspace.name }} <strong>Személyes workspace</strong>: csak te látod, megosztani nem lehet.</p>
+{% endif %}
+
+{% if can_take_over %}
+  <form method="post" action="{% url 'web:resource_takeover' project.resource_id %}" class="form"
+        onsubmit="return confirm('Átveszed a jogosultságot erre a projektre? A művelet az audit naplóba kerül.');">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="takeover">
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <button type="submit" class="button">Jogosultság-átvétel</button>
+    <p class="meta">Figyelem: az átvétel naplózott művelet, de nem változtatja meg a tulajdonost.</p>
+  </form>
+{% elif no_takeover and user.is_superuser %}
+  <p class="banner warn">A tulajdonos letiltotta a jogosultság-átvételt ezen a projekten.</p>
+{% endif %}
 
 {% include "_git_panel.html" %}
 {% include "_file_tree.html" %}

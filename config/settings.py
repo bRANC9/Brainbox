@@ -223,6 +223,12 @@ KNOWLEDGE_DATA_ROOT = os.environ.get(
 # containers racing on `migrate` at boot). Set to 0 for worker/scheduler.
 BRAINBOX_RUN_MIGRATIONS = env_bool("BRAINBOX_RUN_MIGRATIONS", True)
 
+# Rollout switch for the "is_superuser sees everything" behaviour that used to be
+# hard-coded in PermissionService. A superuser has NO implicit content access; the
+# only way in is the explicit, audited takeover (manage.py access_audit lists who
+# relied on the bypass before you switch this off).
+BRAINBOX_SUPERUSER_BYPASS = env_bool("BRAINBOX_SUPERUSER_BYPASS", False)
+
 # Master key for the (Phase 5) secret vault. Kept as raw base64 text for now.
 BRAINBOX_SECRET_KEY = os.environ.get("BRAINBOX_SECRET_KEY", "")
 

@@ -6,11 +6,29 @@
     <p class="crumbs"><a href="{% url 'web:dashboard' %}">Dashboard</a> / {{ workspace.name }}</p>
     <h1>{{ workspace.name }}</h1>
     <p class="muted">{{ workspace.description|default:"No description" }}</p>
+    <p class="meta">Tulajdonos: {% if owner %}{{ owner.display_name|default:owner.username }}{% if owner.display_name and owner.display_name != owner.username %} ({{ owner.username }}){% endif %}{% else %}nincs (örökség){% endif %}</p>
   </div>
-  {% if can_admin %}
+  {% if can_admin and not is_personal %}
     <a class="button" href="{% url 'web:resource_permissions' workspace.resource_id %}">Jogosultságok</a>
   {% endif %}
 </section>
+
+{% if is_personal %}
+  <p class="banner">Ez egy <strong>Személyes workspace</strong>: csak te látod, megosztani nem lehet. A hozzáférésed senkivel nem osztható meg.</p>
+{% endif %}
+
+{% if can_take_over %}
+  <form method="post" action="{% url 'web:resource_takeover' workspace.resource_id %}" class="form"
+        onsubmit="return confirm('Átveszed a jogosultságot erre a workspace-re? A művelet az audit naplóba kerül.');">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="takeover">
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <button type="submit" class="button">Jogosultság-átvétel</button>
+    <p class="meta">Figyelem: az átvétel naplózott művelet, de nem változtatja meg a tulajdonost.</p>
+  </form>
+{% elif no_takeover and user.is_superuser %}
+  <p class="banner warn">A tulajdonos letiltotta a jogosultság-átvételt ezen a workspace-en.</p>
+{% endif %}
 
 {% include "_git_panel.html" %}
 {% include "_file_tree.html" %}

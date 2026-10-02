@@ -70,6 +70,12 @@ urlpatterns = [
         views.resource_permissions,
         name="resource_permissions",
     ),
+    path(
+        "resources/<uuid:resource_id>/takeover/",
+        views.resource_takeover,
+        name="resource_takeover",
+    ),
+    path("personal/", views.personal_workspace, name="personal_workspace"),
     path("documents/<uuid:pk>/", views.document_detail, name="document_detail"),
     path("documents/<uuid:pk>/edit/", views.document_edit, name="document_edit"),
     path("documents/<uuid:pk>/approve/", views.document_approve, name="document_approve"),

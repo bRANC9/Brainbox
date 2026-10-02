@@ -15,7 +15,11 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from django.conf import settings
+from django.core.exceptions import PermissionDenied, ValidationError
 
+from apps.accounts.models import User
+from apps.audit.models import AuditAction, AuditSource
+from apps.audit.services import AuditService
 from apps.documents.models import ChangeSource, Document, DocumentStatus
 from apps.documents.services import DocumentService
 from apps.git.git_cli import GitError
@@ -26,6 +30,7 @@ from apps.knowledge.services import (
     DraftService,
     GraphService,
     QualityService,
+    publishes_summary,
 )
 from apps.permissions.constants import Permission
 from apps.permissions.services import PermissionService
@@ -34,6 +39,8 @@ from apps.search.services import SearchService
 from apps.secrets.models import Secret
 from apps.secrets.services import SecretService
 from apps.workspaces.models import Project, Workspace
+from apps.workspaces.ownership import OwnershipService
+from apps.workspaces.personal import PersonalWorkspaceService
 from apps.workspaces.services import ProjectService
 
 
@@ -97,7 +104,7 @@ def _get_document(document_id) -> Document:
         return Document.objects.select_related("workspace", "project", "resource").get(
             pk=document_id
         )
-    except (Document.DoesNotExist, ValueError, TypeError) as exc:
+    except (Document.DoesNotExist, ValidationError, ValueError, TypeError) as exc:
         raise ToolError(f"Document '{document_id}' not found.") from exc
 
 
@@ -105,22 +112,160 @@ def _get_workspace(value) -> Workspace:
     queryset = Workspace.objects.select_related("resource")
     try:
         return queryset.get(pk=value) if str(value).count("-") >= 4 else queryset.get(slug=value)
-    except (Workspace.DoesNotExist, ValueError):
+    except (Workspace.DoesNotExist, ValidationError, ValueError):
         raise ToolError(f"Workspace '{value}' not found.") from None
 
 
 def _get_project(value) -> Project:
     try:
         return Project.objects.select_related("resource", "workspace").get(pk=value)
-    except (Project.DoesNotExist, ValueError):
+    except (Project.DoesNotExist, ValidationError, ValueError):
         raise ToolError(f"Project '{value}' not found.") from None
 
 
 def _get_repository(value) -> GitRepository:
     try:
         return GitRepository.objects.select_related("workspace", "project", "resource").get(pk=value)
-    except (GitRepository.DoesNotExist, ValueError):
+    except (GitRepository.DoesNotExist, ValidationError, ValueError):
         raise ToolError(f"Git repository '{value}' not found.") from None
+
+
+def _get_user(value) -> User:
+    """Resolve a user by uuid or username (ownership tools)."""
+    if not value:
+        raise ToolError("A user id or username is required.")
+    queryset = User.objects.filter(is_active=True)
+    try:
+        return queryset.get(pk=value)
+    except (User.DoesNotExist, ValidationError, ValueError, TypeError):
+        pass
+    try:
+        return queryset.get(username=str(value))
+    except User.DoesNotExist:
+        raise ToolError(f"User '{value}' not found.") from None
+
+
+def _service_error(exc: Exception) -> ToolError:
+    """Turn a service-layer refusal into a user-facing tool error.
+
+    The services own the wording of their own rules (and some of it is
+    Hungarian), so the message is passed through instead of being replaced here.
+    """
+    if isinstance(exc, ValidationError):
+        return ToolError("; ".join(exc.messages))
+    return ToolError(str(exc) or exc.__class__.__name__)
+
+
+def _readable_graph_rows(
+    ctx: ToolContext, rows: list[dict], *, include_inaccessible: bool = False
+) -> list[dict]:
+    """Drop rows whose resource the caller may not read, before they are shaped.
+
+    Used only by ``knowledge_follow_link``, which does its own link walk rather
+    than going through :class:`GraphService`. That service now performs the same
+    filtering itself; this remains here because the rows are built locally, and
+    the rule has to be applied before the row carries the neighbour's name.
+
+    A row carries that name, so emitting it with ``accessible: false`` is an
+    existence-and-name oracle: it answers "does this exist and what is it called"
+    for things the caller was never allowed to know about. The default is to omit
+    the row entirely; the flag survives only as the explicit
+    ``include_inaccessible`` opt-in.
+    """
+    if not rows:
+        return []
+    readable = {
+        str(value)
+        for value in PermissionService.allowed_resource_ids(
+            ctx.user, [row["resource_id"] for row in rows], Permission.READ, api_key=ctx.api_key
+        )
+    }
+    out: list[dict] = []
+    for row in rows:
+        if row["resource_id"] in readable:
+            out.append({**row, "accessible": True})
+        elif include_inaccessible:
+            out.append({**row, "accessible": False})
+    return out
+
+
+def _normalize_folder(value) -> str:
+    """Validate a caller-supplied folder path (rejects '..' and absolute paths)."""
+    from apps.documents.folders import normalize_folder_path
+
+    try:
+        return normalize_folder_path(value)
+    except ValidationError as exc:
+        raise _service_error(exc) from exc
+
+
+def _navigable_folders(ctx: ToolContext, workspace, project, folder: str = "") -> list[dict]:
+    """Folders the caller may navigate: the children of ``folder`` plus its ancestors.
+
+    Readability comes from :meth:`PermissionService.visible_resource_ids`, i.e.
+    readable ∪ ancestors, so a grant on a deep folder stays reachable from the top
+    of the tree while its siblings stay hidden - they are not readable, they are
+    merely on the path to something that is.
+    """
+    from apps.documents.models import DocumentFolder
+
+    folders = list(
+        DocumentFolder.objects.select_related("resource").filter(
+            workspace=workspace, project=project
+        )
+    )
+    if not folders:
+        return []
+    resource_ids = [row.resource_id for row in folders]
+    readable = {
+        str(value)
+        for value in PermissionService.allowed_resource_ids(
+            ctx.user, resource_ids, Permission.READ, api_key=ctx.api_key
+        )
+    }
+    visible = {
+        str(value)
+        for value in PermissionService.visible_resource_ids(
+            ctx.user, resource_ids, Permission.READ, api_key=ctx.api_key
+        )
+    }
+    prefix = f"{folder}/" if folder else ""
+    rows = []
+    for row in folders:
+        path = row.path
+        if path.startswith(prefix) and "/" not in path[len(prefix) :]:
+            position = "child"
+        elif folder and (folder == path or folder.startswith(f"{path}/")):
+            position = "ancestor"
+        else:
+            continue
+        if str(row.resource_id) not in visible:
+            continue
+        rows.append(
+            {
+                "path": path,
+                "name": row.resource.name,
+                "resource_id": str(row.resource_id),
+                "readable": str(row.resource_id) in readable,
+                "position": position,
+            }
+        )
+    rows.sort(key=lambda item: item["path"])
+    return rows
+
+
+def _resolve_ownership_resource(args: dict) -> Resource:
+    """The workspace/project resource the ownership tools act on."""
+    if args.get("resource_id"):
+        try:
+            return Resource.objects.get(pk=args["resource_id"])
+        except (Resource.DoesNotExist, ValidationError, ValueError, TypeError) as exc:
+            raise ToolError("Resource not found.") from exc
+    if args.get("project"):
+        return _get_project(args["project"]).resource
+    if args.get("workspace"):
+        return _get_workspace(args["workspace"]).resource
+    raise ToolError("Provide 'resource_id', or a 'workspace'/'project'.")
 
 
 def _document_brief(document: Document) -> dict:
@@ -136,12 +281,16 @@ def _document_brief(document: Document) -> dict:
     }
 
 
-def _accessible_documents(ctx, *, workspace=None, project=None) -> list[Document]:
+def _accessible_documents(
+    ctx, *, workspace=None, project=None, folder: str | None = None
+) -> list[Document]:
     queryset = Document.objects.select_related("workspace", "project", "resource")
     if workspace is not None:
         queryset = queryset.filter(workspace=workspace)
     if project is not None:
         queryset = queryset.filter(project=project)
+    if folder:
+        queryset = queryset.filter(path__startswith=f"{folder}/")
     return [doc for doc in queryset if _may_read(ctx, doc.resource)]
 
 
@@ -201,7 +350,10 @@ def tool_get(ctx: ToolContext, args: dict) -> dict:
 
 @tool(
     "knowledge_get_summary",
-    "Fetch only the title/summary. May be available when content is restricted.",
+    "Fetch only the title/summary. May be available without read access when the "
+    "document is explicitly published (public_summary: true AND the workspace has "
+    "publish_titles: true). Such a read is written to the audit log, so a "
+    "published title is a deliberate disclosure, not a silent leak.",
     {
         "type": "object",
         "properties": {"document_id": {"type": "string"}},
@@ -212,7 +364,21 @@ def tool_get_summary(ctx: ToolContext, args: dict) -> dict:
     document = _get_document(args.get("document_id"))
     if _may_read(ctx, document.resource):
         access = "full"
-    elif (document.resource.metadata or {}).get("public_summary"):
+    elif publishes_summary(document.resource):
+        # No read access, so the only thing being disclosed is the fact that a
+        # document exists and what it is called - which the owner opted into.
+        # Record it, or an un-audited existence oracle is just a leak.
+        AuditService.log(
+            AuditAction.READ,
+            user=ctx.user,
+            api_key=ctx.api_key,
+            resource=document.resource,
+            workspace=document.workspace,
+            project=document.project,
+            source=AuditSource.MCP,
+            request=ctx.request,
+            detail={"via": "public_summary", "type": "document_summary"},
+        )
         access = "summary"
     else:
         raise ToolError("Permission denied.")
@@ -225,14 +391,48 @@ def tool_get_summary(ctx: ToolContext, args: dict) -> dict:
     }
 
 
-@tool("knowledge_list_workspaces", "List workspaces the caller can read.")
+@tool(
+    "knowledge_list_workspaces",
+    "List workspaces the caller can read. `is_personal` marks a Personal workspace: "
+    "exactly one holder, never shareable, so it only ever shows up for its own "
+    "owner. (Személyes workspace: kizárólag a tulajdonosa látja.)",
+)
 def tool_list_workspaces(ctx: ToolContext, args: dict) -> dict:
     workspaces = [
-        {"id": str(workspace.pk), "name": workspace.name, "slug": workspace.slug}
+        {
+            "id": str(workspace.pk),
+            "name": workspace.name,
+            "slug": workspace.slug,
+            "kind": workspace.kind,
+            "is_personal": workspace.is_personal,
+            "owner": str(workspace.owner_id) if workspace.owner_id else None,
+        }
         for workspace in Workspace.objects.select_related("resource")
         if _may_read(ctx, workspace.resource)
     ]
     return {"workspaces": workspaces}
+
+
+@tool(
+    "knowledge_my_workspace",
+    "Return the caller's own Personal workspace, so an agent can find its private "
+    "home without scanning the workspace list. Read-only: it never creates one. "
+    "(Csak a saját személyes workspace-t adja vissza.)",
+)
+def tool_my_workspace(ctx: ToolContext, args: dict) -> dict:
+    workspace = PersonalWorkspaceService.get_for(ctx.user)
+    if workspace is None:
+        return {"workspace": None}
+    return {
+        "workspace": {
+            "id": str(workspace.pk),
+            "name": workspace.name,
+            "slug": workspace.slug,
+            "kind": workspace.kind,
+            "is_personal": True,
+            "owner": str(workspace.owner_id) if workspace.owner_id else None,
+        }
+    }
 
 
 @tool(
@@ -253,17 +453,34 @@ def tool_list_projects(ctx: ToolContext, args: dict) -> dict:
 
 @tool(
     "knowledge_list_documents",
-    "List documents (optionally scoped to a workspace/project).",
+    "List documents (optionally scoped to a workspace/project/folder). With a "
+    "scope it also returns the folders the caller can navigate: the children of "
+    "`folder` plus the path down to it, so a deep folder that was granted stays "
+    "reachable from the top while its siblings stay hidden.",
     {
         "type": "object",
-        "properties": {"workspace": {"type": "string"}, "project": {"type": "string"}},
+        "properties": {
+            "workspace": {"type": "string"},
+            "project": {"type": "string"},
+            "folder": {
+                "type": "string",
+                "description": "Folder path inside the scope, e.g. 'skills/azure'. "
+                "Omit for the top level.",
+            },
+        },
     },
 )
 def tool_list_documents(ctx: ToolContext, args: dict) -> dict:
     workspace = _get_workspace(args["workspace"]) if args.get("workspace") else None
     project = _get_project(args["project"]) if args.get("project") else None
-    documents = _accessible_documents(ctx, workspace=workspace, project=project)
-    return {"documents": [_document_brief(document) for document in documents]}
+    folder = _normalize_folder(args["folder"]) if args.get("folder") else ""
+    documents = _accessible_documents(ctx, workspace=workspace, project=project, folder=folder or None)
+    payload: dict = {"documents": [_document_brief(document) for document in documents]}
+    if workspace is not None or project is not None:
+        scope = workspace if workspace is not None else project.workspace
+        payload["folder"] = folder
+        payload["folders"] = _navigable_folders(ctx, scope, project, folder)
+    return payload
 
 
 TYPE_FOLDERS = {
@@ -313,12 +530,20 @@ for _type in TYPE_FOLDERS:
 @tool(
     "knowledge_follow_link",
     "Traverse links from/to a resource (permission-checked). Use it to discover "
-    "related knowledge across projects/workspaces.",
+    "related knowledge across projects/workspaces. A neighbour the caller cannot "
+    "read is omitted entirely - its name is not returned; pass "
+    "`include_inaccessible` to get the row back with `accessible: false`, which "
+    "does confirm that it exists.",
     {
         "type": "object",
         "properties": {
             "resource_id": {"type": "string"},
             "direction": {"type": "string", "enum": ["outgoing", "incoming"]},
+            "include_inaccessible": {
+                "type": "boolean",
+                "description": "Return unreadable neighbours too, flagged "
+                "`accessible: false`. Off by default: it leaks names.",
+            },
         },
         "required": ["resource_id"],
     },
@@ -326,7 +551,7 @@ for _type in TYPE_FOLDERS:
 def tool_follow_link(ctx: ToolContext, args: dict) -> dict:
     try:
         resource = Resource.objects.get(pk=args.get("resource_id"))
-    except (Resource.DoesNotExist, ValueError, TypeError) as exc:
+    except (Resource.DoesNotExist, ValidationError, ValueError, TypeError) as exc:
         raise ToolError("Resource not found.") from exc
     _require(ctx, resource, Permission.READ)
 
@@ -336,18 +561,21 @@ def tool_follow_link(ctx: ToolContext, args: dict) -> dict:
         if direction == "incoming"
         else resource.outgoing_links.select_related("target")
     )
-    out = []
+    rows = []
     for link in links:
         target = link.source if direction == "incoming" else link.target
-        entry = {
-            "resource_id": str(target.id),
-            "name": target.name,
-            "type": target.resource_type,
-            "link_type": link.link_type,
-            "accessible": _may_read(ctx, target),
-            "summary_visible": bool((target.metadata or {}).get("public_summary")),
-        }
-        out.append(entry)
+        rows.append(
+            {
+                "resource_id": str(target.id),
+                "name": target.name,
+                "type": target.resource_type,
+                "link_type": link.link_type,
+                "summary_visible": publishes_summary(target),
+            }
+        )
+    out = _readable_graph_rows(
+        ctx, rows, include_inaccessible=bool(args.get("include_inaccessible"))
+    )
     return {"links": out, "count": len(out)}
 
 
@@ -498,6 +726,100 @@ def tool_update_project(ctx: ToolContext, args: dict) -> dict:
         project.description = args["description"]
     project.save()
     return {"id": str(project.pk), "name": project.name}
+
+
+# ---------------------------------------------------------------------------
+# Ownership tools
+# ---------------------------------------------------------------------------
+_OWNERSHIP_SCOPE = {
+    "resource_id": {"type": "string", "description": "Resource id (workspace or project)"},
+    "workspace": {"type": "string", "description": "Workspace id or slug"},
+    "project": {"type": "string", "description": "Project id"},
+}
+
+
+@tool(
+    "knowledge_transfer_ownership",
+    "Hand a workspace or a project to a new owner. Owner only. The new owner gets "
+    "an ADMIN grant; the previous owner loses theirs unless `keep_access` keeps "
+    "read/write. Ownership is not a shareable privilege, so this is deliberately "
+    "not a grant, and a Personal workspace can never be transferred. Every "
+    "transfer is written to the audit log. (Csak a tulajdonos adhatja tovább.)",
+    {
+        "type": "object",
+        "properties": {
+            **_OWNERSHIP_SCOPE,
+            "new_owner": {"type": "string", "description": "Username or user id"},
+            "keep_access": {
+                "type": "string",
+                "enum": ["read", "write"],
+                "description": "What the previous owner keeps. Omit to revoke "
+                "their admin grant; it can never be admin.",
+            },
+        },
+        "required": ["new_owner"],
+    },
+)
+def tool_transfer_ownership(ctx: ToolContext, args: dict) -> dict:
+    resource = _resolve_ownership_resource(args)
+    _require(ctx, resource, Permission.ADMIN)
+    new_owner = _get_user(args.get("new_owner"))
+    keep_access = args.get("keep_access") or None
+    if keep_access not in (None, Permission.READ, Permission.WRITE):
+        raise ToolError("'keep_access' must be 'read' or 'write'.")
+    previous_owner_id = PermissionService.scope_owner_id(resource)
+    try:
+        obj = OwnershipService.transfer(
+            resource=resource,
+            new_owner=new_owner,
+            actor=ctx.user,
+            keep_old_access=keep_access,
+            request=ctx.request,
+        )
+    except (PermissionDenied, ValidationError) as exc:
+        raise _service_error(exc) from exc
+    return {
+        "transferred": True,
+        "resource_id": str(resource.id),
+        "owner": str(obj.owner_id),
+        "previous_owner": str(previous_owner_id) if previous_owner_id else None,
+        "keep_access": keep_access,
+    }
+
+
+@tool(
+    "knowledge_take_over",
+    "AUDITED break-glass, SUPERUSER ONLY: write yourself an ADMIN entry on a "
+    "resource so you can act on it. This does NOT change the owner and it is "
+    "blocked on any resource whose takeover flag is set (or inherits one) - it is "
+    "a way in, never a way to lock somebody out. Every call is written to the "
+    "audit log as a permission change. "
+    "(Csak superuser; minden hívás naplózva.)",
+    {"type": "object", "properties": dict(_OWNERSHIP_SCOPE)},
+)
+def tool_take_over(ctx: ToolContext, args: dict) -> dict:
+    if not getattr(ctx.user, "is_superuser", False):
+        raise ToolError("Superuser access required to take over a resource.")
+    resource = _resolve_ownership_resource(args)
+    try:
+        entry = OwnershipService.take_over(
+            resource=resource, actor=ctx.user, request=ctx.request
+        )
+    except PermissionDenied as exc:
+        raise _service_error(exc) from exc
+    return {
+        "taken_over": True,
+        "audited": True,
+        "resource_id": str(resource.id),
+        "resource_name": resource.name,
+        "entry": {
+            "id": str(entry.pk),
+            "subject_id": str(entry.subject_id),
+            "permission": entry.permission,
+            "effect": entry.effect,
+            "inherit": entry.inherit,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -781,12 +1103,18 @@ def tool_deadlines(ctx: ToolContext, args: dict) -> dict:
 @tool(
     "knowledge_get_settings",
     "Read the current runtime configuration (AI/embedding, search, git, jobs). "
-    "Secret values are masked. Use this to check which model/provider is active.",
+    "Secret values are masked. Use this to check which model/provider is active. "
+    "Staff only: the key names alone describe the deployment. "
+    "(Csak staff tag láthatja.)",
     {"type": "object", "properties": {"category": {"type": "string"}}},
 )
 def tool_get_settings(ctx: ToolContext, args: dict) -> dict:
     from apps.settings_store.services import describe
 
+    # Masked, not harmless: the key names and the active model/provider are still
+    # a map of the deployment, so this is staff-only rather than "any caller".
+    if not getattr(ctx.user, "is_staff", False):
+        raise ToolError("Staff access required to read the settings.")
     rows = describe()
     category = args.get("category")
     if category:
@@ -813,8 +1141,6 @@ def tool_get_settings(ctx: ToolContext, args: dict) -> dict:
     },
 )
 def tool_set_setting(ctx: ToolContext, args: dict) -> dict:
-    from django.core.exceptions import ValidationError
-
     from apps.settings_store.services import describe, set_value
 
     if not getattr(ctx.user, "is_superuser", False):
@@ -927,12 +1253,20 @@ def tool_create_from_template(ctx: ToolContext, args: dict) -> dict:
 
 @tool(
     "knowledge_get_related",
-    "Get related knowledge via the link graph around a resource (permission-filtered).",
+    "Get related knowledge via the link graph around a resource (permission-filtered). "
+    "A neighbour the caller cannot read is omitted entirely - its name is not "
+    "returned; pass `include_inaccessible` to get the row back with "
+    "`accessible: false`, which does confirm that it exists.",
     {
         "type": "object",
         "properties": {
             "resource_id": {"type": "string"},
             "depth": {"type": "integer", "minimum": 1, "maximum": 3},
+            "include_inaccessible": {
+                "type": "boolean",
+                "description": "Return unreadable neighbours too, flagged "
+                "`accessible: false`. Off by default: it leaks names.",
+            },
         },
         "required": ["resource_id"],
     },
@@ -940,11 +1274,19 @@ def tool_create_from_template(ctx: ToolContext, args: dict) -> dict:
 def tool_related(ctx: ToolContext, args: dict) -> dict:
     try:
         resource = Resource.objects.get(pk=args["resource_id"])
-    except (Resource.DoesNotExist, ValueError, TypeError) as exc:
+    except (Resource.DoesNotExist, ValidationError, ValueError, TypeError) as exc:
         raise ToolError("Resource not found.") from exc
     _require(ctx, resource, Permission.READ)
+    # The unreadable-neighbour filtering now lives in GraphService itself (it is
+    # the one implementation the web UI and the REST API share), so this tool
+    # no longer has to drop rows itself - filtering in one of three callers is
+    # how the surfaces used to disagree about who can see what.
     results = GraphService.neighbors(
-        ctx.user, resource, api_key=ctx.api_key, depth=int(args.get("depth", 1))
+        ctx.user,
+        resource,
+        api_key=ctx.api_key,
+        depth=int(args.get("depth", 1)),
+        include_inaccessible=bool(args.get("include_inaccessible")),
     )
     return {"related": results, "count": len(results)}
 
@@ -1003,9 +1345,14 @@ def tool_approve(ctx: ToolContext, args: dict) -> dict:
 
 @tool(
     "knowledge_quality_metrics",
-    "Knowledge quality metrics (staff only): status mix, orphans, stale docs.",
+    "Knowledge quality metrics (superuser only): status mix, orphans, stale docs. "
+    "Counts every workspace, including other people's. "
+    "(A REST QualityView IsAdminUser ugyanazt a kaput használja.)",
 )
 def tool_quality(ctx: ToolContext, args: dict) -> dict:
-    if not getattr(ctx.user, "is_staff", False):
-        raise ToolError("Staff access required.")
+    # Must stay in step with the REST QualityView, which is IsAdminUser - the
+    # numbers are global (every workspace, other people's included), so `is_staff`
+    # here would be a broader audience than the REST surface allows.
+    if not getattr(ctx.user, "is_superuser", False):
+        raise ToolError("Superuser access required.")
     return QualityService.metrics()

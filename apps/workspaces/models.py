@@ -1,7 +1,21 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 from apps.tags.models import Taggable
+
+
+class WorkspaceKind(models.TextChoices):
+    """What kind of audience a workspace serves.
+
+    Not a taxonomy of subject matter (there deliberately is none - see
+    ``terv.md``), but a statement about *audience*: ``SHARED`` workspaces start
+    private and are opened up by granting access, ``PERSONAL`` workspaces are a
+    per-user home that is never shareable.
+    """
+
+    SHARED = "shared", "Shared"
+    PERSONAL = "personal", "Personal"
 
 
 class Workspace(Taggable, models.Model):
@@ -16,6 +30,9 @@ class Workspace(Taggable, models.Model):
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
     description = models.TextField(blank=True)
+    kind = models.CharField(
+        max_length=16, choices=WorkspaceKind.choices, default=WorkspaceKind.SHARED
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -23,12 +40,27 @@ class Workspace(Taggable, models.Model):
         blank=True,
         related_name="created_workspaces",
     )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="owned_workspaces",
+        help_text="A workspace tulajdonosa: egyedül ő módosíthatja a workspace "
+        "ACL-jét, és ő adhat át tulajdont. NULL = tulajdon nélküli (örökség) sor, "
+        "amelynek ACL-jét csak auditált superuser-átvétellel lehet elérni.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "workspaces_workspace"
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner"], condition=Q(kind="personal"), name="uniq_personal_per_owner"
+            )
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -36,6 +68,10 @@ class Workspace(Taggable, models.Model):
     @property
     def projects(self):
         return Project.objects.filter(workspace=self)
+
+    @property
+    def is_personal(self) -> bool:
+        return self.kind == WorkspaceKind.PERSONAL
 
 
 class Project(Taggable, models.Model):
@@ -59,6 +95,16 @@ class Project(Taggable, models.Model):
         null=True,
         blank=True,
         related_name="created_projects",
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="owned_projects",
+        help_text="A projekt tulajdonosa. A létrehozó az alapértelmezett; "
+        "a tulajdon transferálható, de csak a workspace/projekt tulajdonosa "
+        "vagy auditált superuser-átvétel után.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -9,7 +9,7 @@ import markdown as md
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
@@ -21,7 +21,13 @@ from apps.accounts.services import ApiKeyService
 from apps.audit.models import AuditAction, AuditEvent, AuditSource
 from apps.audit.services import AuditService
 from apps.documents.frontmatter import parse_frontmatter
-from apps.documents.models import ChangeSource, Document, DocumentStatus, DocumentVersion
+from apps.documents.models import (
+    ChangeSource,
+    Document,
+    DocumentFolder,
+    DocumentStatus,
+    DocumentVersion,
+)
 from apps.documents.services import DocumentService
 from apps.git.services import GitService
 from apps.groups.models import Group, GroupMembership
@@ -31,6 +37,8 @@ from apps.permissions.services import PermissionService
 from apps.resources.models import Resource
 from apps.search.services import SearchService
 from apps.workspaces.models import Project, Workspace
+from apps.workspaces.ownership import OwnershipService
+from apps.workspaces.personal import PersonalWorkspaceService
 
 User = get_user_model()
 
@@ -39,6 +47,27 @@ MARKDOWN_EXTENSIONS = ["fenced_code", "tables", "toc", "sane_lists", "codehilite
 
 def _can(user, resource, permission: str) -> bool:
     return PermissionService.check(user, resource, permission)
+
+
+def _publish_titles(workspace) -> bool:
+    """Whether this workspace allows titles to be published to non-readers.
+
+    Stored on the workspace Resource so a whole area's policy is decided once,
+    instead of every document having to opt in individually (and one of them
+    being wrong either way).
+    """
+    return ((workspace.resource.metadata or {}).get("publish_titles")) is True
+
+
+def _can_publish_titles(user, workspace) -> bool:
+    """Only the owner decides who may learn that a document exists.
+
+    Not offered on a Personal workspace: it has exactly one holder, so there is
+    no one to publish a title to and the switch would be a no-op.
+    """
+    if workspace is None or workspace.is_personal:
+        return False
+    return PermissionService.is_scope_owner(user, workspace.resource)
 
 
 def _workspace_queryset_with_counts():
@@ -91,18 +120,28 @@ def dashboard(request):
     return render(
         request,
         "dashboard.html",
-        {"workspaces": workspaces, "recent_documents": recent_documents},
+        {
+            "workspaces": workspaces,
+            "recent_documents": recent_documents,
+            "personal_workspace": PersonalWorkspaceService.get_for(request.user),
+        },
     )
 
 
 def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") -> list[dict]:
     """Flatten the folder+document tree into rows the template can loop.
 
+    A folder is listed when the caller can read it **or** when it lies on the
+    path to something the caller can read: granting access to ``A/B/C`` has to
+    leave ``A`` and ``A/B`` visible, otherwise the grant is unusable. Those
+    intermediate nodes come back with ``can_read=False`` so the template can
+    hide their action buttons - the name is unavoidable (it is part of the
+    path), but the sibling folders and the documents next to them are not shown.
+
     Folders come from the stored DocumentFolder rows plus every parent path of
-    the documents (so git-imported trees show up too). Rows are
+    the readable documents (so git-imported trees show up too). Rows are
     ``{"type": "dir"|"doc", "name", "depth", ...}``.
     """
-    from apps.documents.models import Document, DocumentFolder
     from apps.tags.services import filter_documents_by_tag, tags_for
 
     documents = [
@@ -112,15 +151,37 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
     ]
     if tag_filter:
         documents = filter_documents_by_tag(documents, tag_filter)
-    folder_paths = set(
-        DocumentFolder.objects.filter(workspace=workspace, project=project).values_list(
-            "path", flat=True
+
+    folders = list(
+        DocumentFolder.objects.filter(workspace=workspace, project=project).select_related(
+            "resource"
         )
     )
+    folder_by_path = {folder.path: folder for folder in folders}
+    resource_ids = [folder.resource_id for folder in folders if folder.resource_id]
+    resource_ids += [document.resource_id for document in documents]
+    visible = set(
+        PermissionService.visible_resource_ids(user, resource_ids, Permission.READ)
+    )
+    readable = set(
+        PermissionService.allowed_resource_ids(user, resource_ids, Permission.READ)
+    )
+
+    folder_paths = set()
+    readable_paths = set()
+    for folder in folders:
+        if not folder.resource_id:
+            continue
+        if folder.resource_id in visible:
+            folder_paths.add(folder.path)
+            if folder.resource_id in readable:
+                readable_paths.add(folder.path)
     for document in documents:
         parts = (document.path or "").split("/")[:-1]
         for index in range(1, len(parts) + 1):
-            folder_paths.add("/".join(parts[:index]))
+            path = "/".join(parts[:index])
+            folder_paths.add(path)
+            readable_paths.add(path)
 
     # node[path] = {"children": {name: path}, "docs": [...]}
     root = {"children": {}, "docs": []}
@@ -153,6 +214,8 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
                     "name": name,
                     "depth": depth,
                     "path": path,
+                    "can_read": path in readable_paths,
+                    "folder": folder_by_path.get(path),
                     "tags": _folder_tags(workspace, project, path),
                 }
             )
@@ -211,6 +274,14 @@ def tree_folder_op(request):
     if not path:
         return JsonResponse({"ok": False, "error": "nincs mappa megadva"}, status=400)
 
+    # Renaming or deleting an existing folder needs write on *that* folder; the
+    # workspace-level check above only covers creating a new one.
+    existing = DocumentFolder.objects.filter(
+        workspace=workspace, project=project, path=path
+    ).select_related("resource").first()
+    if existing is not None and not _can(request.user, existing.resource, Permission.WRITE):
+        return JsonResponse({"ok": False, "error": "Nincs írási jogosultságod."}, status=403)
+
     try:
         folder = ensure_folder(workspace, project, path, created_by=request.user)
         if op == "rename":
@@ -254,13 +325,20 @@ def tree_move(request):
     try:
         if kind in {"document", "doc"}:
             document = get_object_or_404(Document, pk=payload.get("id"))
-            _require_write_or_403(request, document.resource)
+            denied = _require_write_or_403(request, document.resource)
+            if denied:
+                return denied
             filename = Path(document.path).name
             new_path = f"{target}/{filename}" if target else filename
             DocumentService.move(document, new_path, user=request.user, request=request)
         elif kind == "folder":
             folder = get_object_or_404(DocumentFolder, pk=payload.get("id"))
-            _require_write_or_403(request, folder.project.resource if folder.project else folder.workspace.resource)
+            # Folders carry their own Resource now, so the check is on the folder
+            # and not on the workspace it happens to live in: a write grant on
+            # the container is not a write grant on every folder inside it.
+            denied = _require_write_or_403(request, folder.resource)
+            if denied:
+                return denied
             move_folder(folder=folder, new_parent=target, user=request.user)
         else:
             return JsonResponse({"ok": False, "error": "ismeretlen típus"}, status=400)
@@ -270,8 +348,15 @@ def tree_move(request):
 
 
 def _require_write_or_403(request, resource):
+    """Return a 403 response when the caller may not write, else None.
+
+    This used to ``raise HttpResponseForbidden(...)``, which raises TypeError
+    (an exception must be a class) and turned a permission failure into a 500.
+    Callers must ``return`` the result.
+    """
     if not _can(request.user, resource, Permission.WRITE):
-        raise HttpResponseForbidden("Nincs írási jogosultságod ehhez a mappához.")
+        return HttpResponseForbidden("Nincs írási jogosultságod ehhez a mappához.")
+    return None
 
 
 @login_required
@@ -353,33 +438,63 @@ def search(request):
     )
 
 
-def _access_context(request, resource) -> dict:
-    """Context for the shared access (ACL) panel, or {} when not permitted.
-
-    The keys must stay unprefixed: `_access_panel.html` is included both here
-    and from the standalone permissions view, which supplies the same names.
-    """
-    can_admin = PermissionService.check(request.user, resource, Permission.ADMIN)
-    can_share = PermissionService.check(request.user, resource, Permission.WRITE)
-    if not (can_admin or can_share):
-        return {}
-    entries = resource.acl_entries.all()
-    entry_rows = []
-    for entry in entries:
-        label = entry.subject_id
+def _entry_rows(resource) -> list[dict]:
+    """ACL entries with a human label, ordered for display."""
+    rows = []
+    for entry in resource.acl_entries.all().select_related("created_by"):
         if entry.subject_type == SubjectType.GROUP:
             group = Group.objects.filter(pk=entry.subject_id).first()
             label = group.name if group else "(törölt csoport)"
         else:
             subject = User.objects.filter(pk=entry.subject_id).first()
             label = subject.username if subject else "(törölt user)"
-        entry_rows.append({"entry": entry, "label": label})
+        rows.append({"entry": entry, "label": label})
+    return rows
+
+
+def _access_context(request, resource) -> dict:
+    """Context for the shared access (ACL) panel, or {} when not permitted.
+
+    The keys must stay unprefixed: `_access_panel.html` is included both here
+    and from the standalone permissions view, which supplies the same names.
+    """
+    can_manage = PermissionService.can_manage_acl(request.user, resource)
+    # `can_share` means "may create an ACL entry at some level", which is why the
+    # owner has it too - they share through `can_manage`, not instead of it.
+    can_share = _can(request.user, resource, Permission.WRITE)
+    personal = PermissionService.is_personal(resource)
+    if not (can_manage or can_share):
+        return {}
+    if personal:
+        # A Personal workspace has exactly one holder and is not shareable, so
+        # the panel must not hint that either is possible. The engine refuses the
+        # write anyway; the UI just has to agree with it.
+        return {
+            "entry_rows": _entry_rows(resource),
+            "can_admin": False,
+            "can_share": False,
+            "is_owner": PermissionService.is_scope_owner(request.user, resource),
+            "is_personal": True,
+            "no_takeover": resource.takeover_locked(),
+            "can_take_over": False,
+            "access_url": reverse("web:resource_permissions", args=[resource.pk]),
+            "search": None,
+        }
+    workspace = PermissionService.workspace_of(resource)
     return {
-        "entry_rows": entry_rows,
-        "can_admin": can_admin,
+        "entry_rows": _entry_rows(resource),
+        "can_admin": can_manage,
         "can_share": can_share,
+        "is_owner": PermissionService.is_scope_owner(request.user, resource),
+        "is_personal": False,
+        "no_takeover": resource.takeover_locked(),
+        "can_take_over": PermissionService.can_take_over(request.user, resource),
+        "publish_titles": _publish_titles(workspace) if workspace else False,
+        "can_publish_titles": (
+            _can_publish_titles(request.user, workspace) if workspace else False
+        ),
         "access_url": reverse("web:resource_permissions", args=[resource.pk]),
-        "search": _subject_matches(request.GET.get("q", "")),
+        "search": _subject_matches(request.user, resource, request.GET.get("q", "")),
     }
 
 
@@ -408,12 +523,13 @@ def workspace_detail(request, workspace_slug):
         "projects": projects,
         "documents": documents,
         "can_write": can_write,
-        "can_admin": _can(request.user, workspace.resource, Permission.ADMIN),
+        "is_personal": workspace.is_personal,
+        "owner": workspace.owner,
+        **_access_context(request, workspace.resource),
         "tree_rows": _folder_tree_rows(workspace, None, request.user, tag_filter),
         "tag_filter": tag_filter,
         "available_tags": _available_tags(workspace, None),
         **_git_panel(workspace),
-        **_access_context(request, workspace.resource),
     }
     return render(request, "workspace_detail.html", context)
 
@@ -437,11 +553,12 @@ def project_detail(request, workspace_slug, project_slug):
         "project": project,
         "documents": documents,
         "can_write": can_write,
+        "owner": project.owner or workspace.owner,
+        **_access_context(request, project.resource),
         "tree_rows": _folder_tree_rows(workspace, project, request.user, tag_filter),
         "tag_filter": tag_filter,
         "available_tags": _available_tags(workspace, project),
         **_git_panel(workspace, project),
-        **_access_context(request, project.resource),
     }
     return render(request, "project_detail.html", context)
 
@@ -478,6 +595,9 @@ def document_detail(request, pk):
             "tags": effective_tags(document),
             "can_write": _can(request.user, document.resource, Permission.WRITE),
             "can_admin": _can(request.user, document.resource, Permission.ADMIN),
+            "summary_published": (document.resource.metadata or {}).get("public_summary")
+            is True,
+            "publish_titles": _publish_titles(document.workspace),
         },
     )
 
@@ -571,6 +691,10 @@ def document_create(request, workspace_slug, project_slug=None):
             source=ChangeSource.WEB,
             request=request,
         )
+        if request.POST.get("publish_summary") == "on" and _publish_titles(workspace):
+            DocumentService.set_published_summary(
+                document, True, user=request.user, request=request
+            )
         messages.success(request, f"Document '{document.title}' created.")
         return redirect("web:document_detail", pk=document.pk)
 
@@ -599,6 +723,8 @@ def document_create(request, workspace_slug, project_slug=None):
             "content": prefill,
             "statuses": DocumentStatus.choices,
             "folders": _folder_tree_rows(workspace, project, request.user),
+            "publish_summary": False,
+            "publish_titles": _publish_titles(workspace),
             "prefill_path": (request.GET.get("folder", "") + "/")
             if request.GET.get("folder")
             else "",
@@ -635,6 +761,18 @@ def document_edit(request, pk):
             source=ChangeSource.WEB,
             request=request,
         )
+        if _publish_titles(document.workspace):
+            # Only when the workspace actually allows publication. The checkbox
+            # is rendered disabled otherwise, and a disabled checkbox is never
+            # submitted - so writing `False` here would silently clear the stored
+            # flag every time somebody saved a document in a workspace with
+            # publication switched off.
+            DocumentService.set_published_summary(
+                document,
+                request.POST.get("publish_summary") == "on",
+                user=request.user,
+                request=request,
+            )
         messages.success(request, "Document saved as a new version.")
         return redirect("web:document_detail", pk=document.pk)
 
@@ -648,6 +786,8 @@ def document_edit(request, pk):
             "content": DocumentService.read_content(document),
             "statuses": DocumentStatus.choices,
             "folders": _folder_tree_rows(document.workspace, document.project, request.user),
+            "publish_summary": (document.resource.metadata or {}).get("public_summary") is True,
+            "publish_titles": _publish_titles(document.workspace),
             "prefill_path": "",
         },
     )
@@ -1211,16 +1351,20 @@ def _user_label(user) -> str:
     return user.username
 
 
-def _subject_matches(query: str, limit: int = 500) -> dict:
-    """Directory of users + groups for the access panel's "add member" select.
+def _subject_matches(user, resource, query: str = "", limit: int = 500) -> dict:
+    """Directory of shareable users + groups for the access panel's picker.
 
-    An empty `query` returns *every* user and group so the dropdown is always
-    populated; a non-empty one narrows the list. Capped at `limit` so a huge
-    directory cannot render an unusable page.
+    The pool comes from :meth:`PermissionService.grantable_subjects`, never from
+    ``User.objects.all()``: the workspace/project owner sees the whole
+    directory (they define the audience), anybody else sees only the audience
+    that already exists inside the workspace plus their own work group. A
+    delegated admin therefore cannot enumerate the company, and cannot widen the
+    circle beyond what the owner granted them.
     """
     query = (query or "").strip()
-    users = User.objects.all()
-    groups = Group.objects.all()
+    user_ids, group_ids = PermissionService.grantable_subjects(user, resource)
+    users = User.objects.filter(pk__in=user_ids) if user_ids else User.objects.none()
+    groups = Group.objects.filter(pk__in=group_ids) if group_ids else Group.objects.none()
     if query:
         users = users.filter(
             Q(username__icontains=query)
@@ -1230,25 +1374,28 @@ def _subject_matches(query: str, limit: int = 500) -> dict:
         groups = groups.filter(name__icontains=query)
     return {
         "users": [
-            {"id": str(user.pk), "label": _user_label(user)}
-            for user in users.order_by("display_name", "username")[:limit]
+            {"id": str(row.pk), "label": _user_label(row)}
+            for row in users.order_by("display_name", "username")[:limit]
         ],
         "groups": [
-            {"id": str(group.pk), "label": f"{group.name} (csoport)"}
-            for group in groups.order_by("name")[:limit]
+            {"id": str(row.pk), "label": f"{row.name} (csoport)"}
+            for row in groups.order_by("name")[:limit]
         ],
         "query": query,
         "truncated": users.count() > limit or groups.count() > limit,
     }
 
 
+
+
 @login_required
 def resource_permissions(request, resource_id):
     resource = get_object_or_404(Resource, pk=resource_id)
-    can_admin = PermissionService.check(request.user, resource, Permission.ADMIN)
-    can_share = PermissionService.check(request.user, resource, Permission.WRITE)
-    if not (can_admin or can_share):
+    can_manage = PermissionService.can_manage_acl(request.user, resource)
+    can_share = _can(request.user, resource, Permission.WRITE)
+    if not (can_manage or can_share):
         return HttpResponseForbidden("Write access required on this resource.")
+    is_personal = PermissionService.is_personal(resource)
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -1263,84 +1410,218 @@ def resource_permissions(request, resource_id):
             subject_id = _resolve_subject(subject_type, subject_value)
             if subject_id is None:
                 messages.error(request, "Subject not found.")
-            elif not PermissionService.can_grant(request.user, resource, permission, effect):
-                messages.error(request, "You cannot grant that permission here.")
             else:
-                PermissionService.grant(
-                    resource,
-                    subject_type=subject_type,
-                    subject_id=subject_id,
-                    permission=permission,
-                    effect=effect,
-                    inherit=request.POST.get("inherit") == "on",
-                    created_by=request.user,
+                # grant() re-validates the permission level *and* the subject
+                # against the sharing pool, so this view cannot become a way
+                # around either rule - and neither can the REST or MCP surface,
+                # which funnel through the same call.
+                try:
+                    PermissionService.grant(
+                        resource,
+                        subject_type=subject_type,
+                        subject_id=subject_id,
+                        permission=permission,
+                        effect=effect,
+                        inherit=request.POST.get("inherit") == "on",
+                        created_by=request.user,
+                    )
+                except PermissionDenied as exc:
+                    messages.error(request, str(exc) or "Nincs jogosultságod ehhez.")
+                else:
+                    AuditService.log(
+                        AuditAction.CHANGE_PERMISSION,
+                        user=request.user,
+                        resource=resource,
+                        source=AuditSource.WEB,
+                        request=request,
+                        detail={
+                            "action": "grant",
+                            "subject_type": subject_type,
+                            "permission": permission,
+                            "effect": effect,
+                        },
+                    )
+                    messages.success(request, "Access granted.")
+        elif action == "revoke":
+            raw = request.POST.get("subject_id", "")
+            if ":" in raw:
+                subject_type, subject_value = raw.split(":", 1)
+            else:
+                subject_type, subject_value = SubjectType.USER, raw
+            subject_id = _resolve_subject(subject_type, subject_value)
+            if subject_id is None:
+                messages.error(request, "Subject not found.")
+            else:
+                try:
+                    PermissionService.revoke(
+                        resource,
+                        subject_type=subject_type,
+                        subject_id=subject_id,
+                        permission=request.POST.get("permission") or None,
+                        actor=request.user,
+                    )
+                except PermissionDenied:
+                    messages.error(request, "Ezt a hozzáférést nem szüntetheted meg.")
+                else:
+                    messages.success(request, "Access revoked.")
+        elif action == "create_group":
+            # Creating a group *and* handing it read in one step widens the
+            # audience of the whole workspace, so it is an owner move.
+            if not PermissionService.is_scope_owner(request.user, resource):
+                messages.error(request, "Csoportot csak a tulajdonos hozhat létre itt.")
+            else:
+                name = request.POST.get("group_name", "").strip()
+                if not name:
+                    messages.error(request, "Group name is required.")
+                elif Group.objects.filter(name=name).exists():
+                    messages.error(request, "Ilyen nevű csoport már létezik.")
+                else:
+                    group = Group.objects.create(name=name, created_by=request.user)
+                    try:
+                        PermissionService.grant(
+                            resource,
+                            subject_type=SubjectType.GROUP,
+                            subject_id=group.id,
+                            permission=Permission.READ,
+                            created_by=request.user,
+                        )
+                    except PermissionDenied:
+                        group.delete()
+                        messages.error(request, "A csoporthoz nem adhattál jogot.")
+                    else:
+                        messages.success(request, f"Group '{group.name}' created and granted read.")
+        elif action == "takeover":
+            try:
+                OwnershipService.take_over(resource=resource, actor=request.user, request=request)
+            except PermissionDenied:
+                messages.error(request, "Erre a resource-ra nincs átvételi jogosultságod.")
+            else:
+                messages.success(request, "Jogosultság átvételve és naplózva.")
+        elif action == "transfer":
+            new_owner = User.objects.filter(pk=request.POST.get("new_owner")).first()
+            if new_owner is None:
+                messages.error(request, "Válassz új tulajdonost.")
+            else:
+                try:
+                    OwnershipService.transfer(
+                        resource=resource,
+                        new_owner=new_owner,
+                        actor=request.user,
+                        keep_old_access=request.POST.get("keep_access") or None,
+                        request=request,
+                    )
+                except (PermissionDenied, ValidationError) as exc:
+                    messages.error(request, str(exc) or "A tulajdon átruházása nem sikerült.")
+                else:
+                    messages.success(request, f"Tulajdonos: {new_owner.username}")
+        elif action == "set_kind":
+            try:
+                OwnershipService.set_kind(
+                    workspace=resource.workspace,
+                    kind=request.POST.get("kind", "shared"),
+                    actor=request.user,
+                    request=request,
                 )
+            except (PermissionDenied, ValidationError) as exc:
+                messages.error(request, str(exc) or "Nem sikerült átalakítani.")
+            else:
+                messages.success(request, "A workspace típusa frissült.")
+        elif action == "toggle_publish_titles":
+            workspace = resource.workspace
+            if workspace is None or not _can_publish_titles(request.user, workspace):
+                messages.error(request, "Ezt csak a workspace tulajdonosa állíthatja.")
+            else:
+                metadata = dict(workspace.resource.metadata or {})
+                metadata["publish_titles"] = request.POST.get("publish_titles") == "on"
+                workspace.resource.metadata = metadata
+                workspace.resource.save(update_fields=["metadata", "updated_at"])
                 AuditService.log(
                     AuditAction.CHANGE_PERMISSION,
                     user=request.user,
-                    resource=resource,
+                    resource=workspace.resource,
+                    workspace=workspace,
                     source=AuditSource.WEB,
                     request=request,
-                    detail={"action": "grant", "subject_type": subject_type, "permission": permission, "effect": effect},
+                    detail={
+                        "type": "publish_titles",
+                        "enabled": metadata["publish_titles"],
+                    },
                 )
-                messages.success(request, "Access granted.")
-        elif action == "revoke":
-            if not can_admin:
-                messages.error(request, "Only an admin can revoke access.")
+                messages.success(request, "A címek közzététele frissült.")
+        elif action == "toggle_no_takeover":
+            if not PermissionService.is_scope_owner(request.user, resource):
+                messages.error(request, "Ezt csak a tulajdonos állíthatja.")
             else:
-                raw = request.POST.get("subject_id", "")
-                _, subject_id = raw.split(":", 1) if ":" in raw else (None, raw)
-                PermissionService.revoke(
-                    resource,
-                    subject_type=request.POST.get("subject_type", SubjectType.USER),
-                    subject_id=subject_id,
-                    permission=request.POST.get("permission") or None,
-                )
-                messages.success(request, "Access revoked.")
-        elif action == "create_group":
-            if not can_admin:
-                messages.error(request, "Only an admin can create groups here.")
-            else:
-                name = request.POST.get("group_name", "").strip()
-                if name:
-                    group, _ = Group.objects.get_or_create(name=name, defaults={"created_by": request.user})
-                    PermissionService.grant(
-                        resource,
-                        subject_type=SubjectType.GROUP,
-                        subject_id=group.id,
-                        permission=Permission.READ,
-                        created_by=request.user,
-                    )
-                    messages.success(request, f"Group '{group.name}' created and granted read.")
-                else:
-                    messages.error(request, "Group name is required.")
-        return redirect(f"{request.POST.get('next') or request.get_full_path()}")
+                resource.no_takeover = request.POST.get("no_takeover") == "on"
+                resource.save(update_fields=["no_takeover", "updated_at"])
+                messages.success(request, "Átvétel tiltása frissítve.")
+        return redirect(request.POST.get("next") or request.get_full_path())
 
-    # Decorate entries with a readable label + honour the grant ceiling.
-    entries = resource.acl_entries.all().select_related("created_by")
-    entry_rows = []
-    for entry in entries:
-        label = entry.subject_id
-        if entry.subject_type == SubjectType.GROUP:
-            group = Group.objects.filter(pk=entry.subject_id).first()
-            label = group.name if group else "(törölt csoport)"
-        else:
-            subject = User.objects.filter(pk=entry.subject_id).first()
-            label = subject.username if subject else "(törölt user)"
-        entry_rows.append({"entry": entry, "label": label})
-
+    owner_rows = []
+    scoped_workspace = resource.workspace
+    if PermissionService.is_scope_owner(request.user, resource) and not is_personal:
+        current_owner = scoped_workspace.owner_id if scoped_workspace else None
+        owner_rows = [
+            {"id": str(candidate.pk), "label": _user_label(candidate)}
+            for candidate in User.objects.filter(is_active=True)
+            .exclude(pk=current_owner)
+            .order_by("display_name", "username")[:200]
+        ]
     return render(
         request,
         "permissions.html",
         {
             "resource": resource,
-            "entry_rows": entry_rows,
+            "entry_rows": _entry_rows(resource),
             "permissions": Permission.choices,
             "effects": Effect.choices,
             "subject_types": SubjectType.choices,
-            "can_admin": can_admin,
+            "can_admin": can_manage,
             "can_share": can_share,
-            "search": _subject_matches(request.GET.get("q", "")),            "access_url": reverse("web:resource_permissions", args=[resource.pk]),
+            "is_owner": PermissionService.is_scope_owner(request.user, resource),
+            "is_personal": is_personal,
+            "no_takeover": resource.takeover_locked(),
+            "can_take_over": PermissionService.can_take_over(request.user, resource),
+            "owner_rows": owner_rows,
+            "max_grantable": PermissionService.max_grantable(request.user, resource),
+            "publish_titles": (
+                _publish_titles(scoped_workspace) if scoped_workspace else False
+            ),
+            "can_publish_titles": (
+                _can_publish_titles(request.user, scoped_workspace)
+                if scoped_workspace
+                else False
+            ),
+            "search": _subject_matches(request.user, resource, request.GET.get("q", "")),
+            "access_url": reverse("web:resource_permissions", args=[resource.pk]),
             "standalone": True,
         },
     )
+
+
+@login_required
+@require_http_methods(["POST"])
+def resource_takeover(request, resource_id):
+    """Audit-only escape hatch for a superuser who needs into a locked resource.
+
+    It writes a normal ADMIN ACL entry and nothing else: the owner does not
+    change, so this can never become a way to lock the owner out, and
+    ``Resource.no_takeover`` can forbid it outright.
+    """
+    resource = get_object_or_404(Resource, pk=resource_id)
+    try:
+        OwnershipService.take_over(resource=resource, actor=request.user, request=request)
+    except PermissionDenied as exc:
+        messages.error(request, str(exc) or "Nincs átvételi jogosultságod.")
+    else:
+        messages.success(request, "Jogosultság átvételve és naplózva.")
+    return redirect(request.POST.get("next") or reverse("web:dashboard"))
+
+
+@login_required
+def personal_workspace(request):
+    """Open (or lazily create) the caller's Personal workspace."""
+    workspace = PersonalWorkspaceService.get_for(request.user)
+    if workspace is None:
+        workspace = PersonalWorkspaceService.get_or_create(request.user)
+    return redirect(reverse("web:workspace_detail", args=[workspace.slug]))

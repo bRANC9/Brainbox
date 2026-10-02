@@ -3,6 +3,13 @@
 Shared access (ACL) panel. Works inline on a workspace/project page and on the
 standalone /resources/<id>/permissions/ page. 'access_url' is where grant/revoke
 forms post; 'standalone' shows the heading.
+
+Context (both include sites): entry_rows, can_admin, can_share, is_owner,
+is_personal, no_takeover, can_take_over, access_url, search, publish_titles,
+can_publish_titles. The standalone page adds permissions/effects/subject_types,
+owner_rows, max_grantable and standalone.
+Keys that are absent here (max_grantable, owner_rows) resolve to empty in the
+inline case, which is what the guards below expect.
 {% endcomment %}
 <div class="git-panel" id="access-panel">
   <h2>Tagok és hozzáférés</h2>
@@ -39,72 +46,179 @@ forms post; 'standalone' shows the heading.
   </table>
   </div>
 
-  {% if can_share %}
-    <h3>Új tag vagy csoport</h3>
-    <form method="get" class="form row">
-      <label style="flex:3">Szűrés (felhasználó vagy csoport)
-        <input type="text" name="q" value="{{ search.query|default:'' }}" placeholder="szűrés üresen hagyva: minden felhasználó látszik">
-      </label>
-      <button class="button" type="submit">Szűrés</button>
-    </form>
+  {% if is_personal %}
+    <p class="banner">Személyes workspace &ndash; csak te láthatod, megosztani nem lehet.</p>
+  {% elif can_share %}
+    {% comment %}
+    A denied subject cannot be reached by adding an allow below it (a deny on the
+    chain always wins), so its picker option is disabled. `stringformat:"s"` is
+    what makes a UUIDField and the picker's string pk comparable.
+    {% endcomment %}
+    {% comment %}
+    `max_grantable` only exists on the standalone page. An undefined variable
+    compares equal to None, so the "cannot grant anything" guard is tied to
+    `standalone`; inline it falls through to the normal form, and the
+    `== "read"` narrowing below simply does not trigger.
+    {% endcomment %}
+    {% if standalone and max_grantable == None %}
+      <p class="muted">Ezen a resource-on nem adhatsz hozzáférést.</p>
+    {% else %}
+      <h3>Új tag vagy csoport</h3>
+      <form method="get" class="form row">
+        <label style="flex:3">Szűrés (felhasználó vagy csoport)
+          <input type="text" name="q" value="{{ search.query|default:'' }}" placeholder="szűrés üresen hagyva: minden felhasználó látszik">
+        </label>
+        <button class="button" type="submit">Szűrés</button>
+      </form>
 
-    <form method="post" action="{{ access_url }}" class="form">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="grant">
-      <input type="hidden" name="next" value="{{ request.get_full_path }}">
-      <label>Tag kiválasztása
-        <select name="subject_id" required>
-          <option value="">-- válassz felhasználót vagy csoportot --</option>
-          <optgroup label="Felhasználók ({{ search.users|length }})">
-            {% for u in search.users %}<option value="user:{{ u.id }}">{{ u.label }}</option>{% endfor %}
-          </optgroup>
-          <optgroup label="Csoportok ({{ search.groups|length }})">
-            {% for g in search.groups %}<option value="group:{{ g.id }}">{{ g.label }}</option>{% endfor %}
-          </optgroup>
-        </select>
-      </label>
-      <p class="meta">
-        {% if search.query %}
-          "{{ search.query }}"-ra szűkítve.
-        {% else %}
-          Az összes felhasználó és csoport látszik; a fenti mezővel szűkíthetsz.
+      <form method="post" action="{{ access_url }}" class="form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="grant">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <label>Tag kiválasztása
+          <select name="subject_id" required>
+            <option value="">-- válassz felhasználót vagy csoportot --</option>
+            <optgroup label="Felhasználók ({{ search.users|length }})">
+              {% for u in search.users %}
+                <option value="user:{{ u.id }}"{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "user" and row.entry.subject_id|stringformat:"s" == u.id %} disabled{% endif %}{% endfor %}>{{ u.label }}{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "user" and row.entry.subject_id|stringformat:"s" == u.id %} &ndash; tiltva{% endif %}{% endfor %}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="Csoportok ({{ search.groups|length }})">
+              {% for g in search.groups %}
+                <option value="group:{{ g.id }}"{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "group" and row.entry.subject_id|stringformat:"s" == g.id %} disabled{% endif %}{% endfor %}>{{ g.label }}{% for row in entry_rows %}{% if row.entry.effect == "deny" and row.entry.subject_type == "group" and row.entry.subject_id|stringformat:"s" == g.id %} &ndash; tiltva{% endif %}{% endfor %}</option>
+              {% endfor %}
+            </optgroup>
+          </select>
+        </label>
+        <p class="meta">
+          {% if search.query %}
+            "{{ search.query }}"-ra szűkítve.
+          {% else %}
+            Az összes felhasználó és csoport látszik; a fenti mezővel szűkíthetsz.
+          {% endif %}
+          {% if search.truncated %}Túl sok találat, a lista levágva.{% endif %}
+        </p>
+        <div class="row">
+          <label>Jogosultság
+            <select name="permission">
+              {% if max_grantable == "read" %}
+                <option value="read">Olvasás</option>
+              {% else %}
+                <option value="read">Olvasás</option>
+                {% if can_admin %}
+                  <option value="write">Írás</option>
+                  <option value="delete">Törlés</option>
+                  <option value="admin">Admin</option>
+                {% endif %}
+              {% endif %}
+            </select>
+          </label>
+          <label>Hatás
+            <select name="effect">
+              <option value="allow">Engedélyez</option>
+              {% if can_admin %}<option value="deny">Tiltás</option>{% endif %}
+            </select>
+          </label>
+          <label class="inline-check">Öröklődik <input type="checkbox" name="inherit" checked></label>
+        </div>
+        {% if max_grantable == "read" %}
+          <p class="meta">Nálad csak olvasási jog van, ezért itt másnak sem tudsz többet adni, mint olvasást.</p>
         {% endif %}
-        {% if search.truncated %}Túl sok találat, a lista levágva.{% endif %}
-      </p>
-      <div class="row">
-        <label>Jogosultság
-          <select name="permission">
-            <option value="read">Olvasás</option>
-            {% if can_admin %}
-              <option value="write">Írás</option>
-              <option value="delete">Törlés</option>
-              <option value="admin">Admin</option>
-            {% endif %}
-          </select>
-        </label>
-        <label>Hatás
-          <select name="effect">
-            <option value="allow">Engedélyez</option>
-            {% if can_admin %}<option value="deny">Tiltás</option>{% endif %}
-          </select>
-        </label>
-        <label class="inline-check">Öröklődik <input type="checkbox" name="inherit" checked></label>
-      </div>
-      <button type="submit" class="button primary">Hozzáadás</button>
-    </form>
+        <button type="submit" class="button primary">Hozzáadás</button>
+      </form>
 
-    {% if can_admin %}
-      <details>
-        <summary>Új csoport létrehozása (read joggal)</summary>
-        <form method="post" action="{{ access_url }}" class="form">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="create_group">
-          <input type="hidden" name="next" value="{{ request.get_full_path }}">
-          <label>Csoport neve <input type="text" name="group_name" required></label>
-          <button type="submit" class="button">Létrehozás és hozzáadás</button>
-        </form>
-      </details>
+      {% if can_admin and is_owner %}
+        <details>
+          <summary>Új csoport létrehozása (read joggal)</summary>
+          <form method="post" action="{{ access_url }}" class="form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="create_group">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <label>Csoport neve <input type="text" name="group_name" required></label>
+            <button type="submit" class="button">Létrehozás és hozzáadás</button>
+          </form>
+        </details>
+      {% endif %}
     {% endif %}
   {% else %}
     <p class="muted">Ehhez a resource-hez nincs írási jogod, így nem oszthatod meg.</p>
+  {% endif %}
+
+  {% if is_owner %}
+    <h3>Tulajdon</h3>
+    {% if not is_personal and owner_rows %}
+      <form method="post" action="{{ access_url }}" class="form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="transfer">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <label>Átruházás: új tulajdonos
+          <select name="new_owner" required>
+            <option value="">-- válassz felhasználót --</option>
+            {% for row in owner_rows %}<option value="{{ row.id }}">{{ row.label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Az előző tulajdonos
+          <select name="keep_access">
+            <option value="">elveszti a hozzáférését</option>
+            <option value="read">megtartja olvasásra</option>
+            <option value="write">megtartja írásra</option>
+          </select>
+        </label>
+        <p class="meta">Az átruházás nem megosztás: az új tulajdonos admin lesz, a te admin jogod viszont megszűnik, hacsak nem tartasz rajta gyengébb jogot.</p>
+        <button type="submit" class="button">Átruházás</button>
+      </form>
+    {% endif %}
+
+    {% if not is_personal and resource.workspace %}
+      <form method="post" action="{{ access_url }}" class="form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="set_kind">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <label>Workspace típusa
+          <select name="kind">
+            <option value="shared"{% if resource.workspace.kind == "shared" %} selected{% endif %}>Megosztott workspace</option>
+            <option value="personal"{% if resource.workspace.kind == "personal" %} selected{% endif %}>Személyes workspace</option>
+          </select>
+        </label>
+        <p class="meta">Személyessé csak akkor alakíthatod, ha rajta kívül már senki nincs.</p>
+        <button type="submit" class="button">Típus mentése</button>
+      </form>
+    {% endif %}
+
+    <form method="post" action="{{ access_url }}" class="form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="toggle_no_takeover">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <div class="row">
+        <label class="inline-check">
+          <input type="checkbox" name="no_takeover"{% if no_takeover %} checked{% endif %}>
+          Tilos a jogosultság-átvétel ezen a workspace-en (a rendszeradmin sem juthat be)
+        </label>
+      </div>
+      <button type="submit" class="button">Mentés</button>
+    </form>
+  {% endif %}
+
+  {% comment %}
+  Workspace-level, so it lives outside the is_owner block: a non-owner still
+  gets the state, just not the switch. Only the owner may decide who can learn
+  that a document exists.
+  {% endcomment %}
+  {% if can_publish_titles %}
+    <h3>Címek közzététele</h3>
+    <form method="post" action="{{ access_url }}" class="form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="toggle_publish_titles">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <div class="row">
+        <label class="inline-check">
+          <input type="checkbox" name="publish_titles"{% if publish_titles %} checked{% endif %}>
+          A címek közzététele engedélyezve ezen a workspace-en
+        </label>
+      </div>
+      <p class="meta">Ha ez be van kapcsolva, egy dokumentum közzétételheti a saját címét és összefoglalóját. A cím és az összefoglaló így annak is láthatóvá válik, akinek nincs olvasási joga a dokumentumra, és minden ilyen olvasás az audit naplóba kerül.</p>
+      <button type="submit" class="button">Mentés</button>
+    </form>
+  {% elif publish_titles %}
+    <p class="meta">A címek közzététele engedélyezve ezen a workspace-en (csak a tulajdonos állíthatja).</p>
   {% endif %}</div>

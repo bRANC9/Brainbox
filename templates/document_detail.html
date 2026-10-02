@@ -17,6 +17,9 @@
       &middot; v{{ document.current_version }}
       &middot; {{ document.path }}
       &middot; updated {{ document.updated_at|date:"Y-m-d H:i" }}
+      {% if summary_published and publish_titles %}
+        &middot; <span class="badge">Közzétéve: a cím és az összefoglaló olvasható olvasási jog nélkül is</span>
+      {% endif %}
     </p>
     <div class="actions">
       <a class="button" href="{% url 'web:document_history' document.pk %}">Előzmények</a>
@@ -39,6 +42,10 @@
       {% endif %}
     </div>
     {% if document.summary %}<p class="summary">{{ document.summary }}</p>{% endif %}
+    {% if summary_published and not publish_titles %}
+      {% comment %}The flag is set but the workspace does not allow it, so nothing is actually visible. Saying so beats a badge that would imply it is live.{% endcomment %}
+      <p class="banner warn">A közzététel be van kapcsolva a dokumentumon, de a workspace tulajdonosa még nem engedélyezte a címek közzétételét ezen a workspace-en. Emiatt most senki nem látja olvasási jog nélkül.</p>
+    {% endif %}
   </header>
 
   {% if can_write %}

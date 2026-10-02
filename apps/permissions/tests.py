@@ -32,6 +32,7 @@ class PermissionEngineTests(TestCase):
             subject_type=SubjectType.GROUP,
             subject_id=group.id,
             permission=Permission.READ,
+            created_by=self.alice,
         )
         project = ProjectService.create(workspace=self.workspace, name="Azure", created_by=self.alice)
         document = DocumentService.create(
@@ -49,6 +50,7 @@ class PermissionEngineTests(TestCase):
             subject_type=SubjectType.GROUP,
             subject_id=group.id,
             permission=Permission.READ,
+            created_by=self.alice,
         )
         project = ProjectService.create(workspace=self.workspace, name="Azure", created_by=self.alice)
         document = DocumentService.create(
@@ -60,6 +62,7 @@ class PermissionEngineTests(TestCase):
             subject_id=group.id,
             permission=Permission.READ,
             effect=Effect.DENY,
+            created_by=self.alice,
         )
 
         self.assertFalse(PermissionService.check(self.bob, document.resource, Permission.READ))
@@ -75,6 +78,7 @@ class PermissionEngineTests(TestCase):
             subject_id=group.id,
             permission=Permission.READ,
             inherit=False,
+            created_by=self.alice,
         )
         project = ProjectService.create(workspace=self.workspace, name="Azure", created_by=self.alice)
 
