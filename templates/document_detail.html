@@ -5,7 +5,7 @@
 <article class="document">
   <header class="document-head">
     <p class="crumbs">
-      <a href="{% url 'web:dashboard' %}">Dashboard</a> /
+      <a href="{% url 'web:dashboard' %}">Vezérlőpult</a> /
       <a href="{% url 'web:workspace_detail' document.workspace.slug %}">{{ document.workspace.name }}</a>
       {% if document.project %} /
         <a href="{% url 'web:project_detail' document.workspace.slug document.project.slug %}">{{ document.project.name }}</a>

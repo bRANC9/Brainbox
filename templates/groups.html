@@ -25,7 +25,7 @@
           </form>
         </li>
       {% empty %}
-        <li class="muted">No members.</li>
+        <li class="muted">Nincs tag.</li>
       {% endfor %}
     </ul>
     {% if group.candidates %}
@@ -55,6 +55,6 @@
     {% endif %}
   </section>
 {% empty %}
-  <p class="muted">No groups yet.</p>
+  <p class="muted">Még nincs csoport.</p>
 {% endfor %}
 {% endblock %}

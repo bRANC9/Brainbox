@@ -3,7 +3,7 @@
 {% block content %}
 <section class="page-head">
   <div>
-    <p class="crumbs"><a href="{% url 'web:dashboard' %}">Dashboard</a> / {{ workspace.name }}</p>
+    <p class="crumbs"><a href="{% url 'web:dashboard' %}">Vezérlőpult</a> / {{ workspace.name }}</p>
     <h1>{{ workspace.name }}</h1>
     {% if workspace.description %}<p class="muted">{{ workspace.description }}</p>{% else %}<p class="meta">Nincs leírás.</p>{% endif %}
     <p class="meta">Tulajdonos: {% if owner %}{{ owner.display_name|default:owner.username }}{% if owner.display_name and owner.display_name != owner.username %} ({{ owner.username }}){% endif %}{% else %}nincs (örökség){% endif %}</p>
