@@ -19,7 +19,7 @@ from django.core.exceptions import PermissionDenied
 from django.test import TestCase, override_settings
 
 from apps.accounts.models import User
-from apps.documents.folders import create_folder, move_folder
+from apps.documents.folders import create_folder, delete_folder, move_folder
 from apps.documents.services import DocumentService
 from apps.groups.models import Group, GroupMembership
 from apps.permissions.constants import Effect, Permission, SubjectType
@@ -713,32 +713,66 @@ class FolderAclTests(TestCase):
             workspace=self.workspace, project=self.project, path="target", created_by=self.alice
         )
         moved = self._folder("a/b")
-        move_folder(folder=moved, new_parent="target", user=self.alice)
+        move_folder(folder=moved, new_parent=target, user=self.alice)
         moved.refresh_from_db()
-        # A move nests the whole subpath, so the new enclosing folder is
-        # "target/a" - created on the way, because the Resource chain has to
-        # follow the path or the folder would keep its old parent's access.
-        self.assertEqual(moved.path, "target/a/b")
-        self.assertEqual(moved.resource.parent_id, self._folder("target/a").resource_id)
+        # A folder is a node now, so moving it moves the node: "a/b" under
+        # "target" becomes "target/b", not "target/a/b". The old behaviour nested
+        # the whole subpath, which is what made a rename rewrite every
+        # descendant. Its own parent folder is untouched.
+        self.assertEqual(moved.path, "target/b")
+        self.assertEqual(moved.resource.parent_id, target.resource_id)
+        self.assertEqual(moved.name, "b")
+        # The parent keeps its identity, and its own container is unchanged.
+        self.assertEqual(self._folder("a").path, "a")
         self.assertEqual(
-            self._folder("target/a").resource.parent_id, target.resource_id
+            self._folder("a").resource.parent_id, self.project.resource_id
         )
 
-    def test_a_deleted_folder_takes_its_resource_and_subfolders(self):
+    def test_deleting_a_folder_refuses_to_swallow_a_subtree_implicitly(self):
+        """A Resource delete cascades, so the default has to refuse."""
+        from django.core.exceptions import ValidationError
+
         from apps.documents.models import DocumentFolder
+        from apps.resources.models import Resource
 
         parent = self._folder("a/b")
-        self._folder("a/b/c")
-        Resource_before = self.folder.resource_id
-        from apps.documents.folders import delete_folder
+        child_id = self._folder("a/b/c").resource_id
 
-        delete_folder(folder=parent)
+        with self.assertRaises(ValidationError):
+            delete_folder(folder=parent)
+        self.assertTrue(DocumentFolder.objects.filter(path="a/b/c").exists())
+
+        delete_folder(folder=parent, recursive=True)
         self.assertFalse(DocumentFolder.objects.filter(path="a/b").exists())
-        self.assertFalse(
-            DocumentFolder.objects.filter(path="a/b/c").exists(),
-            "the subfolder goes with the resource cascade",
+        self.assertFalse(DocumentFolder.objects.filter(path="a/b/c").exists())
+        self.assertFalse(Resource.objects.filter(pk=child_id).exists())
+
+    def test_the_chain_survives_a_recursive_delete_of_a_sibling_subtree(self):
+        """A cascade must be scoped to the deleted node, not the whole scope."""
+        from apps.documents.models import DocumentFolder
+        from apps.resources.models import Resource
+
+        # self.folder is the "a/b/c" node inside the subtree being deleted, so
+        # the survivor has to be a sibling: same project, different branch.
+        survivor = create_folder(
+            workspace=self.workspace,
+            project=self.project,
+            path="runbooks",
+            created_by=self.alice,
         )
-        self.assertFalse(DocumentFolder.objects.filter(resource_id=Resource_before).exists())
+        deep = create_folder(
+            workspace=self.workspace,
+            project=self.project,
+            path="runbooks/2024",
+            created_by=self.alice,
+        )
+        delete_folder(folder=self._folder("a/b"), recursive=True)
+
+        self.assertFalse(DocumentFolder.objects.filter(path="a/b").exists())
+        self.assertFalse(DocumentFolder.objects.filter(path="a/b/c").exists())
+        self.assertTrue(DocumentFolder.objects.filter(pk=deep.pk).exists())
+        self.assertTrue(Resource.objects.filter(pk=deep.resource_id).exists())
+        self.assertEqual(deep.container_id, survivor.resource_id)
 
 
 class BrowseReachabilityTests(TestCase):

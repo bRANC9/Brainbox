@@ -55,6 +55,15 @@ class Document(Taggable, models.Model):
     title = models.CharField(max_length=500)
     slug = models.SlugField(max_length=255)
     path = models.CharField(max_length=1024, help_text="Relative path under the documents dir")
+    #: The folder this document lives in, if any. The tree is the source of
+    #: truth; ``path`` stays as a denormalised, human-readable cache of it.
+    folder = models.ForeignKey(
+        "documents.DocumentFolder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="documents",
+    )
     summary = models.TextField(blank=True)
     mime_type = models.CharField(max_length=128, default="text/markdown")
     is_template = models.BooleanField(
@@ -100,18 +109,23 @@ class Document(Taggable, models.Model):
 
 
 class DocumentFolder(Taggable, models.Model):
-    """A folder inside a workspace/project. Also created on disk.
+    """A named node in the knowledge tree.
 
-    Folders exist so people can organise knowledge in the UI; they carry no
-    content of their own (files remain the source of truth). Creating a document
-    with a nested path auto-registers the parent folders, so the tree stays
-    correct even for folders imported from git.
+    Folders were once an identity-free path segment: a row with a ``path``
+    string and nothing else, which meant a folder could not be renamed without
+    rewriting the path of every descendant, and could not be described or
+    owned. A project and a folder then looked identical in the interface while
+    only one of them was a real object.
 
-    Since 0004 a folder hangs off a Resource like every other permission-managed
-    object, so access can be granted on a deep folder ("A/B/C") without opening
-    the whole workspace. The folder's Resource ``parent`` is the enclosing
-    folder, or the project/workspace resource for a top-level folder - that chain
-    is what the permission engine walks, and what a move has to keep in sync.
+    It is a real object now. ``container`` points at the enclosing node - another
+    folder, a project, a workspace, whatever exists - so nesting is not
+    constrained to "inside a project" or two levels. ``name`` is this node's own
+    name, and the full ``path`` is a **denormalised cache** of the chain, kept
+    because every list view sorts and filters on it. ``recompute_path()`` is the
+    only thing that should write it.
+
+    A folder still carries no content of its own: the bytes live in the files on
+    disk and the knowledge lives in documents.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -120,6 +134,17 @@ class DocumentFolder(Taggable, models.Model):
         on_delete=models.CASCADE,
         related_name="folder",
     )
+    #: The enclosing node. Nullable only for a folder whose container row was
+    #: deleted; a live folder always has one.
+    container = models.ForeignKey(
+        "resources.Resource",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="child_folders",
+    )
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
     workspace = models.ForeignKey(
         "workspaces.Workspace", on_delete=models.CASCADE, related_name="folders"
     )
@@ -130,7 +155,16 @@ class DocumentFolder(Taggable, models.Model):
         blank=True,
         related_name="folders",
     )
-    path = models.CharField(max_length=1024)
+    #: Denormalised chain of names, '/' separated. Derived from ``container``;
+    #: never the source of truth.
+    path = models.CharField(max_length=1024, blank=True)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="owned_folders",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -146,21 +180,58 @@ class DocumentFolder(Taggable, models.Model):
         ordering = ["path"]
         constraints = [
             models.UniqueConstraint(
-                fields=["workspace", "project", "path"], name="uniq_folder_path"
+                fields=["container", "name"], name="uniq_folder_name_per_container"
             )
         ]
 
     def __str__(self) -> str:
-        return self.path
+        return self.path or self.name
 
     @property
     def parent_path(self) -> str:
         """The path of the enclosing folder, empty for a top-level folder."""
         return self.path.rsplit("/", 1)[0] if "/" in self.path else ""
 
-    @property
-    def name(self) -> str:
-        return self.path.rsplit("/", 1)[-1]
+    def chain(self) -> list["DocumentFolder"]:
+        """This folder and its enclosing folders, nearest first."""
+        out: list[DocumentFolder] = [self]
+        seen = {self.id}
+        container_id = self.container_id
+        while container_id is not None:
+            parent = (
+                DocumentFolder.objects.select_related("container").filter(
+                    resource_id=container_id
+                ).first()
+            )
+            if parent is None or parent.id in seen:
+                break
+            seen.add(parent.id)
+            out.append(parent)
+            container_id = parent.container_id
+        return out
+
+    def scope_path(self) -> str:
+        """Always empty: a path is relative to the workspace *or* project it is in.
+
+        The container already knows which, so there is nothing to prefix. Adding
+        the project name here would break every caller that filters a path within
+        a scope - and the on-disk layout nests projects in their own directory
+        anyway.
+        """
+        return ""
+
+    def recompute_path(self, *, save: bool = True) -> str:
+        """Rewrite ``path`` from the container chain. The only writer of it."""
+        parts = [self.name]
+        for parent in self.chain()[1:]:
+            parts.append(parent.name)
+        parts.reverse()
+        derived = "/".join(parts)
+        if derived != self.path:
+            self.path = derived
+            if save:
+                self.save(update_fields=["path", "updated_at"])
+        return self.path
 
 
 class DocumentVersion(models.Model):

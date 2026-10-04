@@ -223,11 +223,15 @@ class DocumentService:
         from .folders import resource_for_path
 
         folder_path = rel_path.rsplit("/", 1)[0] if "/" in rel_path else ""
-        parent = (
-            resource_for_path(workspace, project, folder_path)
-            if folder_path
-            else (project.resource if project is not None else workspace.resource)
-        )
+        if folder_path:
+            from .folders import folder_for_path, resource_for_path
+
+            parent = resource_for_path(workspace, project, folder_path)
+            # The *folder's* path, not the document's: "box/a.md" lives in "box".
+            folder = folder_for_path(workspace, project, folder_path)
+        else:
+            parent = project.resource if project is not None else workspace.resource
+            folder = None
         resource = ResourceService.create(
             resource_type=ResourceType.DOCUMENT,
             name=title,
@@ -240,6 +244,7 @@ class DocumentService:
             resource=resource,
             workspace=workspace,
             project=project,
+            folder=folder,
             title=title,
             slug=(slugify(title) or "document")[:255],
             path=rel_path,
