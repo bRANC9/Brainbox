@@ -384,7 +384,10 @@ def _workflows() -> list[dict]:
                 "knowledge_search first -- update a match instead of duplicating it",
                 "knowledge_create_document (status=draft, path under the workspace/project)",
                 "or POST /api/v1/drafts/ to have the configured LLM write the draft for you",
-                "Stop. A human approves it (approve/reject), you may not approve your own work.",
+                "Stop. Let a human approve it (approve/reject). Approval needs write access "
+                "and nothing stops you from using it on your own draft, so this is a rule "
+                "about how you behave, not one the API enforces: never approve your own "
+                "work.",
             ],
         },
         {

@@ -82,7 +82,18 @@ class FileService:
         if File.objects.filter(workspace=workspace, project=project, path=rel_path).exists():
             raise ValidationError({"path": f"A file already exists at '{rel_path}'."})
 
-        parent = project.resource if project is not None else workspace.resource
+        # An attachment belongs in the folder its path names, the same rule a
+        # document follows - otherwise it lands on the project root and the folder
+        # page cannot show it where it is.
+        folder_path = rel_path.rsplit("/", 1)[0] if "/" in rel_path else ""
+        if folder_path:
+            from apps.documents.folders import folder_for_path, resource_for_path
+
+            parent = resource_for_path(workspace, project, folder_path)
+            folder = folder_for_path(workspace, project, folder_path)
+        else:
+            parent = project.resource if project is not None else workspace.resource
+            folder = None
         resource = ResourceService.create(
             resource_type=ResourceType.FILE,
             name=name,
@@ -93,6 +104,7 @@ class FileService:
             resource=resource,
             workspace=workspace,
             project=project,
+            folder=folder,
             name=name,
             path=rel_path,
             mime_type=_guess_mime(name, mime_type),

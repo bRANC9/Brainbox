@@ -459,6 +459,26 @@ class PersonalWorkspaceTests(TestCase):
                 resource=mine.resource, new_owner=self.bob, actor=self.alice
             )
 
+    def test_a_superuser_cannot_take_over_a_personal_workspace(self):
+        """The point of a Personal space: the server admin is not an exception.
+
+        Found by probing rather than reading: ``can_take_over`` checked three
+        things and none of them mentioned Personal, so a superuser could take
+        over anybody's private notes - the exact situation this model exists to
+        remove.
+        """
+        root = User.objects.create_user("root", "root@x.test", "pw")
+        root.is_superuser = True
+        root.save()
+        mine = PersonalWorkspaceService.get_or_create(self.alice)
+        self.assertFalse(PermissionService.can_take_over(root, mine.resource))
+        with self.assertRaises(PermissionDenied):
+            OwnershipService.take_over(resource=mine.resource, actor=root)
+        self.assertFalse(
+            PermissionService.check(root, mine.resource, Permission.READ),
+            "and nothing may have been granted anyway",
+        )
+
     def test_it_can_be_promoted_to_a_shared_workspace(self):
         mine = PersonalWorkspaceService.get_or_create(self.alice)
         OwnershipService.set_kind(

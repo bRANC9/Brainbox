@@ -22,7 +22,7 @@ its own address.
   </div>
   {% if can_admin and not is_personal %}
     <span class="actions">
-      {% if project %}<a class="button" href="{% url 'web:project_files' workspace.slug project.slug %}">Fájlok</a>{% endif %}
+      {% if project %}<a class="button" href="{% url 'web:project_files' workspace.slug project.slug %}">Mellékletek</a>{% endif %}
       <a class="button" href="{% url 'web:resource_permissions' folder_node.resource_id %}">Jogosultságok</a>
     </span>
   {% endif %}

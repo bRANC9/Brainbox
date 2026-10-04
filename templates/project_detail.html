@@ -14,7 +14,7 @@
   </div>
   {% if can_admin and not is_personal %}
     <span class="actions">
-      <a class="button" href="{% url 'web:project_files' workspace.slug project.slug %}">Fájlok</a>
+      <a class="button" href="{% url 'web:project_files' workspace.slug project.slug %}">Mellékletek</a>
       <a class="button" href="{% url 'web:resource_permissions' project.resource_id %}">Jogosultságok</a>
     </span>
   {% endif %}

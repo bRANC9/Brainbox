@@ -5,16 +5,16 @@ same shape the document tree uses, so folders render without a recursive tag.
 A `dir` row is a folder that exists only as a prefix of the paths of files you
 can read - it has no access of its own, so it carries no actions.
 {% endcomment %}
-{% block title %}Fájlok - Brainbox{% endblock %}
+{% block title %}Mellékletek - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
   <div>
     <p class="crumbs">
       <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
       {% if project %} / <a href="{% url 'web:project_detail' workspace.slug project.slug %}">{{ project.name }}</a>{% endif %}
-      / Fájlok
+      / Mellékletek
     </p>
-    <h1>Fájlok</h1>
+    <h1>Mellékletek</h1>
     <p class="muted">
       {% if file_count %}{{ file_count }} fájl. {% endif %}
       A dokumentumokban relatív útvonallal hivatkozott képek innen töltődnek be,

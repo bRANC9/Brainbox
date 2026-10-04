@@ -330,3 +330,64 @@ def _human(size):
     from apps.web.views import _human_size
 
     return _human_size(size)
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class AttachmentPlacementTests(TestCase):
+    """An attachment belongs in the folder its path names, not on the root.
+
+    It used to land on the project/workspace root whatever its path, so a folder
+    page could not show it where it is - the file existed and its path said
+    "abra/arch.png" while its container was the project.
+    """
+
+    def setUp(self):
+        self.alice = User.objects.create_user("alice3", "a3@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Attach", created_by=self.alice)
+        self.project = ProjectService.create(
+            workspace=self.workspace, name="Deploy", created_by=self.alice
+        )
+
+    def test_a_nested_attachment_lands_in_its_folder(self):
+        from apps.documents.models import DocumentFolder
+
+        stored = FileService.create(
+            workspace=self.workspace,
+            project=self.project,
+            name="arch.png",
+            path="abra/arch.png",
+            data=PNG,
+            created_by=self.alice,
+        )
+        folder = DocumentFolder.objects.get(workspace=self.workspace, path="abra")
+        self.assertEqual(stored.folder_id, folder.pk)
+        self.assertEqual(stored.resource.parent_id, folder.resource_id)
+
+    def test_the_node_page_lists_the_attachment_with_the_documents(self):
+        from apps.documents.models import DocumentFolder
+
+        FileService.create(
+            workspace=self.workspace,
+            project=self.project,
+            name="arch.png",
+            path="abra/arch.png",
+            data=PNG,
+            created_by=self.alice,
+        )
+        DocumentService.create(
+            workspace=self.workspace,
+            project=self.project,
+            title="Readme",
+            path="abra/readme.md",
+            content="# x",
+            created_by=self.alice,
+        )
+        self.client.force_login(self.alice)
+        node = DocumentFolder.objects.get(resource_id=self.project.resource_id)
+        page = self.client.get(
+            reverse("web:folder_detail", args=[self.workspace.slug, node.tree_path()])
+        )
+        rows = page.context["tree_rows"]
+        self.assertIn("file", [row["type"] for row in rows])
+        self.assertIn("arch.png", [row["name"] for row in rows])
+        self.assertIn("Readme", [row["name"] for row in rows])

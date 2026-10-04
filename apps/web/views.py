@@ -672,60 +672,104 @@ def _subtree_folders(node, max_depth: int = 16) -> list:
 
 
 def _node_tree_rows(workspace, node, user, tag_filter: str = "") -> list[dict]:
-    """The node's immediate contents: subfolders, then documents.
+    """The node's whole subtree, flattened, documents and attachments together.
 
-    A folder page lists one level rather than flattening a whole subtree, because
-    that is what makes clicking *in* exact: each subfolder is a page of its own,
-    addressed by its tree path. It also means a caller granted one deep folder
-    sees that folder's contents without needing read on anything above it.
+    Flattened rather than one level, because the request was to keep a folder page
+    as informative as a project page was: you see everything below the node in one
+    list, indented by depth, and click *in* through the folder names (each is a
+    page of its own).
+
+    The walk descends into any folder the caller can *see* - not only the ones
+    they can read - because a grant sits under a trail of folders they cannot
+    read; that trail is the way down. Everything else in those folders stays
+    hidden: it is not in the visible set.
     """
     from apps.documents.models import Document
+    from apps.files.models import File
     from apps.tags.services import filter_documents_by_tag, tags_for
 
     subtree = _subtree_folders(node)
-    children = [f for f in subtree if f.container_id == node.resource_id]
-    ids = [f.resource_id for f in subtree if f.resource_id]
-    visible = set(PermissionService.visible_resource_ids(user, ids, Permission.READ))
-    readable = set(PermissionService.allowed_resource_ids(user, ids, Permission.READ))
+    subtree_ids = [f.resource_id for f in subtree]
+    children_of: dict = {}
+    for folder in subtree:
+        children_of.setdefault(folder.container_id, []).append(folder)
 
     documents = [
         document
-        for document in Document.objects.filter(resource__parent=node.resource).select_related(
+        for document in Document.objects.filter(resource__parent_id__in=subtree_ids).select_related(
             "resource"
         )
         if _can(user, document.resource, Permission.READ)
     ]
     if tag_filter:
         documents = filter_documents_by_tag(documents, tag_filter)
+    attachments = [
+        stored
+        for stored in File.objects.filter(resource__parent_id__in=subtree_ids).select_related(
+            "resource"
+        )
+        if _can(user, stored.resource, Permission.READ)
+    ]
+
+    resource_ids = subtree_ids + [item.resource_id for item in (*documents, *attachments)]
+    visible = set(PermissionService.visible_resource_ids(user, resource_ids, Permission.READ))
+    readable = set(PermissionService.allowed_resource_ids(user, resource_ids, Permission.READ))
+
+    docs_of: dict = {}
+    for document in documents:
+        docs_of.setdefault(document.resource.parent_id, []).append(document)
+    files_of: dict = {}
+    for stored in attachments:
+        files_of.setdefault(stored.resource.parent_id, []).append(stored)
 
     rows: list[dict] = []
-    for child in sorted(children, key=lambda item: item.name.lower()):
-        if child.resource_id not in visible:
-            continue
-        can_read = child.resource_id in readable
-        rows.append(
-            {
-                "type": "dir",
-                "name": child.name,
-                "depth": 0,
-                "path": child.path,
-                "can_read": can_read,
-                "folder": child,
-                "trail_href": "" if can_read else _folder_href(child),
-                "node_href": _folder_href(child),
-                "tags": tags_for(child),
-            }
-        )
-    for document in sorted(documents, key=lambda item: item.path):
-        rows.append(
-            {
-                "type": "doc",
-                "name": document.title,
-                "depth": 0,
-                "doc": document,
-                "tags": tags_for(document),
-            }
-        )
+
+    def walk(folder, depth: int) -> None:
+        for child in sorted(
+            children_of.get(folder.resource_id, []), key=lambda item: item.name.lower()
+        ):
+            if child.resource_id not in visible:
+                continue
+            can_read = child.resource_id in readable
+            rows.append(
+                {
+                    "type": "dir",
+                    "name": child.name,
+                    "depth": depth,
+                    "path": child.path,
+                    "can_read": can_read,
+                    "folder": child,
+                    "node_href": _folder_href(child),
+                    "trail_href": "" if can_read else _folder_href(child),
+                    "tags": tags_for(child),
+                }
+            )
+            # Descend whenever the folder is visible: a trail node is the way down
+            # to what was granted, even though it is not readable itself.
+            walk(child, depth + 1)
+
+        for document in sorted(docs_of.get(folder.resource_id, []), key=lambda item: item.path):
+            rows.append(
+                {
+                    "type": "doc",
+                    "name": document.title,
+                    "depth": depth,
+                    "doc": document,
+                    "tags": tags_for(document),
+                }
+            )
+        for stored in sorted(files_of.get(folder.resource_id, []), key=lambda item: item.path):
+            rows.append(
+                {
+                    "type": "file",
+                    "name": stored.name,
+                    "depth": depth,
+                    "file": stored,
+                    "size": _human_size(stored.size),
+                }
+            )
+
+    walk(node, 0)
     return rows
 
 

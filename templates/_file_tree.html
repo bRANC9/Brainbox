@@ -10,7 +10,7 @@ a 'depth' so it renders without recursive template tags.
          data-folder-create="{% if project %}{% url 'web:project_folder_create' workspace.slug project.slug %}{% else %}{% url 'web:workspace_folder_create' workspace.slug %}{% endif %}"
          data-folder-op="{% url 'web:tree_folder_op' %}">
   <div class="page-head" style="margin-bottom:.5rem">
-    <h2 style="margin:0">Fájlok és mappák {% if can_write %}<span class="muted" style="font-size:.8rem">(húzd a sorokat mappák közé)</span>{% endif %}</h2>
+    <h2 style="margin:0">Dokumentumok {% if can_write %}<span class="muted" style="font-size:.8rem">(húzd a sorokat mappák közé)</span>{% endif %}</h2>
     {% if can_write %}
       <span>
         {% comment %}
@@ -52,11 +52,13 @@ a 'depth' so it renders without recursive template tags.
           <tr class="tree-row{% if row.type == 'dir' and not row.can_read %} trail-row{% endif %}"
               {% if row.type == "doc" or row.can_read %}draggable="true"{% endif %}
               data-type="{{ row.type }}"
-              data-can-read="{% if row.type == 'doc' or row.can_read %}1{% else %}0{% endif %}"
-              data-id="{% if row.type == 'doc' %}{{ row.doc.pk }}{% else %}folder:{{ row.path }}{% endif %}"
-              {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% else %}data-folder="{{ row.path }}"{% endif %}
+              data-can-read="{% if row.type == 'dir' and not row.can_read %}0{% else %}1{% endif %}"
+              {% if row.type == 'doc' %}data-id="{{ row.doc.pk }}"
+              {% elif row.type == 'file' %}data-id="{{ row.file.pk }}"
+              {% else %}data-id="folder:{{ row.path }}"{% endif %}
+              {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% elif row.type == "file" %}data-name="{{ row.file.path }}"{% else %}data-folder="{{ row.path }}"{% endif %}
               {% if can_admin and row.folder %}data-acl="{% url 'web:resource_permissions' row.folder.resource_id %}"{% endif %}
-              data-tags="{{ row.tags|join:',' }}">
+              data-tags="{{ row.tags|default:''|join:',' }}">
             <td style="padding-left: {{ row.depth }}rem">
               {% if row.type == "dir" %}
                 {% if row.can_read %}
@@ -87,7 +89,7 @@ a 'depth' so it renders without recursive template tags.
                   {% endif %}
                   <span class="chip chip-sm" title="Nincs hozzáférésed ehhez a mappához, de az alatta lévő tartalom látható.">nincs hozzáférésed</span>
                 {% endif %}
-              {% else %}
+              {% elif row.type == "doc" %}
                 📄 <a href="{% url 'web:document_detail' row.doc.pk %}">{{ row.name }}</a>
                 <span class="tree-path muted" title="{{ row.doc.path }}">{{ row.doc.path }}</span>
                 {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
@@ -95,6 +97,16 @@ a 'depth' so it renders without recursive template tags.
                 {% if can_write %}
                   <a class="link" href="{% url 'web:document_edit' row.doc.pk %}">szerk</a>
                 {% endif %}
+              {% else %}
+                {% comment %}
+                Attachments live where they belong: in the folder that holds them,
+                next to the documents. They are not editable in the tree and not a
+                drag source - they move with their folder.
+                {% endcomment %}
+                📎 <a href="{% url 'web:file_content' row.file.pk %}">{{ row.name }}</a>
+                <span class="tree-path muted" title="{{ row.file.path }}">{{ row.file.path }}</span>
+                <span class="muted">{{ row.size }}</span>
+                <a class="link" href="{% url 'web:file_content' row.file.pk %}?download=1">letöltés</a>
               {% endif %}
             </td>
           </tr>

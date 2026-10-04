@@ -464,13 +464,22 @@ class PermissionService:
     def can_take_over(cls, user, resource) -> bool:
         """The explicit, audited way in for a superuser. Off by design everywhere else.
 
-        Only offered for what the caller *cannot* reach: taking over something you
-        already administer is meaningless, and offering it there put a
-        full-width "jogosultság-átvétel" bar at the top of the owner's own pages.
+        Three rules, and the first one is absolute:
+
+        * a **Personal workspace is never reachable this way.** It has exactly one
+          holder by design, and "the platform admin is not an exception to that"
+          is the point of having a Personal space at all - otherwise the operator
+          who runs the server can read anyone's private notes, which is the
+          situation this whole model exists to remove.
+        * ``Resource.no_takeover`` blocks it, on the resource or any ancestor, and
+          only the owner can set that.
+        * taking over what you already administer is meaningless.
         """
         if resource is None or user is None:
             return False
         if not getattr(user, "is_authenticated", False) or not user.is_superuser:
+            return False
+        if cls.is_personal(resource):
             return False
         if resource.takeover_locked():
             return False
