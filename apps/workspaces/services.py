@@ -36,6 +36,41 @@ def _unique_project_slug(workspace: Workspace, base: str) -> str:
     return slug
 
 
+def _ensure_project_node(project):
+    """Give a project its node in the tree, so the tree is the whole picture.
+
+    A project used to be a separate axis the tree could not show. It shares its
+    own ``Resource`` as the node - not a second Resource pointing at the first -
+    so the permission engine, the folder lookup and the ACL all keep working on
+    the same object, and ``role`` is what distinguishes it.
+
+    Local import: ``apps.documents.models`` imports this module's models, so the
+    dependency has to be resolved at call time.
+    """
+    from apps.documents.models import DocumentFolder, FolderRole
+
+    node, created = DocumentFolder.objects.get_or_create(
+        resource_id=project.resource_id,
+        defaults={
+            "container_id": project.workspace_id,
+            "name": project.name,
+            "role": FolderRole.PROJECT,
+            "description": project.description or "",
+            "workspace_id": project.workspace_id,
+            # NULL on purpose: the node *is* the project, not something inside
+            # one. Leaving it pointing at itself would list the project as a
+            # folder of itself on the project's own page.
+            "project_id": None,
+            "path": project.name,
+            "owner_id": project.owner_id,
+            "created_by_id": project.created_by_id,
+        },
+    )
+    if created:
+        node.recompute_path()
+    return node
+
+
 def _require_actor(created_by, *, what: str):
     """Refuse to create an object nobody owns.
 
@@ -182,6 +217,7 @@ class ProjectService:
             permission=Permission.ADMIN,
             created_by=created_by,
         )
+        _ensure_project_node(project)
         AuditService.log(
             AuditAction.CREATE,
             user=created_by,

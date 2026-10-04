@@ -3,6 +3,10 @@
 Shared access panel. Included inline by the workspace/project/document pages and
 as the whole page by /resources/<id>/permissions/.
 
+Inline it is collapsed: the entry table is a state summary, and on every page
+three open panels in a row (tree, tags, access) is what made the interface feel
+like a wall. Open it when you came here to look at it.
+
 Context keys (both call sites supply the first block; the standalone view adds
 the last three):
 
@@ -23,19 +27,18 @@ the last three):
 Standalone only: standalone, permissions, effects, subject_types, owner_rows,
 max_grantable.
 
-The split matters. Inline, this renders the table and a link. The five forms used
-to render on every workspace and project page, stacked under the content - and
-two of them (workspace kind, title publication) silently acted on the
-*workspace* while sitting on a *project* page, which is how the interface ended up
-looking like it was doing something random.
+The split matters. Inline, this renders the table and a link. The forms used to
+render on every workspace and project page, stacked under the content - and two
+of them (workspace kind, title publication) silently acted on the *workspace*
+while sitting on a *project* page, which is how the interface ended up looking
+like it was doing something random.
 {% endcomment %}
 
-<div class="git-panel" id="access-panel">
-  {% comment %}
-  The standalone page already has an <h1>; repeating it inside the panel put the
-  same title on screen twice. Inline, the panel keeps its own heading.
-  {% endcomment %}
-  {% if not standalone %}<h2>Tagok és hozzáférés</h2>{% endif %}
+<details class="git-panel" id="access-panel"{% if standalone %} open{% endif %}>
+<summary>
+  {% if standalone %}Hozzáférés (ACL){% else %}Tagok és hozzáférés{% endif %}
+  {% if entry_rows %}<span class="meta">({{ entry_rows|length }} bejegyzés)</span>{% endif %}
+</summary>
 
   {% if is_personal %}
     <p class="banner">

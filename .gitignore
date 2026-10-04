@@ -57,3 +57,7 @@ graphify-out/
 .opencode/full_review.py
 .opencode/shots2.py
 .opencode/tmp_*.sh
+.opencode/seed_ui.py
+.opencode/check_tree.py
+.opencode/tmp_run.sh
+.opencode/tmp_migrate.sh
