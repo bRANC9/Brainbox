@@ -59,6 +59,27 @@ HU = {
     "create": "Létrehozás",
     "update": "Módosítás",
     "restore": "Visszaállítás",
+    # link types
+    "wikilink": "Wikilink",
+    "reference": "Hivatkozás",
+    "related": "Kapcsolódó",
+    "parent": "Szülő",
+    "child": "Gyerek",
+    "embed": "Beágyazás",
+    # resource types
+    "workspace": "Munkaterület",
+    "project": "Projekt",
+    "folder": "Mappa",
+    "document": "Dokumentum",
+    "file": "Fájl",
+    "git_repository": "Git-tárhely",
+    "secret": "Titkos érték",
+    "mcp_server": "MCP szerver",
+    # missing values
+    # The filter lowercases before the lookup, so the string "None" has to be
+    # keyed "none" here to be found. A real Python None never reaches this map:
+    # the filter returns "" for it further down.
+    "none": "Nincs megjelenítve",
 }
 
 

@@ -13,7 +13,10 @@
     <p class="meta">Tulajdonos: {% if owner %}{{ owner.display_name|default:owner.username }}{% if owner.display_name and owner.display_name != owner.username %} ({{ owner.username }}){% endif %}{% else %}nincs (örökség){% endif %}</p>
   </div>
   {% if can_admin and not is_personal %}
-    <a class="button" href="{% url 'web:resource_permissions' project.resource_id %}">Jogosultságok</a>
+    <span class="actions">
+      <a class="button" href="{% url 'web:project_files' workspace.slug project.slug %}">Fájlok</a>
+      <a class="button" href="{% url 'web:resource_permissions' project.resource_id %}">Jogosultságok</a>
+    </span>
   {% endif %}
 </section>
 

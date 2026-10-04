@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% comment %}
+File browser for a workspace/project. `rows` is a flat list with a `depth`, the
+same shape the document tree uses, so folders render without a recursive tag.
+A `dir` row is a folder that exists only as a prefix of the paths of files you
+can read - it has no access of its own, so it carries no actions.
+{% endcomment %}
+{% block title %}Fájlok - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="crumbs">
+      <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
+      {% if project %} / <a href="{% url 'web:project_detail' workspace.slug project.slug %}">{{ project.name }}</a>{% endif %}
+      / Fájlok
+    </p>
+    <h1>Fájlok</h1>
+    <p class="muted">
+      {% if file_count %}{{ file_count }} fájl. {% endif %}
+      A dokumentumokban relatív útvonallal hivatkozott képek innen töltődnek be,
+      ezért az <code>![leképezés](abra.png)</code> hivatkozás nem tör el.
+    </p>
+  </div>
+  <span>
+    {% if project %}
+      <a class="button" href="{% url 'web:project_detail' workspace.slug project.slug %}">Projekt</a>
+    {% else %}
+      <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Workspace</a>
+    {% endif %}
+  </span>
+</section>
+
+{% if can_write %}
+<form method="post" action="{{ detail_url }}" enctype="multipart/form-data" class="form row">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="upload">
+  <label>Célmappa (opcionális, pl. abrak)
+    <input type="text" name="folder" placeholder="abrak">
+  </label>
+  <label>Fájlok
+    <input type="file" name="files" multiple>
+  </label>
+  <label>Vagy egy teljes mappa (a mappa-struktúra megmarad)
+    <input type="file" name="files" multiple webkitdirectory>
+  </label>
+  <button class="button primary" type="submit">Feltöltés</button>
+</form>
+<p class="meta">Ha a „Célmappa" meg van adva, az az összes feltöltött fa gyökere lesz.</p>
+{% endif %}
+
+<section class="git-panel">
+  <div class="scroll-x">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Név</th><th>Méret</th><th>Típus</th><th>Módosítva</th>{% if can_write %}<th>Művelet</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          {% if row.type == "dir" %}
+            <tr>
+              <td style="padding-left: {{ row.depth }}rem" title="{{ row.path }}"><span class="muted">📁 {{ row.name }}/</span></td>
+              <td colspan="{% if can_write %}4{% else %}3{% endif %}"></td>
+            </tr>
+          {% else %}
+            <tr>
+              <td style="padding-left: {{ row.depth }}rem">
+                {% if row.is_image %}
+                  <img loading="lazy" src="{% url 'web:file_content' row.file.pk %}" alt=""
+                       style="max-height:2.5rem;vertical-align:middle;margin-right:.4rem">
+                {% endif %}
+                <a href="{% url 'web:file_content' row.file.pk %}">{{ row.name }}</a>
+                <span class="meta" title="{{ row.path }}">{{ row.path }}</span>
+              </td>
+              <td class="meta">{{ row.size }}</td>
+              <td><span class="badge">{{ row.file.mime_type }}</span></td>
+              <td class="meta">{{ row.file.updated_at|date:"Y-m-d H:i" }}</td>
+              {% if can_write %}
+                <td>
+                  <span>
+                    <a class="meta" href="{% url 'web:file_content' row.file.pk %}?download=1">letöltés</a>
+                    {% if row.can_delete %}
+                      <form method="post" class="inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="file" value="{{ row.file.pk }}">
+                        <button class="link" type="submit"
+                                onclick="return confirm('Törölöd a(z) {{ row.name|escapejs }} fájlt?')">törlés</button>
+                      </form>
+                    {% endif %}
+                  </span>
+                </td>
+              {% endif %}
+            </tr>
+          {% endif %}
+        {% empty %}
+          <tr>
+            <td colspan="{% if can_write %}5{% else %}4{% endif %}" class="muted">
+              {% if can_write %}
+                Még nincs fájl itt. Töltsd fel a fenti űrlappal — a mappanevek
+                az útvonalat adják, ahogy a dokumentumoknál is.
+              {% else %}
+                Nincs itt fiókod, amellyel elérhetnél fájlokat.
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
