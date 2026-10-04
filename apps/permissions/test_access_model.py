@@ -857,7 +857,14 @@ class BrowseReachabilityTests(TestCase):
         )
         self.assertFalse(PermissionService.can_browse(self.bob, self.project.resource))
 
-    def test_the_workspace_page_shows_the_trail_not_the_projects(self):
+def test_the_workspace_page_shows_the_trail_up_to_the_project(self):
+        """A deep grant has to be reachable by clicking, not only by direct URL.
+
+        The workspace page renders only the nodes whose container *is* the
+        workspace - the project nodes - but computes visibility over every folder
+        in the workspace, so a readable folder deep inside a project lights up the
+        project node above it. Siblings that hold nothing readable stay hidden.
+        """
         secret_project = ProjectService.create(
             workspace=self.workspace, name="Zárt", created_by=self.alice
         )
@@ -874,12 +881,16 @@ class BrowseReachabilityTests(TestCase):
         )
         from apps.web.views import _folder_tree_rows
 
-        # A workspace-level tree only ever holds workspace-root content, so the
-        # grant surfaces as the trail inside the *project*, never here.
         rows = _folder_tree_rows(self.workspace, None, self.bob)
-        self.assertEqual(rows, [])
+        paths = {row.get("path") for row in rows if row["type"] == "dir"}
+        # The project holding the grant shows up as a trail node...
+        self.assertEqual(paths, {"Fejlesztői rész"})
+        node = next(row for row in rows if row["type"] == "dir")
+        self.assertFalse(node["can_read"], "it is a way in, not access")
+
+        # ...and inside it, the full trail down to the document.
         project_rows = _folder_tree_rows(self.workspace, self.project, self.bob)
-        paths = {row.get("path") for row in project_rows if row["type"] == "dir"}
-        self.assertEqual(paths, {"runbooks", "runbooks/2024"})
+        project_paths = {row.get("path") for row in project_rows if row["type"] == "dir"}
+        self.assertEqual(project_paths, {"runbooks", "runbooks/2024"})
         titles = {row["name"] for row in project_rows if row["type"] == "doc"}
         self.assertEqual(titles, {"Éles runbook"})

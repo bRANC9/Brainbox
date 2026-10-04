@@ -66,7 +66,18 @@ a 'depth' so it renders without recursive template tags.
                   the ACL page for a folder.
                   {% endcomment %}
                 {% else %}
-                  <span class="trail-name" title="Nincs hozzáférésed ehhez a mappához, de az alatta lévő tartalom látható.">📁 {{ row.name }}/</span>
+                  {% comment %}
+                  A structural node is a way in, not a dead end: it links to the
+                  container you were actually granted access under, so the walk
+                  to the content is clickable rather than a breadcrumb that
+                  stops here.
+                  {% endcomment %}
+                  {% if row.trail_href %}
+                    <a class="trail-name" href="{{ row.trail_href }}"
+                       title="Nincs hozzáférésed ehhez a mappához, de az alatta lévő tartalom látható — kattints, hogy bejuss.">📁 {{ row.name }}/</a>
+                  {% else %}
+                    <span class="trail-name" title="Nincs hozzáférésed ehhez a mappához, de az alatta lévő tartalom látható.">📁 {{ row.name }}/</span>
+                  {% endif %}
                   <span class="chip chip-sm" title="Nincs hozzáférésed ehhez a mappához, de az alatta lévő tartalom látható.">nincs hozzáférésed</span>
                 {% endif %}
               {% else %}

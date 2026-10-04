@@ -165,11 +165,30 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
     if tag_filter:
         documents = filter_documents_by_tag(documents, tag_filter)
 
-    folders = list(
-        DocumentFolder.objects.filter(workspace=workspace, project=project).select_related(
-            "resource"
-        )
+    scope_root = (
+        project.resource if project is not None else workspace.resource
     )
+    if project is None:
+        # Every folder in the workspace, not only the workspace-root ones: a
+        # readable node deep inside a project has to light up its *ancestors*,
+        # and that only works if the deeper nodes are in the input to
+        # ``visible_resource_ids``. Without them a user whose only grant is a
+        # deep folder got an empty tree here and could only reach the content by
+        # direct URL or search.
+        folders = list(
+            DocumentFolder.objects.filter(workspace=workspace).select_related("resource")
+        )
+    else:
+        folders = list(
+            DocumentFolder.objects.filter(workspace=workspace, project=project).select_related(
+                "resource"
+            )
+        )
+    # Only the nodes whose container *is* this scope are drawn here; the rest
+    # were just visibility input.
+    scope_folders = [f for f in folders if f.container_id == scope_root.id]
+    # Every folder in the scope, at any depth, so a nested row can be drawn and
+    # know its own access; ``scope_folders`` are the ones that *start* a row here.
     folder_by_path = {folder.path: folder for folder in folders}
     resource_ids = [folder.resource_id for folder in folders if folder.resource_id]
     resource_ids += [document.resource_id for document in documents]
@@ -185,10 +204,15 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
     for folder in folders:
         if not folder.resource_id:
             continue
-        if folder.resource_id in visible:
+        # Readability is a property of the node itself, at any depth: a nested
+        # row is rendered in the trie and must report its real access, not the
+        # scope's.
+        if folder.resource_id in readable:
+            readable_paths.add(folder.path)
+        # Only the nodes hanging directly off this scope start a row here; deeper
+        # ones enter the trie as ancestors of the documents inside them.
+        if folder in scope_folders and folder.resource_id in visible:
             folder_paths.add(folder.path)
-            if folder.resource_id in readable:
-                readable_paths.add(folder.path)
     for document in documents:
         # A readable document's ancestors have to appear so the tree shows the way
         # to it - but they are *not* readable themselves. Marking them readable
@@ -219,6 +243,42 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
 
     rows: list[dict] = []
 
+    def container_href(folder) -> str:
+        """Where a structural node should link.
+
+        A trail node shows the way *into* something you can read, so it has to be
+        clickable - otherwise the caller sees the breadcrumb and is stuck. A
+        project node links to its own page (that is where the trail continues);
+        a plain folder links to whatever encloses it.
+        """
+        from apps.documents.models import FolderRole
+
+        if folder.role == FolderRole.PROJECT:
+            # The node's own project row is the authority for the URL, because a
+            # slug is not the name: "Fejlesztői rész" -> "fejlesztoi-resz".
+            # The node deliberately has no `project` FK (it *is* the project), so
+            # it is found through the shared Resource.
+            from apps.workspaces.models import Project
+
+            project = Project.objects.filter(
+                resource_id=folder.resource_id
+            ).select_related("workspace").first()
+            if project is not None:
+                return reverse(
+                    "web:project_detail", args=[project.workspace.slug, project.slug]
+                )
+            return reverse("web:workspace_detail", args=[folder.workspace.slug])
+        node = folder.container
+        if node is None:
+            return ""
+        project = PermissionService.project_of(node)
+        if project is not None:
+            return reverse("web:project_detail", args=[project.workspace.slug, project.slug])
+        workspace = PermissionService.workspace_of(node)
+        if workspace is not None:
+            return reverse("web:workspace_detail", args=[workspace.slug])
+        return ""
+
     def walk(node: dict, depth: int, parent_path: str) -> None:
         for name in sorted(node["children"]):
             child = node["children"][name]
@@ -231,6 +291,8 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
                     "path": path,
                     "can_read": path in readable_paths,
                     "folder": folder_by_path.get(path),
+                    "trail_href": "" if path in readable_paths
+                    else (container_href(folder_by_path[path]) if path in folder_by_path else ""),
                     "tags": _folder_tags(workspace, project, path),
                 }
             )
