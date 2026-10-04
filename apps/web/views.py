@@ -420,9 +420,10 @@ def folder_create(request, workspace_slug, project_slug=None):
 
 @login_required
 def search(request):
+    mode_labels = {"hybrid": "hibrid", "text": "szöveges", "semantic": "szemantikus"}
     query = request.GET.get("q", "").strip()
     mode = request.GET.get("mode", "hybrid")
-    if mode not in {"hybrid", "text", "semantic"}:
+    if mode not in mode_labels:
         mode = "hybrid"
     results = []
     if query:
@@ -434,8 +435,38 @@ def search(request):
             request=request,
             detail={"q": query, "mode": mode, "count": len(results)},
         )
+        # The service returns workspace/project ids; the UI answers "where does
+        # this live?", so resolve the names the dashboard shows for a document.
+        workspace_ids = {row["workspace"] for row in results if row["workspace"]}
+        project_ids = {row["project"] for row in results if row["project"]}
+        workspace_names = {
+            str(pk): name
+            for pk, name in Workspace.objects.filter(pk__in=workspace_ids).values_list(
+                "pk", "name"
+            )
+        }
+        project_names = {
+            str(pk): name
+            for pk, name in Project.objects.filter(pk__in=project_ids).values_list("pk", "name")
+        }
+        results = [
+            {
+                **row,
+                "workspace_name": workspace_names.get(row["workspace"], ""),
+                "project_name": project_names.get(row["project"], ""),
+            }
+            for row in results
+        ]
     return render(
-        request, "search.html", {"query": query, "mode": mode, "results": results}
+        request,
+        "search.html",
+        {
+            "query": query,
+            "mode": mode,
+            "mode_labels": mode_labels,
+            "mode_label": mode_labels[mode],
+            "results": results,
+        },
     )
 
 
@@ -1607,6 +1638,15 @@ def resource_permissions(request, resource_id):
                 _can_publish_titles(request.user, scoped_workspace)
                 if scoped_workspace
                 else False
+            ),
+            # The access panel is tabbed (CSS-only). Forms post `next`, so the
+            # `?tab=` survives the redirect and the same panel reopens where you
+            # left it instead of jumping back to the first tab.
+            "acl_tab": request.GET.get("tab", ""),
+            "owner": (
+                getattr(resource.workspace, "owner", None)
+                if resource.resource_type == ResourceType.WORKSPACE
+                else getattr(resource.project, "owner", None)
             ),
             "search": _subject_matches(request.user, resource, request.GET.get("q", "")),
             "access_url": reverse("web:resource_permissions", args=[resource.pk]),

@@ -1,0 +1,46 @@
+{% load ui %}
+{% comment %}
+The ACL entry table. Included twice: once by the inline access panel (which is the
+state summary plus a link) and once inside the "Ki látja" tab of the standalone
+page. Kept in its own file so the two cannot drift apart.
+{% endcomment %}
+<div class="scroll-x">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Tag / csoport</th><th>Tipus</th><th>Jogosultság</th><th>Hatás</th><th>Öröklik</th>
+        {% if can_admin %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in entry_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td>{{ row.entry.subject_type|hu }}</td>
+          <td>{{ row.entry.permission|hu }}</td>
+          <td>{{ row.entry.effect|hu }}</td>
+          <td>{% if row.entry.inherit %}igen{% else %}nem{% endif %}</td>
+          {% if can_admin %}
+            <td>
+              <form method="post" action="{{ access_url }}" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="revoke">
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <input type="hidden" name="subject_type" value="{{ row.entry.subject_type }}">
+                <input type="hidden" name="subject_id" value="{{ row.entry.subject_id|stringformat:'s' }}">
+                <input type="hidden" name="permission" value="{{ row.entry.permission }}">
+                <button class="link" type="submit">elvétel</button>
+              </form>
+            </td>
+          {% endif %}
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="{% if can_admin %}6{% else %}5{% endif %}" class="muted">
+            Nincs külön bejegyzés (minden öröklött).
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

@@ -37,67 +37,52 @@ looking like it was doing something random.
   {% endcomment %}
   {% if not standalone %}<h2>Tagok és hozzáférés</h2>{% endif %}
 
-  <div class="scroll-x">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Tag / csoport</th><th>Tipus</th><th>Jogosultság</th><th>Hatás</th><th>Öröklik</th>
-          {% if can_admin %}<th></th>{% endif %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in entry_rows %}
-          <tr>
-            <td>{{ row.label }}</td>
-            <td>{{ row.entry.subject_type|hu }}</td>
-            <td>{{ row.entry.permission|hu }}</td>
-            <td>{{ row.entry.effect|hu }}</td>
-            <td>{% if row.entry.inherit %}igen{% else %}nem{% endif %}</td>
-            {% if can_admin %}
-              <td>
-                <form method="post" action="{{ access_url }}" class="inline">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="revoke">
-                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                  <input type="hidden" name="subject_type" value="{{ row.entry.subject_type }}">
-                  <input type="hidden" name="subject_id" value="{{ row.entry.subject_id|stringformat:'s' }}">
-                  <input type="hidden" name="permission" value="{{ row.entry.permission }}">
-                  <button class="link" type="submit">elvétel</button>
-                </form>
-              </td>
-            {% endif %}
-          </tr>
-        {% empty %}
-          <tr>
-            <td colspan="{% if can_admin %}6{% else %}5{% endif %}" class="muted">
-              Nincs külön bejegyzés (minden öröklött).
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
   {% if is_personal %}
     <p class="banner">
       Személyes workspace &ndash; csak te láthatod, megosztani nem lehet.
     </p>
+    {% include "_acl_entries_table.html" %}
 
   {% elif not standalone %}
     {% comment %}
     Inline on a workspace/project/document page: show the state, then get out of
     the way. Everything that writes lives on /resources/<id>/permissions/.
     {% endcomment %}
+    {% include "_acl_entries_table.html" %}
     <p class="muted"><a href="{{ access_url }}">Jogosultságok kezelése &rarr;</a></p>
 
   {% elif not can_share %}
+    {% include "_acl_entries_table.html" %}
     <p class="muted">Ehhez a resource-hez nincs írási jogod, így nem oszthatod meg.</p>
 
   {% else %}
-    {% if max_grantable == None %}
-      <p class="muted">Ezen a resource-on nem adhatsz hozzáférést.</p>
+    {% comment %}
+    Standalone only, the three groups of controls become tabs. They used to be one
+    long column: an entry table, a grant form, a create-group disclosure, owner
+    transfer, the personal/shared switch, the takeover lock and title
+    publication - seven unrelated decisions stacked on top of each other, and
+    "lock out the platform admin" sitting two scrolls below "who can read this".
 
-    {% else %}
+    CSS-only tabs (radio + sibling selector), no JavaScript, matching the rest of
+    the UI. `acl_tab` comes from the view so the tab survives a form POST: the
+    `next` field carries `?tab=...` and the view re-checks the right radio.
+    {% endcomment %}
+    <div class="tabs">
+      <input class="tab-radio" type="radio" name="acl-tab" id="acl-tab-access"
+             {% if acl_tab != "owner" and acl_tab != "security" %}checked{% endif %}>
+      <input class="tab-radio" type="radio" name="acl-tab" id="acl-tab-owner"
+             {% if acl_tab == "owner" %}checked{% endif %}>
+      <input class="tab-radio" type="radio" name="acl-tab" id="acl-tab-security"
+             {% if acl_tab == "security" %}checked{% endif %}>
+
+      <div class="tabbar">
+        <label for="acl-tab-access">Ki láthatja</label>
+        {% if is_owner %}<label for="acl-tab-owner">Tulajdon</label>{% endif %}
+        <label for="acl-tab-security">Biztonság</label>
+      </div>
+
+      <div class="tabpanel" data-panel="access">
+      {% include "_acl_entries_table.html" %}
       <h3>Új tag vagy csoport</h3>
       <form method="get" class="form row">
         <label style="flex:3">Szűrés (felhasználó vagy csoport)
@@ -149,37 +134,41 @@ looking like it was doing something random.
           {% endif %}
           {% if search.truncated %}Túl sok találat, a lista levágva.{% endif %}
         </p>
-        <div class="row">
-          <label>Jogosultság
-            <select name="permission">
-              {% if max_grantable == "read" %}
-                {% comment %}A writer may only share read, so nothing else is offered.{% endcomment %}
-                <option value="read">Olvasás</option>
-              {% else %}
-                <option value="read">Olvasás</option>
-                {% if can_admin %}
-                  <option value="write">Írás</option>
-                  <option value="delete">Törlés</option>
-                  <option value="admin">Admin</option>
+        {% if max_grantable == None %}
+          <p class="meta">Nincs olyan felhasználó vagy csoport, akinek itt jogot adhatsz.</p>
+        {% else %}
+          <div class="row">
+            <label>Jogosultság
+              <select name="permission">
+                {% if max_grantable == "read" %}
+                  {% comment %}A writer may only share read, so nothing else is offered.{% endcomment %}
+                  <option value="read">Olvasás</option>
+                {% else %}
+                  <option value="read">Olvasás</option>
+                  {% if can_admin %}
+                    <option value="write">Írás</option>
+                    <option value="delete">Törlés</option>
+                    <option value="admin">Admin</option>
+                  {% endif %}
                 {% endif %}
-              {% endif %}
-            </select>
-          </label>
-          <label>Hatás
-            <select name="effect">
-              <option value="allow">Engedélyez</option>
-              {% if can_admin and is_owner %}
-                {% comment %}A DENY takes access away: owner-only, everywhere.{% endcomment %}
-                <option value="deny">Tiltás</option>
-              {% endif %}
-            </select>
-          </label>
-          <label class="inline-check">Öröklődik <input type="checkbox" name="inherit" checked></label>
-        </div>
-        {% if max_grantable == "read" %}
-          <p class="meta">Nálad csak olvasási jog van, ezért itt másnak sem tudsz többet adni, mint olvasást.</p>
+              </select>
+            </label>
+            <label>Hatás
+              <select name="effect">
+                <option value="allow">Engedélyez</option>
+                {% if can_admin and is_owner %}
+                  {% comment %}A DENY takes access away: owner-only, everywhere.{% endcomment %}
+                  <option value="deny">Tiltás</option>
+                {% endif %}
+              </select>
+            </label>
+            <label class="inline-check">Öröklődik <input type="checkbox" name="inherit" checked></label>
+          </div>
+          {% if max_grantable == "read" %}
+            <p class="meta">Nálad csak olvasási jog van, ezért itt másnak sem tudsz többet adni, mint olvasást.</p>
+          {% endif %}
+          <button type="submit" class="button primary">Hozzáadás</button>
         {% endif %}
-        <button type="submit" class="button primary">Hozzáadás</button>
       </form>
 
       {% if can_admin and is_owner %}
@@ -194,87 +183,96 @@ looking like it was doing something random.
           </form>
         </details>
       {% endif %}
-    {% endif %}
-  {% endif %}
-
-  {% if standalone and is_owner %}
-    <h3>Tulajdon</h3>
-    {% if not is_personal and owner_rows %}
-      <form method="post" action="{{ access_url }}" class="form">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="transfer">
-        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-        <label>Átruházás: új tulajdonos
-          <select name="new_owner" required>
-            <option value="">-- válassz felhasználót --</option>
-            {% for row in owner_rows %}<option value="{{ row.id }}">{{ row.label }}</option>{% endfor %}
-          </select>
-        </label>
-        <label>Az előző tulajdonos
-          <select name="keep_access">
-            <option value="">elveszti a hozzáférését</option>
-            <option value="read">megtartja olvasásra</option>
-            <option value="write">megtartja írásra</option>
-          </select>
-        </label>
-        <p class="meta">Az átruházás nem megosztás: az új tulajdonos admin lesz, a te admin jogod viszont megszűnik, hacsak nem tartasz rajta gyengébb jogot.</p>
-        <button type="submit" class="button">Átruházás</button>
-      </form>
-    {% endif %}
-
-    {% if not is_personal and is_workspace_resource %}
-      <form method="post" action="{{ access_url }}" class="form">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="set_kind">
-        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-        <label>Workspace típusa
-          <select name="kind">
-            <option value="shared"{% if resource.workspace.kind == "shared" %} selected{% endif %}>Megosztott workspace</option>
-            <option value="personal"{% if resource.workspace.kind == "personal" %} selected{% endif %}>Személyes workspace</option>
-          </select>
-        </label>
-        <p class="meta">Személyessé csak akkor alakíthatod, ha rajta kívül már senki nincs.</p>
-        <button type="submit" class="button">Típus mentése</button>
-      </form>
-    {% endif %}
-
-    {% if is_workspace_resource %}
-      <form method="post" action="{{ access_url }}" class="form">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="toggle_no_takeover">
-        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-        <div class="row">
-          <label class="inline-check">
-            <input type="checkbox" name="no_takeover"{% if no_takeover %} checked{% endif %}>
-            Tilos a jogosultság-átvétel ezen a workspace-en (a rendszeradmin sem juthat be)
-          </label>
-        </div>
-        <button type="submit" class="button">Mentés</button>
-      </form>
-    {% endif %}
-  {% endif %}
-
-  {% comment %}
-  Workspace-level, so it sits outside the is_owner block: a non-owner still gets
-  the state, just not the switch. Only the owner may decide who can learn that a
-  document exists.
-  {% endcomment %}
-  {% if standalone and can_publish_titles %}
-    <h3>Címek közzététele</h3>
-    <form method="post" action="{{ access_url }}" class="form">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="toggle_publish_titles">
-      <input type="hidden" name="next" value="{{ request.get_full_path }}">
-      <div class="row">
-        <label class="inline-check">
-          <input type="checkbox" name="publish_titles"{% if publish_titles %} checked{% endif %}>
-          A címek közzététele engedélyezve ezen a workspace-en
-        </label>
       </div>
-      <p class="meta">Ha ez be van kapcsolva, egy dokumentum közzétételheti a saját címét és összefoglalóját. A cím és az összefoglaló így annak is láthatóvá válik, akinek nincs olvasási joga a dokumentumra, és minden ilyen olvasás az audit naplóba kerül.</p>
-      <button type="submit" class="button">Mentés</button>
-    </form>
-  {% elif standalone and publish_titles %}
-    <p class="meta">A címek közzététele engedélyezve ezen a workspace-en (csak a tulajdonos állíthatja).</p>
+
+      <div class="tabpanel" data-panel="owner">
+        <h3>Tulajdon</h3>
+        <p class="meta">
+          Jelenlegi tulajdonos:
+          {% if owner %}{{ owner.display_name|default:owner.username }}{% else %}nincs beállítva{% endif %}
+        </p>
+        {% if not is_personal and owner_rows %}
+          <form method="post" action="{{ access_url }}" class="form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="transfer">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <label>Átruházás: új tulajdonos
+              <select name="new_owner" required>
+                <option value="">-- válassz felhasználót --</option>
+                {% for row in owner_rows %}<option value="{{ row.id }}">{{ row.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Az előző tulajdonos
+              <select name="keep_access">
+                <option value="">elveszti a hozzáférését</option>
+                <option value="read">megtartja olvasásra</option>
+                <option value="write">megtartja írásra</option>
+              </select>
+            </label>
+            <p class="meta">Az átruházás nem megosztás: az új tulajdonos admin lesz, a te admin jogod viszont megszűnik, hacsak nem tartasz rajta gyengébb jogot.</p>
+            <button type="submit" class="button">Átruházás</button>
+          </form>
+        {% else %}
+          <p class="muted">Személyes workspace-nél nincs értelme a tulajdon átruházásának: egyetlen birtoka van.</p>
+        {% endif %}
+
+        {% if not is_personal and is_workspace_resource %}
+          <form method="post" action="{{ access_url }}" class="form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="set_kind">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <label>Workspace típusa
+              <select name="kind">
+                <option value="shared"{% if resource.workspace.kind == "shared" %} selected{% endif %}>Megosztott workspace</option>
+                <option value="personal"{% if resource.workspace.kind == "personal" %} selected{% endif %}>Személyes workspace</option>
+              </select>
+            </label>
+            <p class="meta">Személyessé csak akkor alakíthatod, ha rajta kívül már senki nincs.</p>
+            <button type="submit" class="button">Típus mentése</button>
+          </form>
+        {% endif %}
+      </div>
+
+      <div class="tabpanel" data-panel="security">
+        {% if is_owner and is_workspace_resource %}
+          <form method="post" action="{{ access_url }}" class="form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="toggle_no_takeover">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <div class="row">
+              <label class="inline-check">
+                <input type="checkbox" name="no_takeover"{% if no_takeover %} checked{% endif %}>
+                Tilos a jogosultság-átvétel ezen a workspace-en
+              </label>
+            </div>
+            <p class="meta">Ha ez be van, még a rendszeradmin sem tud ADMIN jogot szerezni erre – csak te oszthatod. Öröklődik az egész fára.</p>
+            <button type="submit" class="button">Mentés</button>
+          </form>
+        {% elif is_owner %}
+          <p class="muted">Az átvétel-tiltás workspace-szintű beállítás, itt nem érhető el.</p>
+        {% else %}
+          <p class="muted">A biztonsági beállításokat csak a tulajdonos módosíthatja.</p>
+        {% endif %}
+
+        {% if can_publish_titles %}
+          <h3>Címek közzététele</h3>
+          <form method="post" action="{{ access_url }}" class="form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="toggle_publish_titles">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <div class="row">
+              <label class="inline-check">
+                <input type="checkbox" name="publish_titles"{% if publish_titles %} checked{% endif %}>
+                A címek közzététele engedélyezve ezen a workspace-en
+              </label>
+            </div>
+            <p class="meta">Ha ez be van kapcsolva, egy dokumentum közzétételheti a saját címét és összefoglalóját. A cím és az összefoglaló így annak is láthatóvá válik, akinek nincs olvasási joga a dokumentumra, és minden ilyen olvasás az audit naplóba kerül.</p>
+            <button type="submit" class="button">Mentés</button>
+          </form>
+        {% elif publish_titles %}
+          <p class="meta">A címek közzététele engedélyezve ezen a workspace-en (csak a tulajdonos állíthatja).</p>
+        {% endif %}
+      </div>
+    </div>
   {% endif %}
 </div>

@@ -395,3 +395,113 @@ details pre.code { max-height: 320px; }
   .settings-row { flex-wrap: wrap; }
   .settings-row input, .settings-row select { min-width: 0; width: 100%; }
 }
+
+/* The month grid is 560px wide inside an overflow-x box, so on a phone the last
+   weekday ("Péntek") is sliced in half and nothing says the box can move. Two
+   affordances, both off by default and switched on by the same breakpoint that
+   sets the min-width: a fade on the trailing edge of the scroll area, and one
+   line of Hungarian above it. Desktop pays for neither. */
+.cal-scroll { position: relative; }
+.cal-scroll-hint { display: none; }
+
+@media (max-width: 720px) {
+  .cal-scroll-hint {
+    display: block;
+    margin: -0.5rem 0 0.5rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  /* pointer-events keeps the fade from swallowing taps on the day under it, and
+     it only covers the right edge, so the grid is otherwise untouched. */
+  .cal-scroll::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 2.25rem;
+    pointer-events: none;
+    background: linear-gradient(to right, rgba(23, 26, 33, 0), var(--panel));
+  }
+}
+
+/* Reading width for the rendered document body. */
+.doc-prose { max-width: var(--prose-max); }
+
+/* CSS-only tabs: radio inputs + sibling selector, no JavaScript. Used by the
+   access panel, where "who can read this", "who owns it" and "lock the platform
+   admin out" were seven unrelated decisions stacked in one column. */
+.tabs > .tab-radio { position: absolute; opacity: 0; pointer-events: none; }
+.tabs > .tabpanel { display: none; }
+.tabs > #acl-tab-access:checked ~ .tabpanel[data-panel="access"],
+.tabs > #acl-tab-owner:checked ~ .tabpanel[data-panel="owner"],
+.tabs > #acl-tab-security:checked ~ .tabpanel[data-panel="security"] { display: block; }
+
+.tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.2rem;
+}
+.tabbar label {
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  margin-bottom: -1px;
+}
+.tabbar label:hover { color: var(--text); }
+.tabs > #acl-tab-access:checked ~ .tabbar label[for="acl-tab-access"],
+.tabs > #acl-tab-owner:checked ~ .tabbar label[for="acl-tab-owner"],
+.tabs > #acl-tab-security:checked ~ .tabbar label[for="acl-tab-security"] {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.tabpanel > h3:first-child,
+.tabpanel > form:first-child,
+.tabpanel > p:first-child { margin-top: 0; }
+
+/* The topbar carried twelve links, which wrapped to three rows on a phone and
+   put "Beallitasok" next to "Kijelentkezes". The admin-only half now sits behind
+   one disclosure. Pure CSS, and <details> works on touch as well. */
+.topbar .menu { position: relative; display: inline-flex; }
+.topbar .menu > summary {
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  border-radius: 6px;
+  list-style: none;
+}
+.topbar .menu > summary::-webkit-details-marker { display: none; }
+.topbar .menu > summary::after { content: " ▾"; color: var(--muted); }
+.topbar .menu > summary:hover { background: var(--panel-2); text-decoration: none; }
+.topbar .menu[open] > summary { background: var(--panel-2); }
+.topbar .menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 11rem;
+  padding: 0.4rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.topbar .menu-panel a { white-space: nowrap; padding: 0.1rem 0.35rem; }
+@media (max-width: 720px) {
+  .topbar .menu-panel { right: auto; left: 0; }
+}
+
+/* A form's submit button stretched to the full column width because .form is a
+   flex column. Buttons are actions, not fields: size them to their label. */
+.form > .button { align-self: flex-start; }
+.form.row > .button { align-self: center; }
+details.banner > form > .button { align-self: flex-start; }

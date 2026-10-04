@@ -51,18 +51,20 @@ a 'depth' so it renders without recursive template tags.
               data-can-read="{% if row.type == 'doc' or row.can_read %}1{% else %}0{% endif %}"
               data-id="{% if row.type == 'doc' %}{{ row.doc.pk }}{% else %}folder:{{ row.path }}{% endif %}"
               {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% else %}data-folder="{{ row.path }}"{% endif %}
+              {% if can_admin and row.folder %}data-acl="{% url 'web:resource_permissions' row.folder.resource_id %}"{% endif %}
               data-tags="{{ row.tags|join:',' }}">
             <td style="padding-left: {{ row.depth }}rem">
               {% if row.type == "dir" %}
                 {% if row.can_read %}
                   <span class="muted">📁 {{ row.name }}/</span>
                   {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
-                  {% if can_write %}
-                    <a class="link" href="{% if project %}{% url 'web:project_document_create' workspace.slug project.slug %}?folder={{ row.path|urlencode }}{% else %}{% url 'web:workspace_document_create' workspace.slug %}?folder={{ row.path|urlencode }}{% endif %}">+ doku</a>
-                  {% endif %}
-                  {% if can_admin and row.folder %}
-                    <a class="link" href="{% url 'web:resource_permissions' row.folder.resource_id %}">Jogosultságok</a>
-                  {% endif %}
+                  {% comment %}
+                  The per-row action links are gone: a deep tree repeated
+                  "+ doku  Jogosultsagok" on every folder - roughly fifteen times
+                  on one screen. Everything they did is in the right-click menu
+                  below (new document, new folder, rename, tags, delete), plus
+                  the ACL page for a folder.
+                  {% endcomment %}
                 {% else %}
                   <span class="trail-name" title="Nincs hozzáférésed ehhez a mappához, de az alatta lévő tartalom látható.">📁 {{ row.name }}/</span>
                   <span class="chip chip-sm" title="Nincs hozzáférésed ehhez a mappához, de az alatta lévő tartalom látható.">nincs hozzáférésed</span>
@@ -221,6 +223,12 @@ a 'depth' so it renders without recursive template tags.
             window.location = folderCreate + '?parent=' + encodeURIComponent(folder);
           } },
         '-',
+        // The ACL link moved here from the row: it was repeated on every folder,
+        // but it has to exist somewhere, and the menu is where the other folder
+        // actions already live.
+        row.dataset.acl ? { label: '🔑 Jogosultságok', action: function () {
+            window.location = row.dataset.acl;
+          } } : '-',
         { label: '✏️ Átnevezés', action: function () {
             const name = prompt('Új mappanév:', folder.split('/').pop());
             if (name === null) return;
