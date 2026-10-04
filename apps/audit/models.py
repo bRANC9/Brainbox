@@ -72,11 +72,19 @@ class AuditEvent(models.Model):
         related_name="+",
     )
     project = models.ForeignKey(
-        "workspaces.Project",
+        "resources.Resource",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="+",
+        help_text=(
+            "The Resource of the project the event happened in. It points at the "
+            "Resource and not at a Project row because an audit entry records "
+            "where something happened at the time it happened: the UUID is the "
+            "same one a Project row used to carry (Project.pk == its Resource "
+            "id), so existing rows are untouched, and a project renamed into a "
+            "plain folder - or deleted entirely - must not take history with it."
+        ),
     )
     source = models.CharField(max_length=16, choices=AuditSource.choices, default=AuditSource.SYSTEM)
     ip_address = models.GenericIPAddressField(null=True, blank=True)

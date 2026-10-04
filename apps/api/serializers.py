@@ -18,7 +18,7 @@ from apps.links.models import ResourceLink
 from apps.permissions.constants import Effect, Permission
 from apps.permissions.models import ResourceACL
 from apps.permissions.services import PermissionService
-from apps.resources.models import Resource
+from apps.resources.models import Resource, ResourceType
 from apps.secrets.models import Secret, SecretAttachment
 from apps.workspaces.models import Project, Workspace
 from apps.workspaces.services import ProjectService, WorkspaceService
@@ -492,7 +492,13 @@ class ApiKeyScopeInputSerializer(serializers.Serializer):
         queryset=Workspace.objects.all(), required=False, allow_null=True
     )
     project = serializers.PrimaryKeyRelatedField(
-        queryset=Project.objects.all(), required=False, allow_null=True
+        # Project.pk == its Resource id, so the UUID a client sends today stays
+        # the one that works tomorrow; scoping to project-typed resources just
+        # means a typo becomes a 400 instead of a scope that silently matches
+        # nothing.
+        queryset=Resource.objects.filter(resource_type=ResourceType.PROJECT),
+        required=False,
+        allow_null=True,
     )
     permission = serializers.ChoiceField(choices=Permission.choices)
     effect = serializers.ChoiceField(choices=Effect.choices, default=Effect.ALLOW)

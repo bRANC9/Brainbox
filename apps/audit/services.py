@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from apps.resources.models import Resource
+
 from .models import AuditAction, AuditEvent, AuditResult, AuditSource
 
 
@@ -22,6 +24,16 @@ class AuditService:
         version=None,
         git_commit: str = "",
     ) -> AuditEvent:
+        """Append one audit event.
+
+        ``project`` accepts a Project row, a folder node or a Resource and is
+        stored as the Resource: the value is the same UUID either way
+        (Project.pk == its resource id), and the callers - 78 of them - predate
+        the change and pass whatever they had to hand. Resolving here keeps the
+        event recording free of import cycles and call-site churn.
+        """
+        if project is not None and not isinstance(project, Resource):
+            project = getattr(project, "resource", project)
         ip_address = None
         user_agent = ""
 

@@ -120,11 +120,17 @@ class ApiKeyScope(models.Model):
         related_name="+",
     )
     project = models.ForeignKey(
-        "workspaces.Project",
+        "resources.Resource",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="+",
+        help_text=(
+            "The project's Resource. A Project row and its Resource carry the "
+            "same UUID, so existing values are unchanged; pointing at the "
+            "Resource also means a scope keeps narrowing by that id when the "
+            "project becomes a plain folder node in the tree."
+        ),
     )
     permission = models.CharField(max_length=16, choices=PermissionChoice.choices)
     effect = models.CharField(max_length=8, choices=Effect.choices, default=Effect.ALLOW)
