@@ -1,40 +1,88 @@
 {% load static %}<!doctype html>
-<html lang="en">
+<html lang="hu">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Brainbox{% endblock %}</title>
   <link rel="icon" href="{% static 'favicon.svg' %}" type="image/svg+xml">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
+{% comment %}
+    Theme bootstrap. The two palettes live in :root and :root[data-theme="light"]
+    in app.css, dark first, so nothing has to render before this runs. It runs in
+    <head>, before the body paints, which is the whole point: a reload with the
+    light theme stored must never flash dark first.
+
+    No prefers-color-scheme. The product is dark by design and light is
+    something a user opts into, so an OS in light mode does not get to decide it.
+    Anything that is not exactly "light" - absent, "dark", or junk someone typed
+    into devtools - resolves to dark.
+
+    The try/catch is not defensive noise: Safari's private mode and a browser with
+    site data disabled throw on localStorage access rather than returning null.
+{% endcomment %}
+<script>
+(function () {
+  var stored = null;
+  try { stored = window.localStorage.getItem('brainbox.theme'); } catch (error) { stored = null; }
+  document.documentElement.dataset.theme = stored === 'light' ? 'light' : 'dark';
+})();
+</script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="{% url 'web:dashboard' %}">Brainbox</a>
-    <nav>
+    {% comment %}
+        On a phone the twelve entries below wrap onto three rows and push the page
+        heading off-screen, so under 720px this button collapses them into a
+        disclosure. It is display:none above that breakpoint, which keeps the wide
+        nav exactly as it is today without needing a second template or a
+        server-side flag for "is this a small screen".
+    {% endcomment %}
+    <button type="button" class="nav-toggle" data-nav-toggle aria-controls="topnav"
+            aria-expanded="false" aria-label="Menü" title="Menü">
+      <span class="bars" aria-hidden="true"></span>
+    </button>
+    <nav id="topnav">
       <a href="{% url 'web:dashboard' %}">Vezérlőpult</a>
       <a href="{% url 'web:search' %}">Keresés</a>
       <a href="{% url 'web:discovery' %}">Felfedezés</a>
       <a href="{% url 'web:calendar' %}">Naptár</a>
       <a href="{% url 'web:agenda' %}">Agenda</a>
-      {% if user.is_authenticated %}
-        {# Always reachable: the view creates the Personal workspace lazily. #}
-        <a class="nav-personal" href="{% url 'web:personal_workspace' %}">Személyes</a>
-      {% endif %}
-      <a href="/admin/">Admin</a>
-      <a href="{% url 'llm-manifest' %}">AI</a>
-      {% if user.is_authenticated %}
-        <a href="{% url 'web:api_keys' %}">API kulcsok</a>
-        {% if user.is_staff %}<a href="{% url 'web:groups_admin' %}">Csoportok</a>{% endif %}
-        {% if user.is_superuser %}<a href="{% url 'web:settings_page' %}">Beállítások</a>{% endif %}
-        <a href="{% url 'web:audit_dashboard' %}">Audit</a>
-        <span class="user">{{ user }}</span>
-        <form method="post" action="{% url 'logout' %}" class="inline">
-          {% csrf_token %}
-          <button type="submit" class="link">Kijelentkezés</button>
-        </form>
-      {% else %}
-        <a href="{% url 'login' %}">Belépés</a>
-      {% endif %}
+      {% comment %}
+    Twelve links wrapped onto three rows on a phone and put "Beállítások" next
+    to "Kijelentkezés". The management half now sits behind one disclosure, and it
+    is a <details> rather than a CSS hover so it works on touch.
+    {% endcomment %}
+    {% if user.is_authenticated %}
+      <a class="nav-personal" href="{% url 'web:personal_workspace' %}">Személyes</a>
+      <details class="menu">
+        <summary>Adminisztráció</summary>
+        <div class="menu-panel">
+          <a href="/admin/">Django admin</a>
+          <a href="{% url 'llm-manifest' %}">AI (llm)</a>
+          <a href="{% url 'web:api_keys' %}">API kulcsok</a>
+          {% if user.is_staff %}<a href="{% url 'web:groups_admin' %}">Csoportok</a>{% endif %}
+          {% if user.is_superuser %}<a href="{% url 'web:settings_page' %}">Beállítások</a>{% endif %}
+          <a href="{% url 'web:audit_dashboard' %}">Audit napló</a>
+        </div>
+      </details>
+      <span class="user">{{ user }}</span>
+      <form method="post" action="{% url 'logout' %}" class="inline">
+        {% csrf_token %}
+        <button type="submit" class="link">Kijelentkezés</button>
+      </form>
+    {% else %}
+      <a href="{% url 'login' %}">Belépés</a>
+    {% endif %}
+      {% comment %}
+        Names the mode it switches *to*, so the visible word is the whole
+        instruction and there is no icon to lose to a missing font. It lives in
+        the nav rather than beside the brand because the topbar is a two-column
+        space-between row on the desktop, and a third item would land the button
+        in the middle of the header.
+      {% endcomment %}
+      <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false"
+              aria-label="Váltás világos témára" title="Váltás világos témára"><span data-theme-label>Világos</span></button>
     </nav>
   </header>
 
@@ -48,5 +96,79 @@
   </main>
 
   <footer class="footer">Brainbox &mdash; mérnöki tudásplatform</footer>
+{% comment %}
+    Clicking a link inside the disclosure must close it, otherwise it stays open
+    over the page you just navigated to. One delegated listener instead of
+    inline handlers on every entry.
+{% endcomment %}
+<script>
+document.addEventListener('click', function (event) {
+  document.querySelectorAll('.topbar .menu[open]').forEach(function (menu) {
+    if (!menu.contains(event.target)) { menu.removeAttribute('open'); }
+  });
+});
+</script>
+{% comment %}
+    Theme switch. It only rewrites the attribute on <html>, so nothing reflows,
+    nothing re-renders and the pointer and scroll position are exactly where the
+    user left them - no navigation, no form post, no reload. The label is
+    repainted on load as well as on click, because the <head> script is what
+    decides the theme and the button must agree with it on the first paint.
+
+    A localStorage that refuses the write (private mode, full quota) is not
+    rolled back: the theme is correct for this page view, and reverting it would
+    be a worse lie than simply forgetting the choice until the next reload.
+{% endcomment %}
+<script>
+(function () {
+  var KEY = 'brainbox.theme';
+  var LABEL = { dark: 'Világos', light: 'Sötét' };
+  var ACTION = { dark: 'Váltás világos témára', light: 'Váltás sötét témára' };
+  function otherTheme() {
+    return document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  }
+  document.querySelectorAll('[data-theme-toggle]').forEach(function (button) {
+    var text = button.querySelector('[data-theme-label]');
+    function repaint() {
+      var target = otherTheme();
+      button.setAttribute('aria-pressed', target === 'light' ? 'true' : 'false');
+      button.setAttribute('aria-label', ACTION[target]);
+      button.setAttribute('title', ACTION[target]);
+      if (text) { text.textContent = LABEL[target]; }
+    }
+    button.addEventListener('click', function () {
+      var target = otherTheme();
+      document.documentElement.dataset.theme = target;
+      try { window.localStorage.setItem(KEY, target); } catch (error) { /* not persisted */ }
+      repaint();
+    });
+    repaint();
+  });
+})();
+</script>
+{% comment %}
+    Nav disclosure for phones. The collapsed state is pure CSS (display:none under
+    720px), so the button has nothing to initialise here - it only flips one class
+    and mirrors it into aria-expanded. Escape closes it, which is the one way out
+    that does not require hitting the small target again.
+{% endcomment %}
+<script>
+(function () {
+  var button = document.querySelector('[data-nav-toggle]');
+  var topbar = button && button.closest('.topbar');
+  if (!button || !topbar) { return; }
+  function setOpen(open) {
+    topbar.classList.toggle('nav-open', open);
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  button.addEventListener('click', function () {
+    setOpen(!topbar.classList.contains('nav-open'));
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') { return; }
+    setOpen(false);
+  });
+})();
+</script>
 </body>
 </html>

@@ -18,6 +18,13 @@
   <a class="button" href="?year={{ next_year }}&amp;month={{ next_month }}" title="{{ next_month_name }} {{ next_year }}">{{ next_month_name }} &rarr;</a>
 </p>
 
+{% comment %}
+Below 720px the grid is 560px wide inside the overflow-x box, so the last
+weekday arrives sliced in half with nothing to say it can move. The hint and
+the edge fade are both hidden above that breakpoint in the stylesheet.
+{% endcomment %}
+<p class="cal-scroll-hint">Horizontálisan görgethető &rarr;</p>
+<div class="cal-scroll">
 <div class="scroll-x">
 <table class="cal-grid">
   <thead>
@@ -45,5 +52,6 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 </div>
 {% endblock %}

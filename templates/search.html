@@ -1,44 +1,48 @@
-﻿{% extends "base.html" %}
-{% block title %}Search - Brainbox{% endblock %}
+{% extends "base.html" %}
+{% load ui %}
+{% block title %}Keresés - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
   <h1>Keresés</h1>
 </section>
 
 <form method="get" class="form row">
-  <label style="flex:3">Query
+  <label style="flex:3">Keresési kifejezés
     <input type="text" name="q" value="{{ query }}" autofocus>
   </label>
-  <label>Mode
+  <label>Mód
     <select name="mode">
-      <option value="hybrid" {% if mode == "hybrid" %}selected{% endif %}>Hibrid</option>
-      <option value="text" {% if mode == "text" %}selected{% endif %}>Szöveges</option>
-      <option value="semantic" {% if mode == "semantic" %}selected{% endif %}>Szemantikus</option>
+      {% for value, label in mode_labels.items %}
+        <option value="{{ value }}" {% if mode == value %}selected{% endif %}>{{ label|title }}</option>
+      {% endfor %}
     </select>
   </label>
-  <button type="submit" class="button primary">Search</button>
+  <button type="submit" class="button primary">Keresés</button>
 </form>
 
 {% if query %}
-  <p class="meta">{{ results|length }} result(s) for &ldquo;{{ query }}&rdquo; ({{ mode }})</p>
+  <p class="meta">{{ results|length }} találat erre: &bdquo;{{ query }}&rdquo; ({{ mode_label }} móddal)</p>
   {% if results %}
     <ol class="results">
       {% for result in results %}
         <li>
           <a href="{% url 'web:document_detail' result.document_id %}">{{ result.title }}</a>
-          <span class="badge badge-{{ result.status }}">{{ result.status }}</span>
-          <span class="muted">score {{ result.score }}</span>
+          <span class="badge badge-{{ result.status }}">{{ result.status|hu }}</span>
+          <span class="muted">{{ result.workspace_name }}{% if result.project_name %} / {{ result.project_name }}{% endif %}</span>
           <p class="muted">{{ result.snippet }}</p>
         </li>
       {% endfor %}
     </ol>
   {% else %}
-    <p class="muted">Nincs találat.</p>
+    <p class="muted">
+      Nincs találat erre: &bdquo;{{ query }}&rdquo;. Próbálj más kifejezéssel,
+      vagy válts más keresési módra.
+    </p>
   {% endif %}
 {% else %}
   <p class="muted">
     Keress dokumentumok, projektek és munkaterek között.
-    A <a href="{% url 'web:discovery' %}">Discover</a> oldal a tudásbázis felosztását mutatja.
+    A <a href="{% url 'web:discovery' %}">Felfedezés</a> oldal a tudásbázis felosztását mutatja.
   </p>
 {% endif %}
 {% endblock %}

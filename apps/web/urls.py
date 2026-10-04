@@ -32,6 +32,11 @@ urlpatterns = [
         name="workspace_rename",
     ),
     path(
+        "workspaces/<slug:workspace_slug>/files/",
+        views.file_browser,
+        name="workspace_files",
+    ),
+    path(
         "workspaces/<slug:workspace_slug>/documents/new/",
         views.document_create,
         name="workspace_document_create",
@@ -45,6 +50,11 @@ urlpatterns = [
         "workspaces/<slug:workspace_slug>/<slug:project_slug>/",
         views.project_detail,
         name="project_detail",
+    ),
+    path(
+        "workspaces/<slug:workspace_slug>/<slug:project_slug>/files/",
+        views.file_browser,
+        name="project_files",
     ),
     path(
         "workspaces/<slug:workspace_slug>/<slug:project_slug>/documents/new/",
@@ -83,6 +93,10 @@ urlpatterns = [
         name="resource_takeover",
     ),
     path("personal/", views.personal_workspace, name="personal_workspace"),
+    # Serves the bytes for every file. apps.documents.embeds rewrites relative
+    # image/document references to this one route, so it takes a file pk and
+    # nothing else.
+    path("files/<uuid:pk>/content/", views.file_content, name="file_content"),
     path("documents/<uuid:pk>/", views.document_detail, name="document_detail"),
     path("documents/<uuid:pk>/edit/", views.document_edit, name="document_edit"),
     path("documents/<uuid:pk>/approve/", views.document_approve, name="document_approve"),

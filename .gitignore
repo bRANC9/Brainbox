@@ -46,3 +46,9 @@ graphify-out/
 .opencode/tmp_*.py
 .opencode/tmp_*.txt
 .opencode/tmp_*.md
+.opencode/seed_ui.py
+.opencode/dump_ui.py
+.opencode/shots2.py
+.opencode/shots/
+.opencode/shots3.py
+/.opencode/shots*/

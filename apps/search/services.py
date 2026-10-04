@@ -7,6 +7,7 @@ a vector hit never grants access on its own.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -41,8 +42,22 @@ class Candidate:
     semantic_score: float = 0.0
 
 
+def _plain_text(content: str) -> str:
+    """Reduce a raw markdown chunk to the prose a reader should see.
+
+    Chunks are stored exactly as written, so a snippet cut from them shows
+    syntax instead of text: a leading '# ' heading marker, backticks around an
+    inline code word. Both are dropped here, along with repeated whitespace, so
+    the excerpt is plain text. Rendering the markdown properly would need a
+    parser and would move the offsets the excerpt is cut from.
+    """
+    text = re.sub(r"`+", "", content or "")
+    text = re.sub(r"(?m)^[ \t]{0,3}#{1,6}[ \t]*", "", text)
+    return " ".join(text.split())
+
+
 def _snippet(content: str, query: str, length: int = 260) -> str:
-    text = " ".join((content or "").split())
+    text = _plain_text(content)
     if not text:
         return ""
     lowered = text.lower()

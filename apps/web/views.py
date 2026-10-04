@@ -11,15 +11,17 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Q
-from django.http import Http404, HttpResponse, HttpResponseForbidden
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_http_methods
 
 from apps.accounts.models import ApiKey
 from apps.accounts.services import ApiKeyService
 from apps.audit.models import AuditAction, AuditEvent, AuditSource
 from apps.audit.services import AuditService
+from apps.documents import embeds
 from apps.documents.frontmatter import parse_frontmatter
 from apps.documents.models import (
     ChangeSource,
@@ -34,7 +36,8 @@ from apps.groups.models import Group, GroupMembership
 from apps.knowledge.services import DiscoveryService, DraftService, GraphService
 from apps.permissions.constants import Effect, Permission, SubjectType
 from apps.permissions.services import PermissionService
-from apps.resources.models import Resource
+from apps.resources.models import Resource, ResourceType
+from apps.resources.storage import StorageError
 from apps.search.services import SearchService
 from apps.workspaces.models import Project, Workspace
 from apps.workspaces.ownership import OwnershipService
@@ -89,9 +92,18 @@ def _project_queryset_with_counts():
     ).order_by("name")
 
 
-def _render_markdown(content: str) -> str:
+def _render_markdown(content: str, document=None) -> str:
+    """Markdown to HTML, with relative references resolved against ``document``.
+
+    ``document`` is optional, so every other caller (a preview, a template with
+    no document in hand) keeps working exactly as before - it just gets the
+    rendered HTML with its relative URLs untouched. With it, ``![x](photo.png)``
+    and ``[n](other.md)`` are rewritten to the routes that serve them, which is
+    the only reason a diagram in a document is not a broken image.
+    """
     _frontmatter, body = parse_frontmatter(content)
-    return md.markdown(body, extensions=MARKDOWN_EXTENSIONS)
+    html = md.markdown(body, extensions=MARKDOWN_EXTENSIONS)
+    return embeds.resolve(document, html)
 
 
 def _git_panel(workspace, project=None) -> dict:
@@ -420,9 +432,10 @@ def folder_create(request, workspace_slug, project_slug=None):
 
 @login_required
 def search(request):
+    mode_labels = {"hybrid": "hibrid", "text": "szöveges", "semantic": "szemantikus"}
     query = request.GET.get("q", "").strip()
     mode = request.GET.get("mode", "hybrid")
-    if mode not in {"hybrid", "text", "semantic"}:
+    if mode not in mode_labels:
         mode = "hybrid"
     results = []
     if query:
@@ -434,8 +447,38 @@ def search(request):
             request=request,
             detail={"q": query, "mode": mode, "count": len(results)},
         )
+        # The service returns workspace/project ids; the UI answers "where does
+        # this live?", so resolve the names the dashboard shows for a document.
+        workspace_ids = {row["workspace"] for row in results if row["workspace"]}
+        project_ids = {row["project"] for row in results if row["project"]}
+        workspace_names = {
+            str(pk): name
+            for pk, name in Workspace.objects.filter(pk__in=workspace_ids).values_list(
+                "pk", "name"
+            )
+        }
+        project_names = {
+            str(pk): name
+            for pk, name in Project.objects.filter(pk__in=project_ids).values_list("pk", "name")
+        }
+        results = [
+            {
+                **row,
+                "workspace_name": workspace_names.get(row["workspace"], ""),
+                "project_name": project_names.get(row["project"], ""),
+            }
+            for row in results
+        ]
     return render(
-        request, "search.html", {"query": query, "mode": mode, "results": results}
+        request,
+        "search.html",
+        {
+            "query": query,
+            "mode": mode,
+            "mode_labels": mode_labels,
+            "mode_label": mode_labels[mode],
+            "results": results,
+        },
     )
 
 
@@ -476,6 +519,7 @@ def _access_context(request, resource) -> dict:
             "can_share": False,
             "is_owner": PermissionService.is_scope_owner(request.user, resource),
             "is_personal": True,
+            "is_workspace_resource": resource.resource_type == ResourceType.WORKSPACE,
             "no_takeover": resource.takeover_locked(),
             "can_take_over": False,
             "access_url": reverse("web:resource_permissions", args=[resource.pk]),
@@ -488,6 +532,7 @@ def _access_context(request, resource) -> dict:
         "can_share": can_share,
         "is_owner": PermissionService.is_scope_owner(request.user, resource),
         "is_personal": False,
+        "is_workspace_resource": resource.resource_type == ResourceType.WORKSPACE,
         "no_takeover": resource.takeover_locked(),
         "can_take_over": PermissionService.can_take_over(request.user, resource),
         "publish_titles": _publish_titles(workspace) if workspace else False,
@@ -502,7 +547,9 @@ def _access_context(request, resource) -> dict:
 @login_required
 def workspace_detail(request, workspace_slug):
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
-    if not _can(request.user, workspace.resource, Permission.READ):
+    # can_browse, not check: somebody granted a deep folder inside this
+    # workspace has to be able to open it, or the grant is unusable.
+    if not PermissionService.can_browse(request.user, workspace.resource):
         raise Http404
 
     projects = [
@@ -519,6 +566,14 @@ def workspace_detail(request, workspace_slug):
     ]
     can_write = _can(request.user, workspace.resource, Permission.WRITE)
     tag_filter = request.GET.get("tag", "")
+    tree_rows = _folder_tree_rows(workspace, None, request.user, tag_filter)
+    # A workspace's own tree only ever holds content that sits at the workspace
+    # root. Knowledge normally lives in projects, so an empty tree here used to
+    # read as "this workspace is empty" while it held ten documents. Say where
+    # the content actually is instead of pretending.
+    content_in_projects = bool(projects) and not any(
+        row["type"] == "doc" for row in tree_rows
+    )
     context = {
         "workspace": workspace,
         "projects": projects,
@@ -527,8 +582,9 @@ def workspace_detail(request, workspace_slug):
         "is_personal": workspace.is_personal,
         "owner": workspace.owner,
         "can_rename": _can(request.user, workspace.resource, Permission.ADMIN),
+        "content_in_projects": content_in_projects,
         **_access_context(request, workspace.resource),
-        "tree_rows": _folder_tree_rows(workspace, None, request.user, tag_filter),
+        "tree_rows": tree_rows,
         "tag_filter": tag_filter,
         "available_tags": _available_tags(workspace, None),
         **_git_panel(workspace),
@@ -540,7 +596,7 @@ def workspace_detail(request, workspace_slug):
 def project_detail(request, workspace_slug, project_slug):
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
     project = get_object_or_404(Project, workspace=workspace, slug=project_slug)
-    if not _can(request.user, project.resource, Permission.READ):
+    if not PermissionService.can_browse(request.user, project.resource):
         raise Http404
 
     documents = [
@@ -590,7 +646,7 @@ def document_detail(request, pk):
         {
             "document": document,
             "content": content,
-            "rendered_html": _render_markdown(content),
+            "rendered_html": _render_markdown(content, document),
             "outgoing_links": outgoing,
             "incoming_links": incoming,
             "related": GraphService.neighbors(request.user, document.resource, depth=1),
@@ -1582,6 +1638,7 @@ def resource_permissions(request, resource_id):
             "can_share": can_share,
             "is_owner": PermissionService.is_scope_owner(request.user, resource),
             "is_personal": is_personal,
+            "is_workspace_resource": resource.resource_type == ResourceType.WORKSPACE,
             "no_takeover": resource.takeover_locked(),
             "can_take_over": PermissionService.can_take_over(request.user, resource),
             "owner_rows": owner_rows,
@@ -1593,6 +1650,15 @@ def resource_permissions(request, resource_id):
                 _can_publish_titles(request.user, scoped_workspace)
                 if scoped_workspace
                 else False
+            ),
+            # The access panel is tabbed (CSS-only). Forms post `next`, so the
+            # `?tab=` survives the redirect and the same panel reopens where you
+            # left it instead of jumping back to the first tab.
+            "acl_tab": request.GET.get("tab", ""),
+            "owner": (
+                getattr(resource.workspace, "owner", None)
+                if resource.resource_type == ResourceType.WORKSPACE
+                else getattr(resource.project, "owner", None)
             ),
             "search": _subject_matches(request.user, resource, request.GET.get("q", "")),
             "access_url": reverse("web:resource_permissions", args=[resource.pk]),
@@ -1664,3 +1730,307 @@ def personal_workspace(request):
     if workspace is None:
         workspace = PersonalWorkspaceService.get_or_create(request.user)
     return redirect(reverse("web:workspace_detail", args=[workspace.slug]))
+
+
+# ---------------------------------------------------------------------------
+# Files
+#
+# A `File` is bytes on disk plus a row, and until now the only way to reach one
+# was the REST FileViewSet. That left the web UI with two holes: there was no
+# page that lists files, and nothing served the URLs a rendered document points
+# its `<img src>` at - every diagram in the platform was a broken image.
+# ---------------------------------------------------------------------------
+
+#: Byte units for the human-readable size column.
+_SIZE_UNITS = ("B", "kB", "MB", "GB", "TB")
+
+
+def _human_size(size) -> str:
+    """A byte count as a short Hungarian-readable string (``812 B``, ``1,4 MB``)."""
+    value = float(size or 0)
+    index = 0
+    while value >= 1024 and index < len(_SIZE_UNITS) - 1:
+        value /= 1024
+        index += 1
+    if index == 0:
+        return f"{int(value)} B"
+    return f"{value:.1f}".replace(".", ",") + f" {_SIZE_UNITS[index]}"
+
+
+def _is_image_file(stored_file) -> bool:
+    """Whether the browser will render this file inline, so it gets a thumbnail.
+
+    Decided on the stored mime type, falling back to the suffix for a file whose
+    type could not be guessed at upload time. The suffix list is the same one
+    ``apps.documents.embeds`` rewrites document references with, so the page
+    previews exactly the set a document can actually embed.
+    """
+    mime = (stored_file.mime_type or "").lower()
+    if mime.startswith("image/"):
+        return True
+    name = stored_file.name or ""
+    suffix = f".{name.rsplit('.', 1)[-1].lower()}" if "." in name else ""
+    return suffix in embeds.IMAGE_SUFFIXES
+
+
+@login_required
+@require_http_methods(["GET", "HEAD"])
+def file_content(request, pk):
+    """Serve one file's bytes, permission-checked, under its stored mime type.
+
+    This is the route :mod:`apps.documents.embeds` rewrites every relative
+    ``src``/``href`` to, so a missing or unreadable one puts every diagram in
+    every document back to a broken image. It is also the target of every
+    thumbnail on the file browser, which is why it is a plain GET and not a
+    download.
+
+    Served as a stream from the file handle rather than through
+    ``FileService.read_bytes``: this route is hit by the *browser*, once per
+    ``<img>`` on a page plus again on every back/forward and cache revalidation,
+    and ``read_bytes`` would hold the entire file in memory per concurrent hit.
+    A 200 MB PDF opened twice would cost 400 MB resident for bytes the browser
+    caches anyway. ``FileResponse`` hands the open handle to the WSGI server
+    instead, and ``Content-Length`` comes from the file's own size.
+    """
+    from apps.files.models import File
+    from apps.files.services import FileService
+
+    stored_file = get_object_or_404(
+        File.objects.select_related("resource", "workspace", "project"), pk=pk
+    )
+    # 404, not 403: this URL is what a rendered document embeds, and a 403 would
+    # make "you may not see this file" a distinguishable answer - the file URL
+    # would become an existence oracle. The UI answers 404 for both everywhere.
+    if not _can(request.user, stored_file.resource, Permission.READ):
+        raise Http404
+
+    # A row without bytes on disk (a deleted file, a git checkout that was never
+    # materialised) is a 404 too - the metadata is not the content.
+    try:
+        path = FileService.storage_path(stored_file)
+        size = path.stat().st_size
+        handle = path.open("rb")
+    except (OSError, StorageError):
+        raise Http404 from None
+
+    AuditService.log(
+        AuditAction.READ,
+        user=request.user,
+        resource=stored_file.resource,
+        workspace=stored_file.workspace,
+        project=stored_file.project,
+        source=AuditSource.WEB,
+        request=request,
+        detail={
+            "type": "file",
+            "path": stored_file.path,
+            "via": "web:file_content",
+            "version": stored_file.current_version,
+        },
+    )
+
+    as_attachment = request.GET.get("download") == "1"
+    response = FileResponse(
+        handle,
+        content_type=stored_file.mime_type or "application/octet-stream",
+        as_attachment=as_attachment,
+        filename=stored_file.name,
+    )
+    response["Content-Length"] = size
+    # The stored mime type is the only authority on what this is; without nosniff
+    # a browser may second-guess it and run something as script.
+    response["X-Content-Type-Options"] = "nosniff"
+    # Set explicitly rather than left to FileResponse's guess from the file name:
+    # the name and the stored type can disagree, and the stored type is the one
+    # that was permission-checked and audited.
+    response["Content-Disposition"] = content_disposition_header(
+        as_attachment, stored_file.name
+    )
+    return response
+
+
+def _upload_rel_path(name: str) -> str:
+    """A client-supplied upload name reduced to a safe relative path.
+
+    The same normalisation as ``DocumentService.bulk_create_from_files``: a
+    directory upload arrives with the browser's relative path and backslashes, a
+    Windows name can carry a drive prefix, and ``.``/``..`` segments have to go -
+    the storage adapter is the wrong place to find out a name was hostile.
+    """
+    raw = (name or "").strip().replace("\\", "/")
+    if len(raw) > 1 and raw[1] == ":":
+        raw = raw[2:]
+    segments = [
+        segment for segment in raw.lstrip("/").split("/") if segment not in {"", ".", ".."}
+    ]
+    return "/".join(segments)
+
+
+def _file_browser_rows(workspace, project, user) -> list[dict]:
+    """Readable files of one scope as flat rows, grouped by their folder.
+
+    ``File`` has no folder row of its own - ``path`` *is* the folder structure -
+    so the tree is built from the path, the same way ``_folder_tree_rows``
+    derives document folders. Rows are ``{"type": "dir"|"file", "name", "depth",
+    ...}`` so the template renders the tree without recursion.
+
+    Read and delete are resolved in two bulk passes rather than one check per
+    file: a permission check walks the resource's ancestor chain, so a folder
+    with 500 files would otherwise be 500 round trips to re-answer the same
+    question. Files the caller may not read are dropped here - the browser page
+    must not become a way to learn that a file exists.
+    """
+    from apps.files.models import File
+
+    scope = {"workspace": workspace, "project": project}
+    stored_files = list(
+        File.objects.filter(**scope).select_related("resource").order_by("path")
+    )
+    resource_ids = [stored_file.resource_id for stored_file in stored_files]
+    readable = set(
+        PermissionService.allowed_resource_ids(user, resource_ids, Permission.READ)
+    )
+    deletable = set(
+        PermissionService.allowed_resource_ids(user, resource_ids, Permission.DELETE)
+    )
+
+    root: dict = {"children": {}, "files": []}
+    for stored_file in stored_files:
+        if stored_file.resource_id not in readable:
+            continue
+        node = root
+        prefix = ""
+        for segment in (stored_file.path or stored_file.name).split("/")[:-1]:
+            prefix = f"{prefix}/{segment}" if prefix else segment
+            node["children"].setdefault(segment, {"children": {}, "files": [], "path": prefix})
+            node = node["children"][segment]
+        node["files"].append(stored_file)
+
+    rows: list[dict] = []
+
+    def walk(node: dict, depth: int) -> None:
+        for name in sorted(node["children"]):
+            child = node["children"][name]
+            rows.append({"type": "dir", "name": name, "depth": depth, "path": child["path"]})
+            walk(child, depth + 1)
+        for stored_file in node["files"]:
+            rows.append(
+                {
+                    "type": "file",
+                    "name": stored_file.name,
+                    "depth": depth,
+                    "path": stored_file.path,
+                    "file": stored_file,
+                    "size": _human_size(stored_file.size),
+                    "is_image": _is_image_file(stored_file),
+                    "can_delete": stored_file.resource_id in deletable,
+                }
+            )
+
+    walk(root, 0)
+    return rows
+
+
+def _file_browser_redirect(workspace, project):
+    """The file browser URL of this scope - where an upload/delete returns to."""
+    if project is not None:
+        return reverse("web:project_files", args=[workspace.slug, project.slug])
+    return reverse("web:workspace_files", args=[workspace.slug])
+
+
+def _file_browser_post(request, workspace, project):
+    """Upload or delete, then go back to the page the form was posted from."""
+    from apps.files.models import File
+    from apps.files.services import FileService
+
+    target = project.resource if project else workspace.resource
+    back = _file_browser_redirect(workspace, project)
+
+    if request.POST.get("action") == "delete":
+        stored_file = get_object_or_404(
+            File.objects.select_related("resource", "workspace", "project"),
+            pk=request.POST.get("file"),
+        )
+        # Delete is checked on the file's own resource, not on the container: a
+        # write grant on a workspace is not a grant to remove every file in it.
+        if not _can(request.user, stored_file.resource, Permission.DELETE):
+            messages.error(request, "Nincs törlési jogosultságod ehhez a fájlhoz.")
+            return redirect(back)
+        FileService.delete(stored_file=stored_file, user=request.user, request=request)
+        messages.success(request, f"Törölve: {stored_file.path}")
+        return redirect(back)
+
+    if not _can(request.user, target, Permission.WRITE):
+        messages.error(request, "Nincs írási jogosultságod ide.")
+        return redirect(back)
+
+    uploads = [(upload.name, upload.read()) for upload in request.FILES.getlist("files")]
+    if not uploads:
+        messages.error(request, "Válassz ki legalább egy fájlt.")
+        return redirect(back)
+
+    # Same shape as `document_bulk_upload`: an optional folder field, many files,
+    # one stored object each, duplicates reported instead of aborting the batch.
+    # The folder prefix is prepended exactly as `bulk_create_from_files` does, so
+    # a directory upload keeps its sub-paths and the two upload forms behave the
+    # same way. There is no FileFolder row to create: `FileService.create` writes
+    # the bytes under `files/<path>`, which creates the directories on disk.
+    folder = (request.POST.get("folder") or "").strip().strip("/")
+    created = 0
+    for name, data in uploads:
+        rel_path = _upload_rel_path(name)
+        if not rel_path:
+            continue
+        try:
+            FileService.create(
+                workspace=workspace,
+                project=project,
+                name=Path(rel_path).name,
+                path=f"{folder}/{rel_path}" if folder else rel_path,
+                data=data,
+                created_by=request.user,
+                source=ChangeSource.WEB,
+                request=request,
+            )
+        except ValidationError as exc:
+            messages.warning(f"{rel_path}: {'; '.join(exc.messages)}")
+            continue
+        created += 1
+    if created:
+        messages.success(request, f"{created} fájl betöltve.")
+    return redirect(back)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def file_browser(request, workspace_slug, project_slug=None):
+    """List the files of a workspace or project, and upload/delete into it."""
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    project = (
+        get_object_or_404(Project, workspace=workspace, slug=project_slug)
+        if project_slug
+        else None
+    )
+    container = project.resource if project else workspace.resource
+    # can_browse, not check, exactly as workspace_detail/project_detail do: a
+    # grant on a single file inside has to be reachable, or the page that would
+    # show it is never rendered.
+    if not PermissionService.can_browse(request.user, container):
+        raise Http404
+
+    if request.method == "POST":
+        return _file_browser_post(request, workspace, project)
+
+    rows = _file_browser_rows(workspace, project, request.user)
+    return render(
+        request,
+        "file_browser.html",
+        {
+            "workspace": workspace,
+            "project": project,
+            "rows": rows,
+            "can_write": _can(request.user, container, Permission.WRITE),
+            "file_count": sum(1 for row in rows if row["type"] == "file"),
+            "detail_url": _file_browser_redirect(workspace, project),
+        },
+    )

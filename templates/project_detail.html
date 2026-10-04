@@ -4,16 +4,19 @@
 <section class="page-head">
   <div>
     <p class="crumbs">
-      <a href="{% url 'web:dashboard' %}">Dashboard</a> /
+      <a href="{% url 'web:dashboard' %}">Vezérlőpult</a> /
       <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a> /
       {{ project.name }}
     </p>
     <h1>{{ project.name }}</h1>
-    <p class="muted">{{ project.description|default:"No description" }}</p>
+    {% if project.description %}<p class="muted">{{ project.description }}</p>{% else %}<p class="meta">Nincs leírás.</p>{% endif %}
     <p class="meta">Tulajdonos: {% if owner %}{{ owner.display_name|default:owner.username }}{% if owner.display_name and owner.display_name != owner.username %} ({{ owner.username }}){% endif %}{% else %}nincs (örökség){% endif %}</p>
   </div>
   {% if can_admin and not is_personal %}
-    <a class="button" href="{% url 'web:resource_permissions' project.resource_id %}">Jogosultságok</a>
+    <span class="actions">
+      <a class="button" href="{% url 'web:project_files' workspace.slug project.slug %}">Fájlok</a>
+      <a class="button" href="{% url 'web:resource_permissions' project.resource_id %}">Jogosultságok</a>
+    </span>
   {% endif %}
 </section>
 

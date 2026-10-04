@@ -97,6 +97,20 @@ class SuperuserTests(TestCase):
         with self.assertRaises(PermissionDenied):
             OwnershipService.take_over(resource=self.workspace.resource, actor=self.root)
 
+    def test_takeover_is_not_offered_on_what_you_already_administer(self):
+        """Taking over something you own is meaningless - and it was being offered."""
+        self.assertTrue(PermissionService.can_take_over(self.root, self.workspace.resource))
+        OwnershipService.take_over(resource=self.workspace.resource, actor=self.root)
+        self.assertFalse(
+            PermissionService.can_take_over(self.root, self.workspace.resource),
+            "the superuser now holds an explicit ADMIN entry, so there is nothing to take over",
+        )
+        self.assertFalse(PermissionService.can_take_over(self.alice, self.workspace.resource))
+
+    def test_takeover_stays_available_for_a_sibling_the_caller_cannot_reach(self):
+        other = WorkspaceService.create(name="Zárt", created_by=self.alice)
+        self.assertTrue(PermissionService.can_take_over(self.root, other.resource))
+
     def test_no_takeover_is_inherited_by_the_subtree(self):
         self.workspace.resource.no_takeover = True
         self.workspace.resource.save(update_fields=["no_takeover"])
@@ -725,3 +739,113 @@ class FolderAclTests(TestCase):
             "the subfolder goes with the resource cascade",
         )
         self.assertFalse(DocumentFolder.objects.filter(resource_id=Resource_before).exists())
+
+
+class BrowseReachabilityTests(TestCase):
+    """A grant on a deep folder has to be *reachable*, not just valid.
+
+    Otherwise "grant me Ecoform/Fejlesztoi resz/runbooks/2024" gives the person
+    a document they can only find by search: the project page still 404s,
+    because a plain READ check on the project says no.
+    """
+
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.bob = User.objects.create_user("bob", "bob@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Ecoform", created_by=self.alice)
+        self.project = ProjectService.create(
+            workspace=self.workspace, name="Fejlesztői rész", created_by=self.alice
+        )
+        self.folder = create_folder(
+            workspace=self.workspace, project=self.project, path="runbooks/2024",
+            created_by=self.alice,
+        )
+        self.document = DocumentService.create(
+            workspace=self.workspace,
+            project=self.project,
+            title="Éles runbook",
+            content="# x",
+            path="runbooks/2024/runbook.md",
+            created_by=self.alice,
+        )
+
+    def test_no_grant_means_no_browse(self):
+        self.assertFalse(PermissionService.can_browse(self.bob, self.project.resource))
+        self.assertFalse(PermissionService.can_browse(self.bob, self.workspace.resource))
+
+    def test_a_folder_grant_makes_the_containers_browsable(self):
+        self.assertFalse(PermissionService.check(self.bob, self.project.resource, Permission.READ))
+        PermissionService.grant(
+            self.folder.resource,
+            subject_type=SubjectType.USER,
+            subject_id=self.bob.id,
+            permission=Permission.READ,
+            created_by=self.alice,
+        )
+        self.assertTrue(
+            PermissionService.can_browse(self.bob, self.project.resource),
+            "otherwise the trail that leads to the folder is never rendered",
+        )
+        self.assertTrue(PermissionService.can_browse(self.bob, self.workspace.resource))
+        # Still not readable: the trail is navigation, not access.
+        self.assertFalse(PermissionService.check(self.bob, self.project.resource, Permission.READ))
+
+    def test_a_group_grant_counts_too(self):
+        team = Group.objects.create(name="Runbook olvasók")
+        GroupMembership.objects.create(user=self.bob, group=team)
+        PermissionService.grant(
+            self.folder.resource,
+            subject_type=SubjectType.GROUP,
+            subject_id=team.id,
+            permission=Permission.READ,
+            created_by=self.alice,
+        )
+        self.assertTrue(PermissionService.can_browse(self.bob, self.project.resource))
+
+    def test_a_deny_below_does_not_open_the_container(self):
+        team = Group.objects.create(name="Runbook olvasók")
+        GroupMembership.objects.create(user=self.bob, group=team)
+        PermissionService.grant(
+            self.folder.resource,
+            subject_type=SubjectType.GROUP,
+            subject_id=team.id,
+            permission=Permission.READ,
+            created_by=self.alice,
+        )
+        # An ancestor DENY outranks it: the container must stay closed.
+        PermissionService.grant(
+            self.project.resource,
+            subject_type=SubjectType.GROUP,
+            subject_id=team.id,
+            permission=Permission.READ,
+            effect=Effect.DENY,
+            created_by=self.alice,
+        )
+        self.assertFalse(PermissionService.can_browse(self.bob, self.project.resource))
+
+    def test_the_workspace_page_shows_the_trail_not_the_projects(self):
+        secret_project = ProjectService.create(
+            workspace=self.workspace, name="Zárt", created_by=self.alice
+        )
+        DocumentService.create(
+            workspace=self.workspace, project=secret_project, title="Zárt doksi",
+            content="# x", path="zart.md", created_by=self.alice,
+        )
+        PermissionService.grant(
+            self.folder.resource,
+            subject_type=SubjectType.USER,
+            subject_id=self.bob.id,
+            permission=Permission.READ,
+            created_by=self.alice,
+        )
+        from apps.web.views import _folder_tree_rows
+
+        # A workspace-level tree only ever holds workspace-root content, so the
+        # grant surfaces as the trail inside the *project*, never here.
+        rows = _folder_tree_rows(self.workspace, None, self.bob)
+        self.assertEqual(rows, [])
+        project_rows = _folder_tree_rows(self.workspace, self.project, self.bob)
+        paths = {row.get("path") for row in project_rows if row["type"] == "dir"}
+        self.assertEqual(paths, {"runbooks", "runbooks/2024"})
+        titles = {row["name"] for row in project_rows if row["type"] == "doc"}
+        self.assertEqual(titles, {"Éles runbook"})
