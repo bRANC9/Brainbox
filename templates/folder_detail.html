@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ folder_node.name }} - Brainbox{% endblock %}
+{% block content %}
+{% comment %}
+A node page. It renders for a project, a folder, or a folder several levels
+inside a project - the same template, because after the tree change they are the
+same kind of object. The breadcrumb is the node's real ancestor chain, each link
+its own address.
+{% endcomment %}
+<section class="page-head">
+  <div>
+    <p class="crumbs">
+      <a href="{% url 'web:dashboard' %}">Vezérlőpult</a> /
+      <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
+      {% for parent in ancestors %} / <a href="{{ parent.href }}">{{ parent.name }}</a>{% endfor %} /
+      {{ folder_node.name }}
+    </p>
+    <h1>{{ folder_node.name }}</h1>
+    {% if folder_node.role == "project" %}<p class="meta">Projekt</p>{% endif %}
+    {% if folder_node.description %}<p class="muted">{{ folder_node.description }}</p>{% else %}<p class="meta">Nincs leírás.</p>{% endif %}
+    <p class="meta">Tulajdonos: {% if owner %}{{ owner.display_name|default:owner.username }}{% else %}nincs (örökség){% endif %}</p>
+  </div>
+  {% if can_admin and not is_personal %}
+    <span class="actions">
+      {% if project %}<a class="button" href="{% url 'web:project_files' workspace.slug project.slug %}">Fájlok</a>{% endif %}
+      <a class="button" href="{% url 'web:resource_permissions' folder_node.resource_id %}">Jogosultságok</a>
+    </span>
+  {% endif %}
+</section>
+
+{% if is_personal %}
+  <p class="banner">A(z) {{ workspace.name }} <strong>Személyes workspace</strong>: csak te látod, megosztani nem lehet.</p>
+{% endif %}
+
+{% if can_take_over %}
+  <details class="banner warn">
+    <summary>Nincs hozzáférésed? Kérj jogosultság-átvételt</summary>
+    <form method="post" action="{% url 'web:resource_takeover' folder_node.resource_id %}"
+          onsubmit="return confirm('Átveszed a jogosultságot erre a mappára? A művelet az audit naplóba kerül, és nem változtatja meg a tulajdonost.');">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="takeover">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button type="submit" class="button">Jogosultság-átvétel</button>
+      <p class="meta">A művelet naplózott, de nem változtatja meg a tulajdonost.</p>
+    </form>
+  </details>
+{% elif no_takeover and user.is_superuser %}
+  <p class="banner warn">A tulajdonos letiltotta a jogosultság-átvételt ezen az ágon.</p>
+{% endif %}
+
+{% include "_git_panel.html" %}
+{% include "_file_tree.html" %}
+{% if access_url %}{% include "_access_panel.html" %}{% endif %}
+{% endblock %}

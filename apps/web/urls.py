@@ -92,6 +92,14 @@ urlpatterns = [
         views.resource_takeover,
         name="resource_takeover",
     ),
+    # Any node by its workspace-relative path. Must precede the <project_slug>
+    # patterns: "f/Deploy/runbooks/" has three segments and would otherwise be
+    # read as a project called "f".
+    path(
+        "workspaces/<slug:workspace_slug>/f/<path:tree_path>/",
+        views.folder_detail,
+        name="folder_detail",
+    ),
     path("personal/", views.personal_workspace, name="personal_workspace"),
     # Serves the bytes for every file. apps.documents.embeds rewrites relative
     # image/document references to this one route, so it takes a file pk and

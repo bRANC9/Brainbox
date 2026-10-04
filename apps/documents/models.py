@@ -215,7 +215,13 @@ class DocumentFolder(Taggable, models.Model):
         return self.path.rsplit("/", 1)[0] if "/" in self.path else ""
 
     def chain(self) -> list["DocumentFolder"]:
-        """This folder and its enclosing folders, nearest first."""
+        """This folder and its enclosing folders, nearest first.
+
+        The walk follows ``container`` and stops at the first container that is
+        not itself a folder - a project node or the workspace. A project node *is*
+        a folder (role ``project``), so it does appear in the chain, which is what
+        makes :meth:`tree_path` work without knowing about the Project table.
+        """
         out: list[DocumentFolder] = [self]
         seen = {self.id}
         container_id = self.container_id
@@ -231,6 +237,17 @@ class DocumentFolder(Taggable, models.Model):
             out.append(parent)
             container_id = parent.container_id
         return out
+
+    def tree_path(self) -> str:
+        """Workspace-relative address of this node, e.g. ``Deploy/runbooks/2024``.
+
+        Distinct from ``path``, which is *scope*-relative ("runbooks/2024") because
+        a project is a storage scope and the scope's own name must not be repeated
+        inside it. The tree path is what identifies a node uniquely across the
+        whole workspace, which is what a URL needs - two folders called ``2024``
+        in different projects have the same ``path`` and different tree paths.
+        """
+        return "/".join(node.name for node in reversed(self.chain()))
 
     def scope_path(self) -> str:
         """Path prefix that the storage scope already accounts for.

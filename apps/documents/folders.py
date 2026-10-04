@@ -572,6 +572,36 @@ def scope_path(workspace, project, path: str) -> str:
     return f"{prefix}/{path}"
 
 
+def folder_by_tree_path(workspace, tree_path: str) -> DocumentFolder | None:
+    """Resolve a workspace-relative node address.
+
+    Walks ``(container, name)`` one segment at a time from the workspace root, so
+    an address of any depth resolves exactly - ``Deploy/runbooks/2024`` - without
+    relying on the scope-relative ``path``, which cannot distinguish a folder
+    called "2024" in one project from one called "2024" in another.
+    """
+    segments = [s for s in normalize_folder_path(tree_path).split("/") if s]
+    if not segments:
+        return None
+    container = workspace.resource
+    node: DocumentFolder | None = None
+    for segment in segments:
+        node = (
+            DocumentFolder.objects.filter(container=container, name=segment)
+            .select_related("container")
+            .first()
+        )
+        if node is None:
+            return None
+        container = node.resource
+    return node
+
+
+def ancestors_of(node: DocumentFolder) -> list[DocumentFolder]:
+    """The enclosing nodes, nearest first, excluding the node itself."""
+    return node.chain()[1:]
+
+
 def folder_for_path(workspace, project, path: str) -> DocumentFolder | None:
     """The folder node at ``path``, or None.
 
@@ -643,6 +673,8 @@ __all__ = [
     "create_folder_node",
     "delete_folder",
     "ensure_folder",
+    "ancestors_of",
+    "folder_by_tree_path",
     "folder_for_path",
     "move_folder",
     "normalize_folder_path",

@@ -60,7 +60,8 @@ class TaggingTests(TestCase):
         r = self.client.post(f"/documents/{doc.pk}/tags/", {"action": "add", "tags": "azure"})
         self.assertEqual(r.status_code, 302)
         self.assertIn("azure", tags_for(doc))
-        # filter the tree by tag
-        page = self.client.get(f"/workspaces/{self.workspace.slug}/{self.project.slug}/?tag=azure")
+        # filter the node's tree by tag (a project is a node now, addressed by
+        # its tree path rather than a project slug)
+        page = self.client.get(f"/workspaces/{self.workspace.slug}/f/{self.project.name}/?tag=azure")
         self.assertEqual(page.status_code, 200)
         self.assertEqual(len(page.context["tree_rows"]), 1)

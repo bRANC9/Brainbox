@@ -13,14 +13,18 @@ a 'depth' so it renders without recursive template tags.
     <h2 style="margin:0">Fájlok és mappák {% if can_write %}<span class="muted" style="font-size:.8rem">(húzd a sorokat mappák közé)</span>{% endif %}</h2>
     {% if can_write %}
       <span>
+        {% comment %}
+        `folder_prefix` is set by a folder page so its "new" buttons land inside
+        the folder you are looking at rather than at the scope root.
+        {% endcomment %}
         {% if project %}
-          <a class="button" href="{% url 'web:project_folder_create' workspace.slug project.slug %}">Új mappa</a>
-          <a class="button" href="{% url 'web:project_bulk_upload' workspace.slug project.slug %}">Tömeges feltöltés</a>
-          <a class="button primary" href="{% url 'web:project_document_create' workspace.slug project.slug %}">Új doku</a>
+          <a class="button" href="{% url 'web:project_folder_create' workspace.slug project.slug %}{% if folder_prefix %}?parent={{ folder_prefix|urlencode }}{% endif %}">Új mappa</a>
+          <a class="button" href="{% url 'web:project_bulk_upload' workspace.slug project.slug %}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Tömeges feltöltés</a>
+          <a class="button primary" href="{% url 'web:project_document_create' workspace.slug project.slug %}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Új doku</a>
         {% else %}
-          <a class="button" href="{% url 'web:workspace_folder_create' workspace.slug %}">Új mappa</a>
-          <a class="button" href="{% url 'web:workspace_bulk_upload' workspace.slug %}">Tömeges feltöltés</a>
-          <a class="button primary" href="{% url 'web:workspace_document_create' workspace.slug %}">Új doku</a>
+          <a class="button" href="{% url 'web:workspace_folder_create' workspace.slug %}{% if folder_prefix %}?parent={{ folder_prefix|urlencode }}{% endif %}">Új mappa</a>
+          <a class="button" href="{% url 'web:workspace_bulk_upload' workspace.slug %}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Tömeges feltöltés</a>
+          <a class="button primary" href="{% url 'web:workspace_document_create' workspace.slug %}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Új doku</a>
         {% endif %}
       </span>
     {% endif %}
@@ -56,15 +60,18 @@ a 'depth' so it renders without recursive template tags.
             <td style="padding-left: {{ row.depth }}rem">
               {% if row.type == "dir" %}
                 {% if row.can_read %}
-                  <span class="muted">📁 {{ row.name }}/</span>
-                  {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
                   {% comment %}
-                  The per-row action links are gone: a deep tree repeated
-                  "+ doku  Jogosultsagok" on every folder - roughly fifteen times
-                  on one screen. Everything they did is in the right-click menu
-                  below (new document, new folder, rename, tags, delete), plus
-                  the ACL page for a folder.
+                  A folder is a node with a page of its own now, so its name is a
+                  link - clicking goes *into* the folder. The per-row action
+                  links stayed in the right-click menu (they were repeated on
+                  every row, ~15 times a screen).
                   {% endcomment %}
+                  {% if row.node_href %}
+                    <a href="{{ row.node_href }}">📁 {{ row.name }}/</a>
+                  {% else %}
+                    <span class="muted">📁 {{ row.name }}/</span>
+                  {% endif %}
+                  {% for t in row.tags %}<span class="chip chip-sm">{{ t }}</span>{% endfor %}
                 {% else %}
                   {% comment %}
                   A structural node is a way in, not a dead end: it links to the

@@ -244,40 +244,15 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
     rows: list[dict] = []
 
     def container_href(folder) -> str:
-        """Where a structural node should link.
+        """Where a structural node should link: its own page.
 
-        A trail node shows the way *into* something you can read, so it has to be
-        clickable - otherwise the caller sees the breadcrumb and is stuck. A
-        project node links to its own page (that is where the trail continues);
-        a plain folder links to whatever encloses it.
+        Every node has one now - a project, a folder, three levels of both - so a
+        trail link is exact instead of pointing at the nearest project and
+        stopping there.
         """
-        from apps.documents.models import FolderRole
-
-        if folder.role == FolderRole.PROJECT:
-            # The node's own project row is the authority for the URL, because a
-            # slug is not the name: "Fejlesztői rész" -> "fejlesztoi-resz".
-            # The node deliberately has no `project` FK (it *is* the project), so
-            # it is found through the shared Resource.
-            from apps.workspaces.models import Project
-
-            project = Project.objects.filter(
-                resource_id=folder.resource_id
-            ).select_related("workspace").first()
-            if project is not None:
-                return reverse(
-                    "web:project_detail", args=[project.workspace.slug, project.slug]
-                )
-            return reverse("web:workspace_detail", args=[folder.workspace.slug])
-        node = folder.container
-        if node is None:
+        if folder is None:
             return ""
-        project = PermissionService.project_of(node)
-        if project is not None:
-            return reverse("web:project_detail", args=[project.workspace.slug, project.slug])
-        workspace = PermissionService.workspace_of(node)
-        if workspace is not None:
-            return reverse("web:workspace_detail", args=[workspace.slug])
-        return ""
+        return _folder_href(folder)
 
     def walk(node: dict, depth: int, parent_path: str) -> None:
         for name in sorted(node["children"]):
@@ -291,6 +266,11 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
                     "path": path,
                     "can_read": path in readable_paths,
                     "folder": folder_by_path.get(path),
+                    "node_href": (
+                        _folder_href(folder_by_path[path])
+                        if path in readable_paths and path in folder_by_path
+                        else ""
+                    ),
                     "trail_href": "" if path in readable_paths
                     else (container_href(folder_by_path[path]) if path in folder_by_path else ""),
                     "tags": _folder_tags(workspace, project, path),
@@ -658,31 +638,140 @@ def workspace_detail(request, workspace_slug):
 
 @login_required
 def project_detail(request, workspace_slug, project_slug):
+    """Retired as a page: a project is a node, and nodes are addressed by path.
+
+    Kept as a route so every existing link and bookmark keeps working - it just
+    hands over to the canonical address. Two URLs rendering the same content is
+    how the interface ended up with two hierarchies that were really one.
+    """
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
     project = get_object_or_404(Project, workspace=workspace, slug=project_slug)
-    if not PermissionService.can_browse(request.user, project.resource):
+    node = DocumentFolder.objects.filter(resource_id=project.resource_id).first()
+    if node is None:
         raise Http404
+    return redirect(
+        reverse("web:folder_detail", args=[workspace.slug, node.tree_path()]), permanent=True
+    )
+
+
+def _subtree_folders(node, max_depth: int = 16) -> list:
+    """The node and every folder below it, breadth-first, depth-bounded."""
+    from apps.documents.models import DocumentFolder
+
+    out = [node]
+    frontier = [node.resource_id]
+    for _ in range(max_depth):
+        children = list(
+            DocumentFolder.objects.filter(container_id__in=frontier).select_related("resource")
+        )
+        if not children:
+            break
+        out.extend(children)
+        frontier = [child.resource_id for child in children]
+    return out
+
+
+def _node_tree_rows(workspace, node, user, tag_filter: str = "") -> list[dict]:
+    """The node's immediate contents: subfolders, then documents.
+
+    A folder page lists one level rather than flattening a whole subtree, because
+    that is what makes clicking *in* exact: each subfolder is a page of its own,
+    addressed by its tree path. It also means a caller granted one deep folder
+    sees that folder's contents without needing read on anything above it.
+    """
+    from apps.documents.models import Document
+    from apps.tags.services import filter_documents_by_tag, tags_for
+
+    subtree = _subtree_folders(node)
+    children = [f for f in subtree if f.container_id == node.resource_id]
+    ids = [f.resource_id for f in subtree if f.resource_id]
+    visible = set(PermissionService.visible_resource_ids(user, ids, Permission.READ))
+    readable = set(PermissionService.allowed_resource_ids(user, ids, Permission.READ))
 
     documents = [
         document
-        for document in project.documents.select_related("resource")
-        if _can(request.user, document.resource, Permission.READ)
+        for document in Document.objects.filter(resource__parent=node.resource).select_related(
+            "resource"
+        )
+        if _can(user, document.resource, Permission.READ)
     ]
-    can_write = _can(request.user, project.resource, Permission.WRITE)
+    if tag_filter:
+        documents = filter_documents_by_tag(documents, tag_filter)
+
+    rows: list[dict] = []
+    for child in sorted(children, key=lambda item: item.name.lower()):
+        if child.resource_id not in visible:
+            continue
+        can_read = child.resource_id in readable
+        rows.append(
+            {
+                "type": "dir",
+                "name": child.name,
+                "depth": 0,
+                "path": child.path,
+                "can_read": can_read,
+                "folder": child,
+                "trail_href": "" if can_read else _folder_href(child),
+                "node_href": _folder_href(child),
+                "tags": tags_for(child),
+            }
+        )
+    for document in sorted(documents, key=lambda item: item.path):
+        rows.append(
+            {
+                "type": "doc",
+                "name": document.title,
+                "depth": 0,
+                "doc": document,
+                "tags": tags_for(document),
+            }
+        )
+    return rows
+
+
+def _folder_href(folder) -> str:
+    """The canonical address of a node: its tree path under its workspace."""
+    return reverse("web:folder_detail", args=[folder.workspace.slug, folder.tree_path()])
+
+
+@login_required
+def folder_detail(request, workspace_slug, tree_path):
+    """A page for any node in the tree, addressed by its workspace-relative path.
+
+    This is what replaces "a project is a slug in a URL" with "a node is a path":
+    ``/workspaces/ecoform/f/Deploy/runbooks/`` addresses the same object whether it
+    is a project, a folder or three levels of both - because after the tree
+    change they are one kind of thing.
+    """
+    from apps.documents.folders import folder_by_tree_path
+
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    node = folder_by_tree_path(workspace, tree_path)
+    if node is None:
+        raise Http404
+    if not PermissionService.can_browse(request.user, node.resource):
+        raise Http404
+
     tag_filter = request.GET.get("tag", "")
+    ancestors = [
+        {"name": parent.name, "href": _folder_href(parent)}
+        for parent in reversed(node.chain()[1:])
+    ]
     context = {
         "workspace": workspace,
-        "project": project,
-        "documents": documents,
-        "can_write": can_write,
-        "owner": project.owner or workspace.owner,
-        **_access_context(request, project.resource),
-        "tree_rows": _folder_tree_rows(workspace, project, request.user, tag_filter),
+        "project": node.project,
+        "folder_node": node,
+        "folder_prefix": node.path,
+        "ancestors": ancestors,
+        "can_write": _can(request.user, node.resource, Permission.WRITE),
+        "owner": node.owner,
+        **_access_context(request, node.resource),
+        "tree_rows": _node_tree_rows(workspace, node, request.user, tag_filter),
         "tag_filter": tag_filter,
-        "available_tags": _available_tags(workspace, project),
-        **_git_panel(workspace, project),
+        "available_tags": _available_tags(workspace, node.project),
+        **_git_panel(workspace, node.project),
     }
-    return render(request, "project_detail.html", context)
+    return render(request, "folder_detail.html", context)
 
 
 @login_required

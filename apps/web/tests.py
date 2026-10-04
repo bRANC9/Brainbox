@@ -198,9 +198,9 @@ class AccessPanelInlineRegressionTests(TestCase):
         self.assertTrue(response.context["can_share"])
         self.assertNotIn("nincs írási jogod", response.content.decode())
 
-    def test_project_page_renders_the_panel_for_the_owner(self):
+    def test_project_node_page_renders_the_panel_for_the_owner(self):
         response = self.client.get(
-            reverse("web:project_detail", args=[self.workspace.slug, self.project.slug])
+            reverse("web:folder_detail", args=[self.workspace.slug, self.project.name])
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context["can_admin"])
@@ -234,12 +234,29 @@ class AccessPanelInlineRegressionTests(TestCase):
         ).content.decode()
         self.assertEqual(html.count('<option value="allow">Engedélyez</option>'), 1)
 
-    def test_project_page_links_to_the_permissions_page(self):
-        response = self.client.get(
-            reverse("web:project_detail", args=[self.workspace.slug, self.project.slug])
+    def test_project_node_page_links_to_the_permissions_page(self):
+        """A project is a node, addressed by its tree path under the workspace."""
+        node_url = reverse(
+            "web:folder_detail", args=[self.workspace.slug, self.project.name]
         )
+        response = self.client.get(node_url)
+        self.assertEqual(response.status_code, 200)
         url = reverse("web:resource_permissions", args=[self.project.resource_id])
         self.assertIn(url, response.content.decode())
+
+    def test_the_old_project_url_redirects_to_the_node_page(self):
+        """Bookmarks and existing links keep working - as a redirect, not a copy.
+
+        Two URLs rendering the same thing is how "a project" and "a folder" stayed
+        two ideas in the interface for as long as they did.
+        """
+        old = reverse("web:project_detail", args=[self.workspace.slug, self.project.slug])
+        response = self.client.get(old)
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(
+            response["Location"],
+            reverse("web:folder_detail", args=[self.workspace.slug, self.project.name]),
+        )
 
 
 class GroupMemberPickerTests(TestCase):

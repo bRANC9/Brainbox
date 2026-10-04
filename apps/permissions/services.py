@@ -121,8 +121,10 @@ class PermissionService:
             return False
         if user is None or not getattr(user, "is_authenticated", False):
             return False
-        if resource.resource_type == ResourceType.FOLDER:
-            return False
+        # A folder is a container page now, so the same rule applies to it as to
+        # a project. This used to short-circuit folders out - correct while they
+        # had no page, and exactly wrong once they do: it made the trail stop one
+        # level above the grant, so the deep folder's own page 404ed.
         # Absolute DENY wins first. The subtree shortcut below is only a way of
         # *reaching* a grant that already exists further down; it must never be a
         # way around a DENY sitting on the container itself, or a denied
