@@ -108,6 +108,20 @@ class Document(Taggable, models.Model):
         return self.title
 
 
+class FolderRole(models.TextChoices):
+    """What a node in the tree is for.
+
+    Not a taxonomy of subject matter (there deliberately is none - see ``terv.md``),
+    but a statement about granularity: a *project* is a node people think of as a
+    body of work with its own access list, a *folder* is a path segment. Both are
+    the same kind of object - a named node with a container, an owner and an ACL -
+    which is why they live in one table.
+    """
+
+    FOLDER = "folder", "Folder"
+    PROJECT = "project", "Project"
+
+
 class DocumentFolder(Taggable, models.Model):
     """A named node in the knowledge tree.
 
@@ -117,7 +131,8 @@ class DocumentFolder(Taggable, models.Model):
     owned. A project and a folder then looked identical in the interface while
     only one of them was a real object.
 
-    It is a real object now. ``container`` points at the enclosing node - another
+    It is a real object now, and a project is the same object with
+    ``role = PROJECT``. ``container`` points at the enclosing node - another
     folder, a project, a workspace, whatever exists - so nesting is not
     constrained to "inside a project" or two levels. ``name`` is this node's own
     name, and the full ``path`` is a **denormalised cache** of the chain, kept
@@ -144,6 +159,13 @@ class DocumentFolder(Taggable, models.Model):
         related_name="child_folders",
     )
     name = models.CharField(max_length=255)
+    role = models.CharField(
+        max_length=16,
+        choices=FolderRole.choices,
+        default=FolderRole.FOLDER,
+        help_text="A 'project' szerepű mappa önálló doboz: külön nevet visel, "
+        "külön jogosultsága van, és a fában is látszik.",
+    )
     description = models.TextField(blank=True)
     workspace = models.ForeignKey(
         "workspaces.Workspace", on_delete=models.CASCADE, related_name="folders"
@@ -211,21 +233,34 @@ class DocumentFolder(Taggable, models.Model):
         return out
 
     def scope_path(self) -> str:
-        """Always empty: a path is relative to the workspace *or* project it is in.
+        """Path prefix that the storage scope already accounts for.
 
-        The container already knows which, so there is nothing to prefix. Adding
-        the project name here would break every caller that filters a path within
-        a scope - and the on-disk layout nests projects in their own directory
-        anyway.
+        A project (or the workspace root) is a *storage* scope: the bytes live
+        under ``workspaces/<id>/projects/<id>/``, so the path stored on a
+        document or folder is relative to that scope and must not repeat the
+        scope's own name.
         """
+        for parent in self.chain()[1:]:
+            if parent.role == FolderRole.PROJECT:
+                return parent.name
         return ""
 
     def recompute_path(self, *, save: bool = True) -> str:
-        """Rewrite ``path`` from the container chain. The only writer of it."""
+        """Rewrite ``path`` from the container chain. The only writer of it.
+
+        The chain gives the position in the tree - including the project node -
+        and the prefix of that chain which the storage scope already covers is
+        then stripped. So ``Deploy/runbooks/2024`` in the chain becomes
+        ``runbooks/2024`` stored, while the node keeps its place in the one tree.
+        That is what lets a project be a folder *without* moving any file.
+        """
         parts = [self.name]
         for parent in self.chain()[1:]:
             parts.append(parent.name)
         parts.reverse()
+        prefix = self.scope_path()
+        if prefix and parts and parts[0] == prefix:
+            parts = parts[1:]
         derived = "/".join(parts)
         if derived != self.path:
             self.path = derived

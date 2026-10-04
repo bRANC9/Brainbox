@@ -156,10 +156,11 @@ def create_folder_node(
 def ensure_folder(workspace, project, folder_path: str, created_by=None) -> DocumentFolder:
     """Get-or-create the folder at ``folder_path``, creating ancestors too.
 
-    Still takes a path, because that is what the callers have: document paths
-    from a create, an import, or a git sync. The path is walked one segment at a
-    time so each step is a proper named node rather than a row invented from a
-    string.
+    Callers still say "runbooks/2024" meaning "inside this project", so the walk
+    is over those segments starting at the project's own node. The project name
+    then arrives on its own, from that node, via :meth:`recompute_path` - which
+    is the whole point of the chain being the source of truth. Prefixing the path
+    here as well would produce "Deploy/Deploy/...".
     """
     folder_path = normalize_folder_path(folder_path)
     if not folder_path:
@@ -286,13 +287,7 @@ def resolve_folder_path(folder: DocumentFolder, path: str) -> DocumentFolder | N
     path = normalize_folder_path(path)
     if not path:
         return None
-    node = (
-        DocumentFolder.objects.filter(
-            workspace=folder.workspace, project=folder.project, path=path
-        )
-        .select_related("container")
-        .first()
-    )
+    node = folder_for_path(folder.workspace, folder.project, path)
     if node is None:
         raise ValidationError({"path": f"Nincs ilyen mappa: {path}"})
     return node
@@ -559,16 +554,54 @@ def register_parents(workspace, project, document_path: str) -> None:
         ensure_folder(workspace, project, "/".join(parts[:index]))
 
 
+def scope_path(workspace, project, path: str) -> str:
+    """Translate a scope-relative path into a flat workspace path.
+
+    Callers still say "runbooks/2024" meaning "inside this project", while the
+    tree is now flat: the project is a node, so its own name is part of the
+    path. Without this translation every existing caller - document create, bulk
+    upload, git sync, the drag-and-drop endpoint - would silently write to the
+    wrong place.
+    """
+    path = normalize_folder_path(path)
+    if project is None or not path:
+        return path
+    prefix = project.name
+    if path == prefix or path.startswith(f"{prefix}/"):
+        return path
+    return f"{prefix}/{path}"
+
+
 def folder_for_path(workspace, project, path: str) -> DocumentFolder | None:
-    """The folder node at ``path`` (without its scope prefix), or None."""
-    folder_path = normalize_folder_path(path)
-    if not folder_path:
+    """The folder node at ``path``, or None.
+
+    Accepts both spellings, because both still exist in callers: a scope-relative
+    path ("runbooks" inside a project) and a flat workspace path
+    ("Deploy/runbooks"). The flat one is tried first, because that is what is
+    stored.
+    """
+    raw = normalize_folder_path(path)
+    if not raw:
         return None
-    return (
-        DocumentFolder.objects.filter(workspace=workspace, project=project, path=folder_path)
-        .select_related("container")
-        .first()
-    )
+    candidates = [raw]
+    prefixed = scope_path(workspace, project, raw)
+    if prefixed != raw:
+        candidates.append(prefixed)
+    for candidate in candidates:
+        found = (
+            DocumentFolder.objects.filter(workspace=workspace, path=candidate)
+            .select_related("container")
+            .first()
+        )
+        if found is not None:
+            return found
+    if project is not None:
+        return (
+            DocumentFolder.objects.filter(resource_id=project.resource_id)
+            .select_related("container")
+            .first()
+        )
+    return None
 
 
 def reparent_document(document) -> None:

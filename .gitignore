@@ -42,18 +42,11 @@ desktop.ini
 graphify-out/
 
 # Scratch files this tooling writes while working in the repo.
-.opencode/tmp_*.sh
-.opencode/tmp_*.py
-.opencode/tmp_*.txt
-.opencode/tmp_*.md
-.opencode/seed_ui.py
-.opencode/dump_ui.py
-.opencode/shots2.py
-.opencode/shots/
-.opencode/shots3.py
-/.opencode/shots*/
-.opencode/seed_ui.py
-.opencode/check_tree.py
-.opencode/full_review.py
-.opencode/shots2.py
-.opencode/tmp_*.sh
+
+# opencode config ships with the repo; everything else in here is scratch.
+# (Listing tracked paths instead of each scratch name, because committing a
+#  throwaway script by `git add -A` happened three separate times.)
+/.opencode/*
+!/.opencode/opencode.json
+!/.opencode/plugins/
+!/.opencode/skills/
