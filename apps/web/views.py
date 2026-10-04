@@ -190,11 +190,13 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
             if folder.resource_id in readable:
                 readable_paths.add(folder.path)
     for document in documents:
+        # A readable document's ancestors have to appear so the tree shows the way
+        # to it - but they are *not* readable themselves. Marking them readable
+        # would strip the "nincs hozzáférésed" marker off every structural node
+        # that happens to sit above something the caller can read.
         parts = (document.path or "").split("/")[:-1]
         for index in range(1, len(parts) + 1):
-            path = "/".join(parts[:index])
-            folder_paths.add(path)
-            readable_paths.add(path)
+            folder_paths.add("/".join(parts[:index]))
 
     # node[path] = {"children": {name: path}, "docs": [...]}
     root = {"children": {}, "docs": []}

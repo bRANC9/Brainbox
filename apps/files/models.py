@@ -29,6 +29,13 @@ class File(Taggable, models.Model):
     )
     name = models.CharField(max_length=512)
     path = models.CharField(max_length=1024)
+    folder = models.ForeignKey(
+        "documents.DocumentFolder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="files",
+    )
     mime_type = models.CharField(max_length=255, default="application/octet-stream")
     size = models.BigIntegerField(default=0)
     checksum = models.CharField(max_length=64, blank=True)
