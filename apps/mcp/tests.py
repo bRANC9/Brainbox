@@ -153,6 +153,70 @@ class MCPTests(TestCase):
         self.assertEqual(payload["path"], "dotnet/x.md")
         self.assertEqual(payload["project"], str(project.pk))
 
+    def test_create_folder_and_move_by_node(self):
+        project = ProjectService.create(
+            workspace=self.workspace, name="Deploy", created_by=self.alice
+        )
+        arena = self._payload(
+            "knowledge_create_folder",
+            {"workspace": str(self.workspace.pk), "node": "Deploy/arena"},
+            self.alice_key,
+        )
+        runbooks = self._payload(
+            "knowledge_create_folder",
+            {"workspace": str(self.workspace.pk), "node": "Deploy/runbooks"},
+            self.alice_key,
+        )
+        self.assertEqual(runbooks["tree_path"], "Deploy/runbooks")
+        self.assertEqual(arena["tree_path"], "Deploy/arena")
+
+        document = DocumentService.create(
+            workspace=self.workspace, project=project, title="Note",
+            path="x.md", content="# X\n", created_by=self.alice,
+        )
+        moved = self._payload(
+            "knowledge_move_document",
+            {"document_id": str(document.pk), "node": "Deploy/arena"},
+            self.alice_key,
+        )
+        self.assertEqual(moved["tree_path"], "Deploy/arena/x.md")
+
+        nested = self._payload(
+            "knowledge_move_folder",
+            {"folder_id": runbooks["id"], "node": "Deploy/arena"},
+            self.alice_key,
+        )
+        self.assertEqual(nested["tree_path"], "Deploy/arena/runbooks")
+
+        # Omitting `node` moves the folder to its scope root.
+        rooted = self._payload(
+            "knowledge_move_folder", {"folder_id": runbooks["id"]}, self.alice_key
+        )
+        self.assertEqual(rooted["tree_path"], "Deploy/runbooks")
+
+    def test_move_document_by_node_rejects_cross_project(self):
+        project = ProjectService.create(
+            workspace=self.workspace, name="Deploy", created_by=self.alice
+        )
+        ProjectService.create(
+            workspace=self.workspace, name="Other", created_by=self.alice
+        )
+        document = DocumentService.create(
+            workspace=self.workspace, project=project, title="Note",
+            path="x.md", content="# X\n", created_by=self.alice,
+        )
+        self._payload(
+            "knowledge_create_folder",
+            {"workspace": str(self.workspace.pk), "node": "Other/sub"},
+            self.alice_key,
+        )
+        self._assert_error(
+            "knowledge_move_document",
+            {"document_id": str(document.pk), "node": "Other/sub"},
+            self.alice_key,
+            needle="project",
+        )
+
     def test_unknown_tool_returns_error_content(self):
         response = self._call(
             {

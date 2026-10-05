@@ -108,6 +108,18 @@ def _get_document(document_id) -> Document:
         raise ToolError(f"Document '{document_id}' not found.") from exc
 
 
+def _get_folder(value):
+    """Resolve a folder node by id (a project is a folder node too)."""
+    from apps.documents.models import DocumentFolder
+
+    try:
+        return DocumentFolder.objects.select_related(
+            "resource", "workspace", "project", "container"
+        ).get(pk=value)
+    except (DocumentFolder.DoesNotExist, ValidationError, ValueError, TypeError) as exc:
+        raise ToolError(f"Folder '{value}' not found.") from exc
+
+
 def _get_workspace(value) -> Workspace:
     queryset = Workspace.objects.select_related("resource")
     try:
@@ -279,6 +291,18 @@ def _document_brief(document: Document) -> dict:
         "summary": document.summary,
         "workspace": str(document.workspace_id),
         "project": str(document.project_id) if document.project_id else None,
+    }
+
+
+def _folder_brief(folder) -> dict:
+    return {
+        "id": str(folder.pk),
+        "name": folder.name,
+        "path": folder.path,
+        "tree_path": folder.tree_path(),
+        "role": folder.role,
+        "workspace": str(folder.workspace_id),
+        "project": str(folder.project_id) if folder.project_id else None,
     }
 
 
@@ -784,6 +808,124 @@ def tool_update_project(ctx: ToolContext, args: dict) -> dict:
         project.description = args["description"]
     project.save()
     return {"id": str(project.pk), "name": project.name}
+
+
+@tool(
+    "knowledge_create_folder",
+    "Create a folder node by its workspace-relative tree path, e.g. "
+    "node='Deploy/runbooks'. Missing ancestors are created too.",
+    {
+        "type": "object",
+        "properties": {
+            "workspace": {"type": "string"},
+            "node": {"type": "string", "description": "Workspace-relative tree path"},
+            "description": {"type": "string"},
+        },
+        "required": ["workspace", "node"],
+    },
+)
+def tool_create_folder(ctx: ToolContext, args: dict) -> dict:
+    from apps.documents.folders import ensure_node_by_tree_path, folder_by_tree_path
+
+    workspace = _get_workspace(args["workspace"])
+    node = (args["node"] or "").strip("/")
+    if not node:
+        raise ToolError("A node (tree path) is required.")
+    # Write is checked on the deepest existing ancestor (or the workspace), the
+    # same rule the web folder page applies, so a grant on a subfolder is enough.
+    segments = node.split("/")
+    target = workspace.resource
+    for cut in range(len(segments) - 1, 0, -1):
+        ancestor = folder_by_tree_path(workspace, "/".join(segments[:cut]))
+        if ancestor is not None:
+            target = ancestor.resource
+            break
+    _require(ctx, target, Permission.WRITE)
+    folder = ensure_node_by_tree_path(workspace, node, created_by=ctx.user)
+    if args.get("description"):
+        folder.description = args["description"]
+        folder.save(update_fields=["description", "updated_at"])
+    return _folder_brief(folder)
+
+
+@tool(
+    "knowledge_move_document",
+    "Move a document into a folder node, addressed by its tree path "
+    "(e.g. node='Deploy/dotnet').",
+    {
+        "type": "object",
+        "properties": {
+            "document_id": {"type": "string"},
+            "node": {"type": "string", "description": "Destination folder tree path"},
+        },
+        "required": ["document_id", "node"],
+    },
+)
+def tool_move_document(ctx: ToolContext, args: dict) -> dict:
+    from apps.documents.folders import folder_by_tree_path, project_of_node
+
+    document = _get_document(args["document_id"])
+    _require(ctx, document.resource, Permission.WRITE)
+    node = (args["node"] or "").strip("/")
+    destination = folder_by_tree_path(document.workspace, node) if node else None
+    if node and destination is None:
+        raise ToolError(f"Folder '{node}' not found.")
+    dest_project = project_of_node(destination)
+    if (dest_project.pk if dest_project else None) != document.project_id:
+        raise ToolError("A document can only move within its own project.")
+    parent = destination.path if destination is not None else ""
+    filename = (document.path or "").rsplit("/", 1)[-1]
+    new_path = f"{parent}/{filename}" if parent else filename
+    try:
+        DocumentService.move(
+            document, new_path, user=ctx.user, request=ctx.request, api_key=ctx.api_key
+        )
+    except ValidationError as exc:
+        raise _service_error(exc) from exc
+    return _document_brief(document)
+
+
+@tool(
+    "knowledge_move_folder",
+    "Move a folder under another node, addressed by tree path; omit `node` to "
+    "move it to its scope root.",
+    {
+        "type": "object",
+        "properties": {
+            "folder_id": {"type": "string"},
+            "node": {
+                "type": "string",
+                "description": "Destination parent tree path; omit for the scope root",
+            },
+        },
+        "required": ["folder_id"],
+    },
+)
+def tool_move_folder(ctx: ToolContext, args: dict) -> dict:
+    from apps.documents.folders import folder_by_tree_path, move_folder, project_of_node
+
+    folder = _get_folder(args["folder_id"])
+    _require(ctx, folder.resource, Permission.WRITE)
+    node = (args.get("node") or "").strip("/")
+    destination = folder_by_tree_path(folder.workspace, node) if node else None
+    if node and destination is None:
+        raise ToolError(f"Folder '{node}' not found.")
+    # Only a given destination can cross a scope; "no node" means the folder's own
+    # scope root, which is the same scope by construction.
+    if node:
+        dest_project = project_of_node(destination)
+        if (dest_project.pk if dest_project else None) != folder.project_id:
+            raise ToolError("A folder can only move within its own project.")
+    try:
+        move_folder(
+            folder=folder,
+            new_parent=destination,
+            to_root=destination is None,
+            user=ctx.user,
+        )
+    except ValidationError as exc:
+        raise _service_error(exc) from exc
+    return _folder_brief(folder)
 
 
 # ---------------------------------------------------------------------------

@@ -128,6 +128,21 @@ class MoveTests(TestCase):
         self.assertEqual(folder.path, "dotnet")
         self.assertEqual(folder.container_id, self.project.resource_id)
 
+    def test_tree_path_covers_both_branches(self):
+        # Workspace-nested: no project, so the address comes from the chain.
+        create_folder(workspace=self.workspace, path="outer", created_by=self.user)
+        inner = create_folder(workspace=self.workspace, path="outer/inner", created_by=self.user)
+        self.assertEqual(inner.tree_path(), "outer/inner")
+        # Project-scoped: the fast path prefixes the project name.
+        nested = create_folder(
+            workspace=self.workspace, project=self.project, path="runbooks/2024",
+            created_by=self.user,
+        )
+        self.assertEqual(nested.tree_path(), "Deploy/runbooks/2024")
+        # The project node itself is its name.
+        node = DocumentFolder.objects.get(resource_id=self.project.resource_id)
+        self.assertEqual(node.tree_path(), "Deploy")
+
     def test_web_tree_move_rejects_cross_project(self):
         other = ProjectService.create(
             workspace=self.workspace, name="Other", created_by=self.user

@@ -116,7 +116,7 @@ Resource típusok:
 
 ```text
 Workspace
-Project
+DocumentFolder   (fa-csomópont: projekt vagy mappa)
 Document
 File
 GitRepository
@@ -132,6 +132,13 @@ Javasolt:
 ```text
 UUID / ULID
 ```
+
+Minden csomópont (dokumentum, fájl, mappa, projekt) egy közös fa része: a
+`DocumentFolder` egy nevesített csomópont, amelynek `container`-e a szülő
+(egy másik mappa, egy projekt-csomópont vagy a workspace), és amelynek a
+`Resource`-a ugyanaz, amit a permission engine bejár. A workspace-hez
+viszonyított **tree path** (pl. `Deploy/runbooks/2024`) azonosítja egyedül a
+csomópontot a workspace-en belül.
 
 A permission engine ne külön-külön legyen implementálva document/project/workspace szinten, hanem közös Resource ACL mechanizmust használjon.
 
@@ -166,38 +173,53 @@ Freelance
 Research
 ```
 
-A workspace tartalmazhat közvetlenül dokumentumokat/fájlokat és projecteket is.
+A workspace egy fa gyökere: közvetlenül tartalmazhat dokumentumokat/fájlokat és
+**csomópontokat** (mappa vagy projekt). A projekt nem külön tengely: ugyanaz a
+fa-csomópont, csak `role=project`. Minden csomópont a workspace-hez viszonyított
+*tree path*ján címezhető.
 
 ```text
 Workspace
-├── documents/
+├── documents/            (workspace-scope)
 ├── files/
-├── Project A/
-└── Project B/
+├── Deploy/               (role=project)
+│   ├── runbooks/
+│   └── dotnet/
+└── skills/               (role=folder, workspace-scope)
+    └── azure-bicep/
 ```
 
 ---
 
 # 5. Project
 
-A project egy workspace-en belüli önálló resource.
+A project egy workspace-en belüli csomópont, `role=project`, közvetlenül a
+workspace alatt. Ugyanazt a `Resource`-ot használja, mint a fa-csomópontja,
+ezért az ACL, a linkek és a keresés ugyanúgy működnek rajta, mint bármely
+mappán.
 
 ```text
 Company
-├── Azure
-├── MENTA
-└── Internal
+├── Azure/            (role=project)
+├── MENTA/
+└── Internal/
 ```
 
 A project:
-- saját dokumentumokat/fájlokat tartalmazhat;
+- saját dokumentumokat/fájlokat és almappákat tartalmazhat;
 - saját Git repositoryt kapcsolhat;
 - saját ACL-t kaphat;
 - saját secret attachmenteket használhat;
 - saját AI/RAG scope-pal rendelkezhet;
-- más projectekkel és workspace-ekkel linkelhet.
+- más csomópontokkal és workspace-ekkel linkelhet.
 
+A webcíme a tree pathja (`/workspaces/<workspace>/f/<tree_path>/`), nem slug.
 A workspace közvetlenül is tartalmazhat tudást, tehát a project nem kötelező.
+
+> **As-built:** a projekt és a mappa egyetlen `DocumentFolder` sor, `role`
+> mezővel; a projekt-csomópont a projekt `Resource`-át használja (nem egy
+> másodikat), ezért `Project.pk == node.resource_id`. Egy csomópont
+> `project` FK-ja NULL, ha maga a projekt.
 
 ---
 
@@ -239,10 +261,11 @@ A Markdown különösen fontos, mert:
 
 # 7. Knowledge structure
 
-Javasolt céges engineering knowledge struktúra:
+Javasolt céges engineering knowledge struktúra egy workspace-en belül
+(minden szint egy fa-csomópont, mappa vagy projekt):
 
 ```text
-company/
+Ecoform/                    (workspace)
 ├── skills/
 │   ├── azure-bicep/
 │   │   ├── SKILL.md
@@ -399,15 +422,21 @@ Target content is inaccessible
 
 ACL + inheritance.
 
-Alapértelmezett hierarchia:
+Alapértelmezett hierarchia (a fa, tetszőleges mélységig):
 
 ```text
 Workspace
     ↓
-Project
+csomópont (projekt vagy mappa)
+    ↓
+... további csomópontok ...
     ↓
 Document/File
 ```
+
+Az öröklés a `Resource` szülőláncán megy, ugyanúgy egy projekten, egy mappán és
+a workspace-en; a **DENY abszolút**: bármely ős szinten blokkol, és a szűkebb
+ALLOW fölé megy.
 
 Permissionek:
 
@@ -585,6 +614,7 @@ Például:
 /api/v1/resources/
 /api/v1/documents/
 /api/v1/files/
+/api/v1/folders/
 /api/v1/search/
 /api/v1/links/
 /api/v1/users/
@@ -595,6 +625,10 @@ Például:
 /api/v1/git/
 /api/v1/audit/
 ```
+
+A fa-csomópont címzése additív: a `documents/`, `files/` és `folders/` válaszok
+`tree_path` mezőt adnak, a create/move pedig elfogad egy `node` (tree path)
+mezőt a projekt + scope-path mellett — a meglévő klienseket nem töri.
 
 Az MCP ne közvetlenül PostgreSQL-hez vagy filesystemhez férjen.
 
@@ -1078,12 +1112,13 @@ Audit log immutable/append-only szemléletű legyen.
 
 # 30. Web UI
 
-Knowledge-centric UI:
+Knowledge-centric UI (a fa a fő felület; a "Projekt" nem külön menüpont, hanem
+egy csomópont a workspace fájában, tree path címen):
 
 ```text
 Dashboard
 ├── Workspaces
-├── Projects
+│   └── (fa: projektek és mappák, /workspaces/<ws>/f/<tree_path>/)
 ├── Documents
 ├── Search
 ├── Graph / Links
@@ -1101,7 +1136,7 @@ Document view:
 ```text
 ┌─────────────────────────────────────────┐
 │ Azure Container Apps Deployment        │
-│ Company / Azure                         │
+│ Company / Azure / runbooks              │
 │                                         │
 │ [Edit] [History] [Permissions]          │
 │                                         │
@@ -1142,7 +1177,7 @@ apps/
 ├── accounts/
 ├── workspaces/
 ├── resources/
-├── documents/
+├── documents/          DocumentFolder (fa-csomópont), Document, verzió
 ├── files/
 ├── permissions/
 ├── groups/
@@ -1152,6 +1187,7 @@ apps/
 ├── knowledge/
 ├── embeddings/
 ├── mcp/
+├── web/                szerver-oldali web UI
 ├── secrets/
 ├── audit/
 └── api/
@@ -1183,11 +1219,12 @@ Group
 GroupMembership
 
 Workspace
-Project
+Project                (== a projekt fa-csomópontjának Resource-ja)
 
 Resource
 ResourceMembership / ACL
 
+DocumentFolder         (fa-csomópont: projekt vagy mappa)
 Document
 File
 DocumentVersion

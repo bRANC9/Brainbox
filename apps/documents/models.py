@@ -260,7 +260,14 @@ class DocumentFolder(Taggable, models.Model):
         inside it. The tree path is what identifies a node uniquely across the
         whole workspace, which is what a URL needs - two folders called ``2024``
         in different projects have the same ``path`` and different tree paths.
+
+        Inside a project the address is just the project's name plus the stored
+        path, so the container chain is not walked: that is the common case, and
+        the walk was an N+1 in list serialisation. The chain is only needed for a
+        folder nested under a workspace-root folder.
         """
+        if self.project_id:
+            return f"{self.project.name}/{self.path}" if self.path else self.project.name
         return "/".join(node.name for node in reversed(self.chain()))
 
     def scope_path(self) -> str:

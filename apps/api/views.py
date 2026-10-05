@@ -470,7 +470,11 @@ class DocumentViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
     create_target_fields = ("project", "workspace")
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        # folder__project is loaded so the serialised tree_path does not walk a
+        # query per document.
+        queryset = super().get_queryset().select_related(
+            "folder__project", "project", "resource"
+        )
         params = self.request.query_params
         if params.get("workspace"):
             queryset = queryset.filter(workspace_id=params["workspace"])
@@ -695,7 +699,9 @@ class DocumentViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
 # Files
 # ---------------------------------------------------------------------------
 class FileViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):
-    queryset = File.objects.select_related("resource", "workspace", "project")
+    queryset = File.objects.select_related(
+        "resource", "workspace", "project", "folder__project"
+    )
     serializer_class = s.FileSerializer
     permission_classes = [IsAuthenticated, ResourcePermission]
     search_fields = ["name", "path"]

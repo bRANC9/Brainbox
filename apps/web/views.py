@@ -761,7 +761,9 @@ def _subtree_folders(node, max_depth: int = 16) -> list:
     frontier = [node.resource_id]
     for _ in range(max_depth):
         children = list(
-            DocumentFolder.objects.filter(container_id__in=frontier).select_related("resource")
+            DocumentFolder.objects.filter(container_id__in=frontier).select_related(
+                "resource", "project", "workspace"
+            )
         )
         if not children:
             break
