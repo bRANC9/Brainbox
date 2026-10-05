@@ -2321,3 +2321,78 @@ def file_browser(request, workspace_slug, tree_path=None):
             "detail_url": _file_browser_redirect(workspace, node),
         },
     )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def gateway(request):
+    """Configure and test outbound targets: the one place external access lives.
+
+    Creating and calling go through :class:`GatewayService`, so the same ACL,
+    secret injection and audit apply here as on the REST and MCP surfaces.
+    """
+    from apps.gateway.models import GatewayTarget
+    from apps.gateway.services import GatewayService
+    from apps.secrets.models import Secret
+
+    result = None
+    called_target = None
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "create":
+            workspace = (
+                get_object_or_404(Workspace, pk=request.POST["workspace"])
+                if request.POST.get("workspace")
+                else None
+            )
+            secret = (
+                get_object_or_404(Secret, pk=request.POST["secret"], owner=request.user)
+                if request.POST.get("secret")
+                else None
+            )
+            try:
+                GatewayService.create(
+                    name=(request.POST.get("name") or "").strip(),
+                    base_url=(request.POST.get("base_url") or "").strip(),
+                    kind=request.POST.get("kind") or "http",
+                    config={"auth": "bearer"} if secret else {"auth": "none"},
+                    secret=secret,
+                    workspace=workspace,
+                    created_by=request.user,
+                    request=request,
+                )
+                messages.success(request, "Gateway cél létrehozva.")
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+            return redirect("web:gateway")
+        if action == "call":
+            called_target = get_object_or_404(GatewayTarget, pk=request.POST.get("target"))
+            try:
+                result = GatewayService.call(
+                    called_target,
+                    method=request.POST.get("method", "GET"),
+                    path=request.POST.get("path", ""),
+                    user=request.user,
+                    request=request,
+                )
+            except PermissionDenied:
+                messages.error(request, "Nincs jogosultságod ehhez a célhoz.")
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+
+    writable = [
+        workspace
+        for workspace in Workspace.objects.all()
+        if _can(request.user, workspace.resource, Permission.WRITE)
+    ]
+    return render(
+        request,
+        "gateway.html",
+        {
+            "targets": GatewayService.visible(request.user),
+            "workspaces": writable,
+            "my_secrets": Secret.objects.filter(owner=request.user, is_active=True),
+            "result": result,
+            "called_target": called_target,
+        },
+    )

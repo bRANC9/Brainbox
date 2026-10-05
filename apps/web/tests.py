@@ -496,3 +496,24 @@ class SearchModeRegressionTests(TestCase):
         response = self.client.get(f"{reverse('web:search')}?mode=bogus&q=test")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["mode"], "hybrid")
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class GatewayPageTests(TestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.client.force_login(self.alice)
+
+    def test_page_renders(self):
+        response = self.client.get(reverse("web:gateway"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_create_a_target_from_the_page(self):
+        from apps.gateway.models import GatewayTarget
+
+        response = self.client.post(
+            reverse("web:gateway"),
+            {"action": "create", "name": "GH", "base_url": "https://api.github.com", "kind": "http"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(GatewayTarget.objects.filter(name="GH").exists())

@@ -325,6 +325,15 @@ def _conventions() -> list[dict]:
             "move with node as the destination. project + path still work.",
         },
         {
+            "rule": "Reach an external service through a gateway target, not a stored credential.",
+            "why": "Tokens for GitHub, other MCP servers and internal APIs live in the "
+            "vault behind a target; your key never holds them, and every call is "
+            "permission-checked (USE) and audited.",
+            "how": "gateway_list, then gateway_call(target, method, path, body) or "
+            f"gateway_mcp to call another MCP server's tool. REST: "
+            f"POST {API_BASE}/gateway/<id>/call/.",
+        },
+        {
             "rule": "Updates create a new version; deletion is the last resort.",
             "why": "Each write appends an immutable DocumentVersion with the author, source and "
             "git commit, so history stays auditable. Knowledge that is obsolete is marked, not "

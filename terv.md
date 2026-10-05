@@ -1890,3 +1890,37 @@ Például:
 → az agent megkeresi a céges Azure/Bicep skillt, approved patternöket, példákat és kapcsolódó döntéseket → permission szerint csak azt használja, amit láthat → szükség esetén a projekthez csatolt credentialt használja → a módosítás auditálódik és verziózódik → opcionális Git branch/PR workflow-n megy keresztül.
 
 Ez képezi a platform elsődleges használati modelljét.
+
+
+---
+
+# 52. Egress gateway (as-built)
+
+Egy kimenő (egress) átjáró, amelyen minden külső szolgáltatás elérése átmegy:
+MCP szerverek, GitHub és tetszőleges HTTP API-k. A cél, hogy a credentialt és a
+jogosultságot egy helyen (Brainboxban) kelljen konfigurálni, ne minden agent/CLI
+külön.
+
+```text
+Agent / CLI / MCP / Web UI
+        ↓  (egy cél neve, nem credential)
+GatewayService        ACL (Permission.USE) + audit
+        ↓  secret a vaultból, szerver-oldali injektálás
+külső szolgáltatás (https://…)
+```
+
+- **GatewayTarget**: egy névvel ellátott külső végpont + `Resource` (tehát ACL) +
+  opcionális `Secret` a vaultból + `config` (auth-séma, extra headerek,
+  host/metódus/path allowlist, `allow_private`).
+- **Hozzáférés `USE`**: a cél használata nem írás; a jogot ugyanaz az ACL adja,
+  mint a tudásnál. A létrehozó explicit ADMIN-t kap, a workspace-scope-olt cél
+  örökli a workspace grantjeit.
+- **Injektálás, nem kiadás**: a secret a vaultból oldódik fel, a hívó soha nem
+  látja; a válaszban és a logban redaktált.
+- **SSRF-védelem**: host-allowlist (alapból a `base_url` hostja), metódus- és
+  path-prefix korlát, privát/loopback IP tiltás, átirányítás tiltása.
+- **Felületek**: REST `/api/v1/gateway/` (+ `/<id>/call/`), MCP `gateway_list`,
+  `gateway_call`, `gateway_mcp` (más MCP szerver tooljának hívása), web
+  `/gateway/` (létrehozás + test call). Minden hívás `GATEWAY_CALL` audit.
+- **MVP**: generikus HTTP + MCP pass-through. Fázis 2: GitHub OAuth-kapcsolat és a
+  git műveletek a gateway-en át (egy token egy helyen).

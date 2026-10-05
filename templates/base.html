@@ -61,6 +61,7 @@
           <a href="/admin/">Django admin</a>
           <a href="{% url 'llm-manifest' %}">AI (llm)</a>
           <a href="{% url 'web:api_keys' %}">API kulcsok</a>
+          <a href="{% url 'web:gateway' %}">Gateway</a>
           {% if user.is_staff %}<a href="{% url 'web:groups_admin' %}">Csoportok</a>{% endif %}
           {% if user.is_superuser %}<a href="{% url 'web:settings_page' %}">Beállítások</a>{% endif %}
           <a href="{% url 'web:audit_dashboard' %}">Audit napló</a>

@@ -95,6 +95,7 @@ urlpatterns = [
         name="folder_detail",
     ),
     path("manage/api-keys/", views.api_keys, name="api_keys"),
+    path("gateway/", views.gateway, name="gateway"),
     path("manage/audit/", views.audit_dashboard, name="audit_dashboard"),
     path("manage/groups/", views.groups_admin, name="groups_admin"),
     path("manage/settings/", views.settings_page, name="settings_page"),

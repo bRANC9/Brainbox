@@ -1,5 +1,6 @@
 import json
 import tempfile
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
@@ -216,6 +217,30 @@ class MCPTests(TestCase):
             self.alice_key,
             needle="project",
         )
+
+    def test_gateway_list_and_call(self):
+        from apps.gateway.services import GatewayService
+
+        target = GatewayService.create(
+            name="GitHub",
+            base_url="https://api.github.com",
+            config={"auth": "none"},
+            workspace=self.workspace,
+            created_by=self.alice,
+        )
+        listing = self._payload("gateway_list", {}, self.alice_key)
+        self.assertEqual([row["name"] for row in listing["targets"]], ["GitHub"])
+        with patch(
+            "apps.gateway.services.GatewayService._send",
+            return_value=(200, {}, '{"ok": true}', False),
+        ):
+            result = self._payload(
+                "gateway_call",
+                {"target": str(target.pk), "method": "GET", "path": "user"},
+                self.alice_key,
+            )
+        self.assertEqual(result["status"], 200)
+        self.assertIn("ok", result["body"])
 
     def test_unknown_tool_returns_error_content(self):
         response = self._call(

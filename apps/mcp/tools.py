@@ -22,6 +22,8 @@ from apps.audit.models import AuditAction, AuditSource
 from apps.audit.services import AuditService
 from apps.documents.models import ChangeSource, Document, DocumentStatus
 from apps.documents.services import DocumentService
+from apps.gateway.models import GatewayKind
+from apps.gateway.services import GatewayService
 from apps.git.git_cli import GitError
 from apps.git.models import GitRepository
 from apps.git.services import GitService
@@ -1556,3 +1558,118 @@ def tool_quality(ctx: ToolContext, args: dict) -> dict:
     if not getattr(ctx.user, "is_superuser", False):
         raise ToolError("Superuser access required.")
     return QualityService.metrics()
+
+
+# ---------------------------------------------------------------------------
+# Egress gateway
+# ---------------------------------------------------------------------------
+@tool(
+    "gateway_list",
+    "List the external targets (APIs, MCP servers) you may reach through Brainbox. "
+    "The credentials for them live in the vault, not in your configuration.",
+    {"type": "object", "properties": {}},
+)
+def tool_gateway_list(ctx: ToolContext, args: dict) -> dict:
+    targets = GatewayService.visible(ctx.user, api_key=ctx.api_key)
+    return {
+        "targets": [
+            {
+                "id": str(target.pk),
+                "name": target.name,
+                "kind": target.kind,
+                "base_url": target.base_url,
+                "workspace": str(target.workspace_id) if target.workspace_id else None,
+                "project": str(target.project_id) if target.project_id else None,
+            }
+            for target in targets
+        ]
+    }
+
+
+@tool(
+    "gateway_call",
+    "Call an external target through Brainbox. The credential is injected "
+    "server-side and never returned.",
+    {
+        "type": "object",
+        "properties": {
+            "target": {"type": "string", "description": "Target id or name"},
+            "method": {
+                "type": "string",
+                "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+            },
+            "path": {"type": "string", "description": "Appended to the target base URL"},
+            "body": {"type": "object"},
+            "headers": {"type": "object"},
+        },
+        "required": ["target"],
+    },
+)
+def tool_gateway_call(ctx: ToolContext, args: dict) -> dict:
+    target = GatewayService.resolve(args["target"])
+    try:
+        return GatewayService.call(
+            target,
+            method=args.get("method", "GET"),
+            path=args.get("path", ""),
+            body=args.get("body"),
+            headers=args.get("headers"),
+            user=ctx.user,
+            request=ctx.request,
+            api_key=ctx.api_key,
+            source=AuditSource.MCP,
+        )
+    except (PermissionDenied, ValidationError) as exc:
+        raise _service_error(exc) from exc
+
+
+@tool(
+    "gateway_mcp",
+    "Call a tool on an external MCP server (HTTP JSON-RPC) through Brainbox, or "
+    "list its tools with list_tools=true.",
+    {
+        "type": "object",
+        "properties": {
+            "target": {"type": "string", "description": "MCP target id or name"},
+            "tool": {"type": "string", "description": "Remote tool name"},
+            "arguments": {"type": "object"},
+            "list_tools": {"type": "boolean"},
+        },
+        "required": ["target"],
+    },
+)
+def tool_gateway_mcp(ctx: ToolContext, args: dict) -> dict:
+    target = GatewayService.resolve(args["target"])
+    if target.kind != GatewayKind.MCP:
+        raise ToolError("Ez a cél nem MCP szerver.")
+    path = target.config.get("mcp_path") or "/mcp"
+    if args.get("list_tools"):
+        rpc = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+    else:
+        if not args.get("tool"):
+            raise ToolError("A 'tool' mező kötelező.")
+        rpc = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": args["tool"], "arguments": args.get("arguments") or {}},
+        }
+    try:
+        result = GatewayService.call(
+            target,
+            method="POST",
+            path=path,
+            body=rpc,
+            user=ctx.user,
+            request=ctx.request,
+            api_key=ctx.api_key,
+            source=AuditSource.MCP,
+        )
+    except (PermissionDenied, ValidationError) as exc:
+        raise _service_error(exc) from exc
+    # The remote answers with a JSON-RPC envelope; surface it verbatim when it is
+    # JSON, otherwise hand back the raw status/body.
+    try:
+        return json.loads(result["body"])
+    except (ValueError, TypeError):
+        return result

@@ -27,6 +27,7 @@ from apps.documents.models import Document, DocumentFolder, DocumentStatus, Docu
 from apps.documents.services import DocumentService
 from apps.files.models import File
 from apps.files.services import FileService
+from apps.gateway.models import GatewayTarget
 from apps.git.git_cli import GitError
 from apps.git.models import GitCredential, GitRepository
 from apps.git.services import GitService
@@ -1248,6 +1249,62 @@ class SecretViewSet(viewsets.ModelViewSet):
         except Exception as exc:  # noqa: BLE001
             raise PermissionDenied(str(exc)) from exc
         return Response({"id": str(secret.pk), "name": secret.name, "value": value})
+
+
+class GatewayTargetViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):
+    """Named egress targets: external services reached through Brainbox.
+
+    A caller needs ``Permission.USE`` on the target's Resource, not WRITE - using
+    a target is not editing it. The ACL is the same one every resource carries,
+    so who may reach an external service is a grant, and every call is audited.
+    """
+
+    serializer_class = s.GatewayTargetSerializer
+    permission_classes = [IsAuthenticated, ResourcePermission]
+    resource_field = "resource_id"
+    search_fields = ["name", "base_url"]
+    create_target_fields = ("project", "workspace")
+
+    def get_queryset(self):
+        queryset = GatewayTarget.objects.select_related("resource", "workspace", "project")
+        params = self.request.query_params
+        if params.get("workspace"):
+            queryset = queryset.filter(workspace_id=params["workspace"])
+        if params.get("project"):
+            queryset = queryset.filter(project_id=params["project"])
+        return queryset
+
+    def get_create_target(self, validated_data):
+        project = validated_data.get("project")
+        if project is not None:
+            return project.resource
+        workspace = validated_data.get("workspace")
+        return workspace.resource if workspace else None
+
+    @action(detail=True, methods=["post"], url_path="call")
+    def call(self, request, pk=None):
+        from apps.gateway.services import GatewayService
+
+        # Use, not write: calling a target is not editing it.
+        self.required_permission = Permission.USE
+        target = self.get_object()
+        try:
+            result = GatewayService.call(
+                target,
+                method=request.data.get("method", "GET"),
+                path=request.data.get("path", ""),
+                body=request.data.get("body"),
+                headers=request.data.get("headers"),
+                user=request.user,
+                request=request,
+                api_key=api_key_from_request(request),
+            )
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(str(exc)) from exc
+        except DjangoValidationError as exc:
+            detail = getattr(exc, "message_dict", None) or {"detail": exc.messages}
+            raise ValidationError(detail) from exc
+        return Response(result)
 
 
 class DeadlineViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):

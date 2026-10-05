@@ -13,6 +13,7 @@ class ResourceType(models.TextChoices):
     GIT_REPOSITORY = "git_repository", "Git repository"
     SECRET = "secret", "Secret"
     MCP_SERVER = "mcp_server", "MCP server"
+    GATEWAY = "gateway", "Gateway target"
     API_KEY = "api_key", "API key"
 
 

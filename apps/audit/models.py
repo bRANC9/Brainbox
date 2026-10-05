@@ -17,6 +17,7 @@ class AuditAction(models.TextChoices):
     CREATE_API_KEY = "create_api_key", "Create API key"
     REVOKE_API_KEY = "revoke_api_key", "Revoke API key"
     USE_SECRET = "use_secret", "Use secret"
+    GATEWAY_CALL = "gateway_call", "Gateway call"
     GIT_COMMIT = "git_commit", "Git commit"
     GIT_PULL = "git_pull", "Git pull"
     GIT_PUSH = "git_push", "Git push"

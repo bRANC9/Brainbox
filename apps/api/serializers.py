@@ -12,6 +12,7 @@ from apps.deadlines.models import KnowledgeDeadline
 from apps.documents.models import Document, DocumentFolder, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File, FileVersion
+from apps.gateway.models import GatewayTarget
 from apps.git.models import GitCommitReference, GitRepository, GitSyncState
 from apps.groups.models import Group, GroupMembership
 from apps.links.models import ResourceLink
@@ -796,3 +797,67 @@ class AuditEventSerializer(serializers.ModelSerializer):
             "detail",
         ]
         read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Egress gateway
+# ---------------------------------------------------------------------------
+class GatewayTargetSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="pk", read_only=True)
+    resource = serializers.UUIDField(source="resource_id", read_only=True)
+    workspace = ReadableRelatedField(
+        queryset=Workspace.objects.all(), required=False, allow_null=True
+    )
+    project = ReadableRelatedField(
+        queryset=Project.objects.all(), required=False, allow_null=True
+    )
+    secret = OwnedSecretField(
+        queryset=Secret.objects.filter(is_active=True), required=False, allow_null=True
+    )
+
+    class Meta:
+        model = GatewayTarget
+        fields = [
+            "id",
+            "resource",
+            "name",
+            "kind",
+            "base_url",
+            "secret",
+            "config",
+            "enabled",
+            "workspace",
+            "project",
+            "owner",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "resource", "owner", "created_at", "updated_at"]
+        validators: list = []
+
+    def create(self, validated_data):
+        from apps.gateway.services import GatewayService
+
+        return GatewayService.create(
+            name=validated_data["name"],
+            base_url=validated_data["base_url"],
+            kind=validated_data.get("kind", "http"),
+            config=validated_data.get("config") or {},
+            secret=validated_data.get("secret"),
+            workspace=validated_data.get("workspace"),
+            project=validated_data.get("project"),
+            created_by=_actor(self),
+            request=self.context.get("request"),
+        )
+
+    def update(self, instance, validated_data):
+        # workspace/project are deliberately not re-parented after creation; the
+        # Resource chain is the ACL and moving it silently would move the grants.
+        for field in ("name", "kind", "base_url", "secret", "config", "enabled"):
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+        instance.save()
+        if "name" in validated_data:
+            instance.resource.name = validated_data["name"]
+            instance.resource.save(update_fields=["name", "updated_at"])
+        return instance

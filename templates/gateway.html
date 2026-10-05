@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Gateway - Brainbox{% endblock %}
+{% block content %}
+{% comment %}
+One place to configure outbound access. A target is an external service plus a
+vault credential; the agent names the target and Brainbox injects the secret, so
+the credential never lives in an agent's own config. This page is the human side
+of the same gateway the REST API and the MCP tools expose.
+{% endcomment %}
+<section class="page-head">
+  <div>
+    <p class="crumbs"><a href="{% url 'web:dashboard' %}">Vezérlőpult</a> / Gateway</p>
+    <h1>Gateway</h1>
+    <p class="muted">
+      Külső szolgáltatások (API-k, MCP szerverek) egy helyen konfigurálva.
+      A credential a vaultból injektálódik, és nem hagyja el a szervert.
+    </p>
+  </div>
+</section>
+
+<section class="git-panel">
+  <h2>Új cél</h2>
+  <form method="post" class="form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create">
+    <div class="row">
+      <label>Név
+        <input type="text" name="name" required maxlength="255">
+      </label>
+      <label>Alap URL
+        <input type="url" name="base_url" placeholder="https://api.github.com" required>
+      </label>
+    </div>
+    <div class="row">
+      <label>Típus
+        <select name="kind">
+          <option value="http">HTTP API</option>
+          <option value="github">GitHub</option>
+          <option value="mcp">MCP szerver</option>
+        </select>
+      </label>
+      <label>Workspace (opcionális)
+        <select name="workspace">
+          <option value="">— személyes —</option>
+          {% for ws in workspaces %}<option value="{{ ws.pk }}">{{ ws.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Credential (a saját vaultodból)
+        <select name="secret">
+          <option value="">— nincs —</option>
+          {% for s in my_secrets %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <p class="meta">Secretet választva a hívás <code>Authorization: Bearer …</code> fejlécet injektál.</p>
+    <button class="button primary" type="submit">Létrehozás</button>
+  </form>
+</section>
+
+<section class="git-panel">
+  <h2>Elérhető célok</h2>
+  {% if targets %}
+    <table class="table">
+      <thead>
+        <tr><th>Név</th><th>Típus</th><th>URL</th><th>Teszt</th></tr>
+      </thead>
+      <tbody>
+        {% for t in targets %}
+          <tr>
+            <td>{{ t.name }}</td>
+            <td><span class="badge">{{ t.kind }}</span></td>
+            <td class="meta">{{ t.base_url }}</td>
+            <td>
+              <form method="post" class="row">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="call">
+                <input type="hidden" name="target" value="{{ t.pk }}">
+                <select name="method"><option>GET</option><option>POST</option></select>
+                <input type="text" name="path" placeholder="user">
+                <button class="button" type="submit">Hívás</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Még nincs elérhető cél. Hozz létre egyet fent.</p>
+  {% endif %}
+</section>
+
+{% if result %}
+<section class="git-panel">
+  <h2>Válasz — {{ called_target.name }}</h2>
+  <p class="meta">HTTP {{ result.status }}{% if result.truncated %} (csonkolva){% endif %}</p>
+  <pre class="scroll-x" style="max-height:24rem;overflow:auto">{{ result.body }}</pre>
+</section>
+{% endif %}
+{% endblock %}

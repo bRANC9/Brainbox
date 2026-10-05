@@ -68,6 +68,7 @@ LOCAL_APPS = [
     "apps.search",
     "apps.secrets",
     "apps.mcp",
+    "apps.gateway",
     "apps.knowledge",
     "apps.jobs",
     "apps.deadlines",

@@ -29,6 +29,11 @@ Self-hosted, AI-native engineering knowledge platform (Django + PostgreSQL).
   (`direct_commit` / `branch_pr`). **Obsidian vault import** (frontmatter +
   `[[wikilink]]` → `ResourceLink`).
 - **MCP szerver**: JSON-RPC 2.0 a `/mcp` endpointen, ~30 permission-aware tool.
+- **Egress gateway**: külső szolgáltatások (API-k, MCP szerverek, GitHub) egy
+  helyen konfigurálva. Az agent/CLI/MCP csak a célt nevezi meg; a credential a
+  vaultból injektálódik (a hívó sosem látja), a hozzáférést ugyanaz az ACL adja,
+  és minden hívás auditalt. Host-allowlist + privát-IP tiltás (SSRF-védelem),
+  válasz-csonkolás és secret-redakció.
 - **Secret Vault**: user-owned, Fernet-titkosított secret, használat-auditalva,
   redacting secret scanner.
 - **Advanced AI**: skill/pattern/convention/decision/example discovery,
@@ -127,7 +132,7 @@ Főbb végpontok (`/api/v1/`):
 
 ```text
 workspaces/ projects/ resources/ documents/ files/ folders/ links/
-git/ secrets/ users/ groups/ permissions/ api-keys/ audit/
+gateway/ git/ secrets/ users/ groups/ permissions/ api-keys/ audit/
 search/ discovery/ quality/ drafts/ jobs/ deadlines/ settings/
 ```
 

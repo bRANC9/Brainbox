@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 from rest_framework import status, viewsets
@@ -439,6 +440,69 @@ class NodeAddressingTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         document.refresh_from_db()
         self.assertEqual(document.path, "x.md")
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class GatewayApiTests(APITestCase):
+    """The gateway target collection and its call action.
+
+    Creating/list is ordinary resource CRUD; calling needs USE and runs through
+    the service, whose transport is mocked so no real request leaves the test.
+    """
+
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.bob = User.objects.create_user("bob", "bob@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Company", created_by=self.alice)
+        self.client.force_authenticate(self.alice)
+
+    def _create(self):
+        return self.client.post(
+            "/api/v1/gateway/",
+            {
+                "name": "GitHub",
+                "base_url": "https://api.github.com",
+                "kind": "http",
+                "workspace": str(self.workspace.pk),
+                "config": {"auth": "none"},
+            },
+            format="json",
+        )
+
+    def test_create_and_list(self):
+        response = self._create()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["kind"], "http")
+        self.assertIsNone(response.data["project"])
+        listing = self.client.get("/api/v1/gateway/")
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        self.assertEqual(listing.data["count"], 1)
+
+    def test_call_returns_the_remote_response(self):
+        target_id = self._create().data["id"]
+        with patch(
+            "apps.gateway.services.GatewayService._send",
+            return_value=(200, {"Content-Type": "application/json"}, '{"ok": true}', False),
+        ):
+            response = self.client.post(
+                f"/api/v1/gateway/{target_id}/call/",
+                {"method": "GET", "path": "user"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["status"], 200)
+        self.assertIn('"ok"', response.data["body"])
+
+    def test_another_user_cannot_call(self):
+        target_id = self._create().data["id"]
+        self.client.force_authenticate(self.bob)
+        response = self.client.post(
+            f"/api/v1/gateway/{target_id}/call/", {"method": "GET"}, format="json"
+        )
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND),
+        )
 
 
 class ActionRouteTests(SimpleTestCase):
