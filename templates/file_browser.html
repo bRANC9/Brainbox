@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load ui %}
 {% comment %}
 File browser for a workspace/project. `rows` is a flat list with a `depth`, the
 same shape the document tree uses, so folders render without a recursive tag.
@@ -11,7 +12,7 @@ can read - it has no access of its own, so it carries no actions.
   <div>
     <p class="crumbs">
       <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
-      {% if project %} / <a href="{% url 'web:project_detail' workspace.slug project.slug %}">{{ project.name }}</a>{% endif %}
+      {% if project %} / <a href="{% node_url project %}">{{ project.name }}</a>{% endif %}
       / Mellékletek
     </p>
     <h1>Mellékletek</h1>
@@ -23,7 +24,7 @@ can read - it has no access of its own, so it carries no actions.
   </div>
   <span>
     {% if project %}
-      <a class="button" href="{% url 'web:project_detail' workspace.slug project.slug %}">Projekt</a>
+      <a class="button" href="{% node_url project %}">Projekt</a>
     {% else %}
       <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Workspace</a>
     {% endif %}

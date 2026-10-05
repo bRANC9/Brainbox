@@ -359,9 +359,18 @@ class CardCountRegressionTests(TestCase):
         self.assertEqual(workspace.project_count, 1)
         self.assertEqual(workspace.document_count, 0)
 
-    def test_workspace_page_annotates_project_counts(self):
+    def test_workspace_page_lists_the_project_as_a_tree_node(self):
+        """Projects live inside the workspace file tree now, not a card grid.
+
+        The separate "Projektek" grid used to annotate each project with a
+        ``document_count``; with the grid gone there is no project counter left
+        to render on this page, only the project node itself.
+        """
         response = self.client.get(reverse("web:workspace_detail", args=[self.workspace.slug]))
-        self.assertEqual(response.context["projects"][0].document_count, 0)
+        dirs = {
+            row["name"] for row in response.context["tree_rows"] if row["type"] == "dir"
+        }
+        self.assertIn("Alpha", dirs)
 
     def test_counts_reach_the_rendered_card(self):
         html = self.client.get(reverse("web:dashboard")).content.decode()
@@ -391,20 +400,26 @@ class DocumentCountRegressionTests(TestCase):
         workspace = self.client.get(reverse("web:dashboard")).context["workspaces"][0]
         self.assertEqual(workspace.document_count, 2)
 
-    def test_project_card_counts_its_own_documents(self):
+    def test_project_count_card_is_gone_and_counts_live_on_the_dashboard(self):
+        """Reworked after the project card grid was removed.
+
+        A project used to have a card here with its own ``document_count``. A
+        project is a ``DocumentFolder`` node inside the tree now, so the page
+        only has to prove it is still reachable; the count that is still
+        computed and rendered is the workspace's, on its dashboard card.
+        """
         DocumentService.create(
             workspace=self.workspace, project=self.project, title="One", path="one.md"
         )
-        DocumentService.create(
-            workspace=self.workspace, title="Loose", path="loose.md"
-        )
-        # The card lives on the workspace page and reads project.document_count.
-        response = self.client.get(reverse("web:workspace_detail", args=[self.workspace.slug]))
-        self.assertEqual(response.context["projects"][0].document_count, 1)
-        html = response.content.decode()
-        # The card label is localised; what matters is that it shows 1 and not 2.
-        self.assertIn("1 dokumentum", html)
-        self.assertNotIn("2 dokumentum", html)
+        DocumentService.create(workspace=self.workspace, title="Loose", path="loose.md")
+
+        page = self.client.get(reverse("web:workspace_detail", args=[self.workspace.slug]))
+        dirs = {row["name"] for row in page.context["tree_rows"] if row["type"] == "dir"}
+        self.assertIn("Alpha", dirs, "the project node must stay reachable from here")
+
+        dashboard = self.client.get(reverse("web:dashboard"))
+        self.assertEqual(dashboard.context["workspaces"][0].document_count, 2)
+        self.assertIn("2 dokumentum", dashboard.content.decode())
 
 
 class CalendarParamRegressionTests(TestCase):

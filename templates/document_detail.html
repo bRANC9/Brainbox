@@ -8,7 +8,7 @@
       <a href="{% url 'web:dashboard' %}">Vezérlőpult</a> /
       <a href="{% url 'web:workspace_detail' document.workspace.slug %}">{{ document.workspace.name }}</a>
       {% if document.project %} /
-        <a href="{% url 'web:project_detail' document.workspace.slug document.project.slug %}">{{ document.project.name }}</a>
+        <a href="{% node_url document.project %}">{{ document.project.name }}</a>
       {% endif %}
     </p>
     <h1>{{ document.title }}</h1>

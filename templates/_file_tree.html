@@ -114,12 +114,7 @@ a 'depth' so it renders without recursive template tags.
       </tbody>
     </table>
   {% else %}
-    {% if content_in_projects %}
-      <p class="muted">Nincs mappa vagy dokumentum a workspace gyökerében — a tartalom a
-        projektekben van, az oldal alján találod őket.</p>
-    {% else %}
-      <p class="muted">Még nincs mappa vagy dokumentum. Húzz fel egy .md fájlt, vagy hozz létre mappát.</p>
-    {% endif %}
+    <p class="muted">Még nincs mappa vagy dokumentum. Húzz fel egy .md fájlt, vagy hozz létre mappát.</p>
   {% endif %}
 </section>
 

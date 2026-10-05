@@ -76,18 +76,4 @@
     </form>
   </details>
 {% endif %}
-
-<h2 id="projektek">Projektek</h2>
-{% if projects %}
-  <div class="grid">
-    {% for project in projects %}
-      <a class="card" href="{% url 'web:project_detail' workspace.slug project.slug %}">
-        <h3>{{ project.name }}</h3>
-        <p class="meta">{{ project.document_count }} dokumentum</p>
-      </a>
-    {% endfor %}
-  </div>
-{% else %}
-  <p class="muted">Nincs projekt.</p>
-{% endif %}
 {% endblock %}

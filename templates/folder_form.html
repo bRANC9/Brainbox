@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% load ui %}
 {% block title %}Új mappa - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
   <div>
     <p class="crumbs">
       <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
-      {% if project %} / <a href="{% url 'web:project_detail' workspace.slug project.slug %}">{{ project.name }}</a>{% endif %}
+      {% if project %} / <a href="{% node_url project %}">{{ project.name }}</a>{% endif %}
     </p>
     <h1>Új mappa</h1>
   </div>
@@ -24,7 +25,7 @@
   <div class="row">
     <button class="button primary" type="submit">Létrehozás</button>
     {% if project %}
-      <a class="button" href="{% url 'web:project_detail' workspace.slug project.slug %}">Mégse</a>
+      <a class="button" href="{% node_url project %}">Mégse</a>
     {% else %}
       <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Mégse</a>
     {% endif %}

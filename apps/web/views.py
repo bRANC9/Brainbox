@@ -86,12 +86,6 @@ def _workspace_queryset_with_counts():
     )
 
 
-def _project_queryset_with_counts():
-    return Project.objects.annotate(
-        document_count=Count("documents", distinct=True)
-    ).order_by("name")
-
-
 def _render_markdown(content: str, document=None) -> str:
     """Markdown to HTML, with relative references resolved against ``document``.
 
@@ -154,6 +148,18 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
     Folders come from the stored DocumentFolder rows plus every parent path of
     the readable documents (so git-imported trees show up too). Rows are
     ``{"type": "dir"|"doc", "name", "depth", ...}``.
+
+    Deliberately not merged with :func:`_node_tree_rows`, even though the walks
+    look alike: this one answers "what are the *own* documents of this
+    workspace/project scope" and therefore cannot use the other's resource-parent
+    walk. The workspace root is not a folder node and has no ``tree_path``, so
+    there is no node to hand to the other function; this one keys off the
+    ``workspace``/``project`` FKs instead. It also never lists attachments, while
+    the node page does, and it has to synthesize ancestor folders for documents
+    whose parent row is missing (a git-imported path) - the node page iterates
+    real ``DocumentFolder`` rows only. A merge would change at least the
+    workspace page (attachments appearing, links changing) without any caller
+    asking for it.
     """
     from apps.tags.services import filter_documents_by_tag, tags_for
 
@@ -596,13 +602,6 @@ def workspace_detail(request, workspace_slug):
     if not PermissionService.can_browse(request.user, workspace.resource):
         raise Http404
 
-    projects = [
-        project
-        for project in _project_queryset_with_counts()
-        .select_related("resource")
-        .filter(workspace=workspace)
-        if _can(request.user, project.resource, Permission.READ)
-    ]
     documents = [
         document
         for document in workspace.documents.filter(project__isnull=True).select_related("resource")
@@ -611,22 +610,13 @@ def workspace_detail(request, workspace_slug):
     can_write = _can(request.user, workspace.resource, Permission.WRITE)
     tag_filter = request.GET.get("tag", "")
     tree_rows = _folder_tree_rows(workspace, None, request.user, tag_filter)
-    # A workspace's own tree only ever holds content that sits at the workspace
-    # root. Knowledge normally lives in projects, so an empty tree here used to
-    # read as "this workspace is empty" while it held ten documents. Say where
-    # the content actually is instead of pretending.
-    content_in_projects = bool(projects) and not any(
-        row["type"] == "doc" for row in tree_rows
-    )
     context = {
         "workspace": workspace,
-        "projects": projects,
         "documents": documents,
         "can_write": can_write,
         "is_personal": workspace.is_personal,
         "owner": workspace.owner,
         "can_rename": _can(request.user, workspace.resource, Permission.ADMIN),
-        "content_in_projects": content_in_projects,
         **_access_context(request, workspace.resource),
         "tree_rows": tree_rows,
         "tag_filter": tag_filter,
@@ -683,6 +673,12 @@ def _node_tree_rows(workspace, node, user, tag_filter: str = "") -> list[dict]:
     they can read - because a grant sits under a trail of folders they cannot
     read; that trail is the way down. Everything else in those folders stays
     hidden: it is not in the visible set.
+
+    Deliberately not merged with :func:`_folder_tree_rows`: this one walks a
+    node's *subtree* over ``Resource.parent`` and lists attachments, while the
+    scope variant lists a workspace/project's own documents and has no folder
+    node to start from at the workspace root. See that function's docstring for
+    the full list of differences.
     """
     from apps.documents.models import Document
     from apps.files.models import File

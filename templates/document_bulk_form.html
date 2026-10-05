@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% load ui %}
 {% block title %}Tömeges feltöltés - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
   <div>
     <p class="crumbs">
       <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
-      {% if project %} / <a href="{% url 'web:project_detail' workspace.slug project.slug %}">{{ project.name }}</a>{% endif %}
+      {% if project %} / <a href="{% node_url project %}">{{ project.name }}</a>{% endif %}
     </p>
     <h1>Tömeges feltöltés</h1>
     <p class="muted">Válassz ki több .md fájlt egyszerre – mindegyik külön dokumentum lesz.</p>
@@ -34,7 +35,7 @@
   <div class="row">
     <button class="button primary" type="submit">Betöltés</button>
     {% if project %}
-      <a class="button" href="{% url 'web:project_detail' workspace.slug project.slug %}">Mégse</a>
+      <a class="button" href="{% node_url project %}">Mégse</a>
     {% else %}
       <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Mégse</a>
     {% endif %}
