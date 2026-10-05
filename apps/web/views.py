@@ -371,7 +371,7 @@ def tree_move(request):
     from django.core.exceptions import ValidationError
     from django.http import JsonResponse
 
-    from apps.documents.folders import DocumentFolder, folder_by_tree_path, move_folder
+    from apps.documents.folders import DocumentFolder, ensure_node_by_tree_path, move_folder
     from apps.documents.services import DocumentService
 
     try:
@@ -387,8 +387,10 @@ def tree_move(request):
             denied = _require_write_or_403(request, document.resource)
             if denied:
                 return denied
-            destination = (
-                folder_by_tree_path(document.workspace, target) if target else None
+            # Get-or-create the destination: a drop onto a folder that exists only
+            # as a path prefix still has a node to move into.
+            destination = ensure_node_by_tree_path(
+                document.workspace, target, created_by=request.user
             )
             parent_path = destination.path if destination is not None else ""
             filename = Path(document.path).name
@@ -402,7 +404,9 @@ def tree_move(request):
             denied = _require_write_or_403(request, folder.resource)
             if denied:
                 return denied
-            destination = folder_by_tree_path(folder.workspace, target) if target else None
+            destination = ensure_node_by_tree_path(
+                folder.workspace, target, created_by=request.user
+            )
             move_folder(folder=folder, new_parent=destination, user=request.user)
         else:
             return JsonResponse({"ok": False, "error": "ismeretlen típus"}, status=400)
@@ -421,6 +425,18 @@ def _require_write_or_403(request, resource):
     if not _can(request.user, resource, Permission.WRITE):
         return HttpResponseForbidden("Nincs írási jogosultságod ehhez a mappához.")
     return None
+
+
+def _safe_next(request) -> str:
+    """A same-site path to return to after a tag edit, or ''.
+
+    Only an absolute path is accepted, and a leading ``//`` is rejected too: it
+    is a protocol-relative URL and redirecting to it would be an open redirect.
+    """
+    target = (request.POST.get("next") or "").strip()
+    if target.startswith("/") and not target.startswith("//"):
+        return target
+    return ""
 
 
 def _project_of_node(node):
@@ -1457,6 +1473,9 @@ def document_tags(request, pk):
 
     if request.headers.get("X-Requested-With") == "fetch":
         return JsonResponse({"ok": True, "tags": tags})
+    next_url = _safe_next(request)
+    if next_url:
+        return redirect(next_url)
     return redirect("web:document_detail", pk=document.pk)
 
 
@@ -1488,6 +1507,9 @@ def folder_tags(request):
 
     if request.headers.get("X-Requested-With") == "fetch":
         return JsonResponse({"ok": True, "tags": tags})
+    next_url = _safe_next(request)
+    if next_url:
+        return redirect(next_url)
     return redirect("web:workspace_detail", workspace_slug=workspace.slug)
 
 

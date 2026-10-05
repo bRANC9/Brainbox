@@ -84,6 +84,26 @@ class MoveTests(TestCase):
         self.doc.refresh_from_db()
         self.assertEqual(self.doc.path, "dotnet/x.md")
 
+    def test_web_tree_move_folder_by_tree_path(self):
+        create_folder(workspace=self.workspace, project=self.project, path="dotnet", created_by=self.user)
+        create_folder(workspace=self.workspace, project=self.project, path="python", created_by=self.user)
+        folder = DocumentFolder.objects.get(name="dotnet")
+        self.client.force_login(self.user)
+        response = self.client.post(
+            "/tree/move/",
+            data=json.dumps(
+                {
+                    "type": "folder",
+                    "id": str(folder.pk),
+                    "target": f"{self.project.name}/python",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        folder.refresh_from_db()
+        self.assertEqual(folder.path, "python/dotnet")
+
     def test_web_tree_folder_op_renames_by_tree_path(self):
         create_folder(workspace=self.workspace, project=self.project, path="dotnet", created_by=self.user)
         self.client.force_login(self.user)

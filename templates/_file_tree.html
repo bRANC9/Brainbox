@@ -46,12 +46,12 @@ a 'depth' so it renders without recursive template tags.
           only as a prefix - then there is nothing to grant access to.
           {% endcomment %}
           <tr class="tree-row{% if row.type == 'dir' and not row.can_read %} trail-row{% endif %}"
-              {% if row.type == "doc" or row.can_read %}draggable="true"{% endif %}
+              {% if row.type == "doc" or row.can_read and row.folder %}draggable="true"{% endif %}
               data-type="{{ row.type }}"
               data-can-read="{% if row.type == 'dir' and not row.can_read %}0{% else %}1{% endif %}"
               {% if row.type == 'doc' %}data-id="{{ row.doc.pk }}"
               {% elif row.type == 'file' %}data-id="{{ row.file.pk }}"
-              {% else %}data-id="folder:{{ row.path }}"{% endif %}
+              {% else %}data-id="{% if row.folder %}{{ row.folder.pk }}{% endif %}"{% endif %}
               {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% elif row.type == "file" %}data-name="{{ row.file.path }}"{% else %}data-folder="{{ row.path }}" data-tree="{{ row.tree_path }}"{% endif %}
               {% if can_admin and row.folder %}data-acl="{% url 'web:resource_permissions' row.folder.resource_id %}"{% endif %}
               data-tags="{{ row.tags|default:''|join:',' }}">
@@ -159,6 +159,9 @@ a 'depth' so it renders without recursive template tags.
       row.classList.remove('drop-target');
     });
     row.addEventListener('drop', function (e) {
+      // Stop here either way: the listener on #tree-root would otherwise fire
+      // for the same drop and move the item a second time, back to the page node.
+      e.stopPropagation();
       if (row.dataset.canRead !== '1') return;
       e.preventDefault();
       row.classList.remove('drop-target');
@@ -175,13 +178,25 @@ a 'depth' so it renders without recursive template tags.
     });
   }
 
+  // The ops endpoints answer JSON on success and on validation errors, but a
+  // 403/404 is the framework's HTML page. Parsing that blindly threw an
+  // unhandled rejection and lost the real message, so fall back to the status.
+  function readJson(response) {
+    return response.json().catch(function () {
+      return { ok: false, error: 'Szerver hiba (' + response.status + ')' };
+    });
+  }
+
   function send(source, target) {
-    const payload = { type: source.dataset.type, id: source.dataset.id, target: target };
+    // A dir row moves as the node it stands for; the endpoint looks folders up
+    // by pk, which is what `data-id` holds for a real node.
+    const kind = source.dataset.type === 'dir' ? 'folder' : source.dataset.type;
+    const payload = { type: kind, id: source.dataset.id, target: target };
     fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf.value },
       body: JSON.stringify(payload)
-    }).then(function (r) { return r.json(); }).then(function (data) {
+    }).then(readJson).then(function (data) {
       if (data && data.ok) { window.location.reload(); }
       else { alert('Nem sikerült áthelyezni: ' + (data.error || 'ismeretlen hiba')); }
     });
@@ -225,7 +240,7 @@ a 'depth' so it renders without recursive template tags.
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf.value },
       body: JSON.stringify(payload)
-    }).then(function (r) { return r.json(); }).then(function (data) {
+    }).then(readJson).then(function (data) {
       if (data && data.ok) { window.location.reload(); }
       else { alert(data.error || 'Nem sikerült.'); }
     });
@@ -238,6 +253,7 @@ a 'depth' so it renders without recursive template tags.
       // the tree path the ops endpoints address. A row carries both.
       const folder = row.dataset.folder;
       const node = row.dataset.tree;
+      const back = window.location.pathname + window.location.search;
       showMenu(e.clientX, e.clientY, [
         { label: '📄 Új doku itt', action: function () {
             window.location = docCreate + '?folder=' + encodeURIComponent(folder);
@@ -264,10 +280,10 @@ a 'depth' so it renders without recursive template tags.
             const added = entered.split(/[,\s]+/).map(function (t) { return t.trim(); }).filter(Boolean);
             const removed = current.filter(function (t) { return added.indexOf(t) === -1; });
             added.filter(function (t) { return current.indexOf(t) === -1; }).forEach(function (t) {
-              postForm('/folders/tags/', { action: 'add', workspace: ws, node: node, tags: t });
+              postForm('/folders/tags/', { action: 'add', workspace: ws, node: node, tags: t, next: back });
             });
             removed.forEach(function (t) {
-              postForm('/folders/tags/', { action: 'remove', workspace: ws, node: node, tags: t });
+              postForm('/folders/tags/', { action: 'remove', workspace: ws, node: node, tags: t, next: back });
             });
           } },
         { label: '🗑 Törlés', action: function () {

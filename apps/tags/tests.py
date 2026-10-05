@@ -1,6 +1,7 @@
 import tempfile
 
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 from apps.accounts.models import User
 from apps.documents.folders import create_folder
@@ -53,6 +54,7 @@ class TaggingTests(TestCase):
     def test_web_folder_tags_by_tree_path(self):
         create_folder(workspace=self.workspace, project=self.project, path="dotnet", created_by=self.user)
         self.client.force_login(self.user)
+        node_url = f"/workspaces/{self.workspace.slug}/f/{self.project.name}/dotnet/"
         response = self.client.post(
             "/folders/tags/",
             {
@@ -60,11 +62,32 @@ class TaggingTests(TestCase):
                 "workspace": self.workspace.slug,
                 "node": f"{self.project.name}/dotnet",
                 "tags": "stack:dotnet",
+                "next": node_url,
             },
         )
         self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], node_url)
         folder = DocumentFolder.objects.get(name="dotnet")
         self.assertIn("stack-dotnet", tags_for(folder))
+
+    def test_web_folder_tags_ignores_protocol_relative_next(self):
+        create_folder(workspace=self.workspace, project=self.project, path="dotnet", created_by=self.user)
+        self.client.force_login(self.user)
+        response = self.client.post(
+            "/folders/tags/",
+            {
+                "action": "add",
+                "workspace": self.workspace.slug,
+                "node": f"{self.project.name}/dotnet",
+                "tags": "stack:dotnet",
+                "next": "//evil.example/steal",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            reverse("web:workspace_detail", args=[self.workspace.slug]),
+        )
 
     def test_web_tag_and_filter(self):
         doc = DocumentService.create(
