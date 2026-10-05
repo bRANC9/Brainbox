@@ -70,6 +70,15 @@ class File(Taggable, models.Model):
     def __str__(self) -> str:
         return self.name
 
+    def tree_path(self) -> str:
+        """Workspace-relative address of the file, matching the web URLs."""
+        name = (self.path or self.name or "").rsplit("/", 1)[-1]
+        if self.folder_id and self.folder is not None:
+            return f"{self.folder.tree_path()}/{name}"
+        if self.project_id:
+            return f"{self.project.name}/{name}"
+        return name
+
 
 class FileVersion(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

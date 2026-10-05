@@ -342,6 +342,105 @@ class LLMManifestTests(APITestCase):
         )
 
 
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class NodeAddressingTests(APITestCase):
+    """The additive node address: ``tree_path`` out, ``node`` accepted in.
+
+    The API keeps addressing by project + scope path; a node's workspace-relative
+    tree path is exposed alongside, and accepted where a folder or document is
+    placed, so the API speaks the same address the web pages use.
+    """
+
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Ecoform", created_by=self.alice)
+        self.project = ProjectService.create(
+            workspace=self.workspace, name="Deploy", created_by=self.alice
+        )
+        self.client.force_authenticate(self.alice)
+
+    def test_folder_response_carries_the_tree_path(self):
+        response = self.client.post(
+            "/api/v1/folders/",
+            {
+                "workspace": str(self.workspace.pk),
+                "project": str(self.project.pk),
+                "path": "runbooks",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["tree_path"], "Deploy/runbooks")
+
+    def test_folder_create_by_node(self):
+        response = self.client.post(
+            "/api/v1/folders/",
+            {"workspace": str(self.workspace.pk), "node": "Deploy/runbooks/2024"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["tree_path"], "Deploy/runbooks/2024")
+        self.assertEqual(response.data["path"], "runbooks/2024")
+
+    def test_folder_move_by_node(self):
+        from apps.documents.folders import create_folder
+        from apps.documents.models import DocumentFolder
+
+        create_folder(
+            workspace=self.workspace, project=self.project, path="python/legacy",
+            created_by=self.alice,
+        )
+        create_folder(
+            workspace=self.workspace, project=self.project, path="target",
+            created_by=self.alice,
+        )
+        folder = DocumentFolder.objects.get(name="legacy")
+        response = self.client.patch(
+            f"/api/v1/folders/{folder.pk}/", {"node": "Deploy/target"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        folder.refresh_from_db()
+        self.assertEqual(folder.path, "target/legacy")
+
+    def test_document_move_by_node(self):
+        from apps.documents.folders import create_folder
+
+        create_folder(
+            workspace=self.workspace, project=self.project, path="dotnet",
+            created_by=self.alice,
+        )
+        document = DocumentService.create(
+            workspace=self.workspace, project=self.project, title="D",
+            path="x.md", content="# D\n", created_by=self.alice,
+        )
+        response = self.client.post(
+            f"/api/v1/documents/{document.pk}/move/",
+            {"node": "Deploy/dotnet"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        document.refresh_from_db()
+        self.assertEqual(document.path, "dotnet/x.md")
+        self.assertEqual(response.data["tree_path"], "Deploy/dotnet/x.md")
+
+    def test_document_move_by_node_rejects_cross_project(self):
+        other = ProjectService.create(
+            workspace=self.workspace, name="Other", created_by=self.alice
+        )
+        document = DocumentService.create(
+            workspace=self.workspace, project=self.project, title="D",
+            path="x.md", content="# D\n", created_by=self.alice,
+        )
+        response = self.client.post(
+            f"/api/v1/documents/{document.pk}/move/",
+            {"node": other.name},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        document.refresh_from_db()
+        self.assertEqual(document.path, "x.md")
+
+
 class ActionRouteTests(SimpleTestCase):
     """No two ``@action``s on a viewset may resolve to the same URL path."""
 

@@ -326,6 +326,7 @@ class DocumentVersionSerializer(serializers.ModelSerializer):
 class DocumentSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="pk", read_only=True)
     content = serializers.SerializerMethodField()
+    tree_path = serializers.SerializerMethodField()
     workspace = ReadableRelatedField(queryset=Workspace.objects.all())
     project = ReadableRelatedField(
         queryset=Project.objects.all(), required=False, allow_null=True
@@ -341,6 +342,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             "title",
             "slug",
             "path",
+            "tree_path",
             "summary",
             "mime_type",
             "is_template",
@@ -371,6 +373,9 @@ class DocumentSerializer(serializers.ModelSerializer):
         # service + DB constraint; DRF's derived unique-together validator would
         # wrongly demand `path` on every create.
         validators: list = []
+
+    def get_tree_path(self, obj):
+        return obj.tree_path()
 
     def get_content(self, obj):
         if not self.context.get("include_content", True):
@@ -441,6 +446,7 @@ class FileVersionSerializer(serializers.ModelSerializer):
 
 class FileSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="pk", read_only=True)
+    tree_path = serializers.SerializerMethodField()
     workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all())
     project = serializers.PrimaryKeyRelatedField(
         queryset=Project.objects.all(), required=False, allow_null=True
@@ -455,6 +461,7 @@ class FileSerializer(serializers.ModelSerializer):
             "project",
             "name",
             "path",
+            "tree_path",
             "mime_type",
             "size",
             "checksum",
@@ -475,6 +482,9 @@ class FileSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         validators: list = []
+
+    def get_tree_path(self, obj):
+        return obj.tree_path()
 
 
 # ---------------------------------------------------------------------------
@@ -698,6 +708,7 @@ class SecretCreateSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 class FolderSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True)
+    tree_path = serializers.SerializerMethodField()
     workspace = ReadableRelatedField(queryset=Workspace.objects.all())
     project = ReadableRelatedField(
         queryset=Project.objects.all(), required=False, allow_null=True
@@ -705,7 +716,7 @@ class FolderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DocumentFolder
-        fields = ["id", "workspace", "project", "path", "created_by", "created_at"]
+        fields = ["id", "workspace", "project", "path", "tree_path", "created_by", "created_at"]
         read_only_fields = ["id", "created_by", "created_at"]
         extra_kwargs = {"path": {"required": True}}
         # The uniq_folder_path constraint covers (workspace, project, path),
@@ -715,6 +726,9 @@ class FolderSerializer(serializers.ModelSerializer):
         # required." Uniqueness is the DB constraint's job here, exactly as for
         # Document/File/GitRepository above.
         validators: list = []
+
+    def get_tree_path(self, obj):
+        return obj.tree_path()
 
 
 # ---------------------------------------------------------------------------

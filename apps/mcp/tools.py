@@ -273,6 +273,7 @@ def _document_brief(document: Document) -> dict:
         "id": str(document.pk),
         "title": document.title,
         "path": document.path,
+        "tree_path": document.tree_path(),
         "status": document.status,
         "priority": document.priority,
         "summary": document.summary,
@@ -632,6 +633,13 @@ def tool_follow_link(ctx: ToolContext, args: dict) -> dict:
         "properties": {
             "workspace": {"type": "string"},
             "project": {"type": "string"},
+            "node": {
+                "type": "string",
+                "description": (
+                    "Workspace-relative tree path of the document, e.g. "
+                    "'Deploy/dotnet/x.md' - an alternative to project+path."
+                ),
+            },
             "title": {"type": "string"},
             "path": {"type": "string"},
             "content": {"type": "string"},
@@ -644,13 +652,21 @@ def tool_follow_link(ctx: ToolContext, args: dict) -> dict:
 def tool_create_document(ctx: ToolContext, args: dict) -> dict:
     workspace = _get_workspace(args["workspace"])
     project = _get_project(args["project"]) if args.get("project") else None
+    # `node` is the additive address: the whole tree path, from which project and
+    # scope path follow. `workspace` is still required so the path can be rooted.
+    node = (args.get("node") or "").strip("/")
+    path = args.get("path")
+    if node:
+        from apps.documents.folders import split_tree_path
+
+        project, path = split_tree_path(workspace, node)
     target = project.resource if project else workspace.resource
     _require(ctx, target, Permission.WRITE)
     document = DocumentService.create(
         workspace=workspace,
         project=project,
         title=args.get("title", ""),
-        path=args.get("path"),
+        path=path,
         content=args.get("content", ""),
         summary=args.get("summary", ""),
         status=args.get("status"),

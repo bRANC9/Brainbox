@@ -107,6 +107,20 @@ class Document(Taggable, models.Model):
     def __str__(self) -> str:
         return self.title
 
+    def tree_path(self) -> str:
+        """Workspace-relative address of the document, matching the web URLs.
+
+        The container folder carries the node chain; at the scope root there is
+        no folder, so the project node (whose tree path is its name) is the
+        parent, or the workspace root, which is unnamed.
+        """
+        name = (self.path or "").rsplit("/", 1)[-1]
+        if self.folder_id and self.folder is not None:
+            return f"{self.folder.tree_path()}/{name}"
+        if self.project_id:
+            return f"{self.project.name}/{name}"
+        return name
+
 
 class FolderRole(models.TextChoices):
     """What a node in the tree is for.

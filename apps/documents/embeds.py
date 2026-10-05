@@ -52,10 +52,21 @@ def _candidates(document, relative: str) -> list[str]:
     return out
 
 
-def _lookup_file_id(path: str):
+def _lookup_file_id(document, path: str):
     from apps.files.models import File
 
-    return File.objects.filter(path=path).values_list("pk", flat=True).first()
+    # Scoped to the document's own workspace *and* project: `path` is
+    # scope-relative, so "a.png" exists in every project and an unscoped lookup
+    # would happily rewrite the link to a same-named file somewhere else.
+    return (
+        File.objects.filter(
+            workspace_id=document.workspace_id,
+            project_id=document.project_id,
+            path=path,
+        )
+        .values_list("pk", flat=True)
+        .first()
+    )
 
 
 def resolve(document, html: str) -> str:
@@ -77,11 +88,11 @@ def resolve(document, html: str) -> str:
         suffix = "." + path.rsplit(".", 1)[-1].lower() if "." in path else ""
         for candidate in _candidates(document, path):
             if suffix in IMAGE_SUFFIXES:
-                pk = _lookup_file_id(candidate)
+                pk = _lookup_file_id(document, candidate)
                 if pk:
                     return f'{match.group("attr")}{reverse("web:file_content", args=[pk])}{match.group(3)}'
             elif suffix in DOCUMENT_SUFFIXES:
-                document_id = _lookup_document_id(candidate)
+                document_id = _lookup_document_id(document, candidate)
                 if document_id:
                     return (
                         f'{match.group("attr")}'
@@ -93,15 +104,20 @@ def resolve(document, html: str) -> str:
     return _REF.sub(replace, html)
 
 
-def _lookup_document_id(path: str):
+def _lookup_document_id(document, path: str):
     from apps.documents.models import Document
 
-    match = (
-        Document.objects.filter(path=path)
+    # Same scope rule as `_lookup_file_id`: a scope-relative path is not unique
+    # across projects, so the lookup must stay inside the document's own scope.
+    return (
+        Document.objects.filter(
+            workspace_id=document.workspace_id,
+            project_id=document.project_id,
+            path=path,
+        )
         .values_list("pk", flat=True)
         .first()
     )
-    return match
 
 
 __all__ = ["resolve", "IMAGE_SUFFIXES", "DOCUMENT_SUFFIXES"]

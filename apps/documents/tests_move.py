@@ -5,7 +5,7 @@ from pathlib import Path
 from django.test import TestCase, override_settings
 
 from apps.accounts.models import User
-from apps.documents.folders import create_folder, move_folder
+from apps.documents.folders import create_folder, move_folder, rename_folder
 from apps.documents.models import Document, DocumentFolder
 from apps.documents.services import DocumentService
 from apps.workspaces.services import ProjectService, WorkspaceService
@@ -27,6 +27,22 @@ class MoveTests(TestCase):
             path="x.md",
             created_by=self.user,
         )
+
+    def test_rename_folder_moves_its_files_on_disk(self):
+        create_folder(workspace=self.workspace, project=self.project, path="abra", created_by=self.user)
+        doc = DocumentService.create(
+            workspace=self.workspace, project=self.project, title="Pic",
+            path="abra/pic.md", content="# P\n", created_by=self.user,
+        )
+        old_file = DocumentService.storage_path(doc)
+        self.assertTrue(old_file.exists())
+        folder = DocumentFolder.objects.get(name="abra")
+        rename_folder(folder=folder, path="atnevezett")
+        doc.refresh_from_db()
+        new_file = DocumentService.storage_path(doc)
+        self.assertEqual(doc.path, "atnevezett/pic.md")
+        self.assertTrue(new_file.exists(), f"{old_file} -> {new_file}")
+        self.assertFalse(old_file.exists())
 
     def test_move_document_relocates_file_and_path(self):
         old_file = DocumentService.storage_path(self.doc)
@@ -103,6 +119,32 @@ class MoveTests(TestCase):
         self.assertEqual(response.status_code, 200)
         folder.refresh_from_db()
         self.assertEqual(folder.path, "python/dotnet")
+
+    def test_move_folder_to_scope_root(self):
+        create_folder(workspace=self.workspace, project=self.project, path="python/dotnet", created_by=self.user)
+        folder = DocumentFolder.objects.get(path="python/dotnet")
+        move_folder(folder=folder, to_root=True, user=self.user)
+        folder.refresh_from_db()
+        self.assertEqual(folder.path, "dotnet")
+        self.assertEqual(folder.container_id, self.project.resource_id)
+
+    def test_web_tree_move_rejects_cross_project(self):
+        other = ProjectService.create(
+            workspace=self.workspace, name="Other", created_by=self.user
+        )
+        self.client.force_login(self.user)
+        response = self.client.post(
+            "/tree/move/",
+            data=json.dumps(
+                {"type": "document", "id": str(self.doc.pk), "target": other.name}
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        # Refused before creating anything: no stray node under the other project.
+        self.assertFalse(DocumentFolder.objects.filter(container=other.resource).exists())
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.path, "x.md")
 
     def test_web_tree_folder_op_renames_by_tree_path(self):
         create_folder(workspace=self.workspace, project=self.project, path="dotnet", created_by=self.user)

@@ -389,6 +389,7 @@ def tree_move(request):
                 return denied
             # Get-or-create the destination: a drop onto a folder that exists only
             # as a path prefix still has a node to move into.
+            _same_scope_or_error(document.project_id, document.workspace, target)
             destination = ensure_node_by_tree_path(
                 document.workspace, target, created_by=request.user
             )
@@ -404,10 +405,18 @@ def tree_move(request):
             denied = _require_write_or_403(request, folder.resource)
             if denied:
                 return denied
+            _same_scope_or_error(folder.project_id, folder.workspace, target)
             destination = ensure_node_by_tree_path(
                 folder.workspace, target, created_by=request.user
             )
-            move_folder(folder=folder, new_parent=destination, user=request.user)
+            move_folder(
+                folder=folder,
+                new_parent=destination,
+                # An empty target is the page background: move to the scope root,
+                # not "leave it where it is".
+                to_root=destination is None,
+                user=request.user,
+            )
         else:
             return JsonResponse({"ok": False, "error": "ismeretlen típus"}, status=400)
     except ValidationError as exc:
@@ -440,20 +449,29 @@ def _safe_next(request) -> str:
 
 
 def _project_of_node(node):
-    """The Project a node belongs to, or None at the workspace root.
+    """The Project a node belongs to, or None (delegates to the shared helper)."""
+    from apps.documents.folders import project_of_node
 
-    A project node *is* the project - it shares the Project's Resource - so its own
-    ``project`` FK is NULL by construction (the node is the project, not something
-    inside one). The Project row is therefore found through the shared Resource id,
-    never through the node's pk, which is a different UUID.
+    return project_of_node(node)
+
+
+def _same_scope_or_error(project_id, workspace, tree_path):
+    """Raise when a destination tree path is outside the moved object's scope.
+
+    A document or folder lives under its project (or the workspace), and a move
+    only rewrites the path *inside* that scope - so a destination in another
+    project would compute a path that belongs nowhere. Read from the target's
+    first segment and checked *before* any node is created for it, so a refused
+    move leaves no stray folder behind. The interface cannot produce a
+    cross-scope drag, but the endpoint is public.
     """
-    if node is None:
-        return None
-    if node.project_id:
-        return node.project
-    from apps.workspaces.models import Project
+    from django.core.exceptions import ValidationError
 
-    return Project.objects.filter(resource_id=node.resource_id).first()
+    from apps.documents.folders import split_tree_path
+
+    project, _ = split_tree_path(workspace, tree_path)
+    if (project.pk if project else None) != project_id:
+        raise ValidationError({"path": "Csak a saját projektjén belül mozgatható."})
 
 
 def _node_scope(workspace, tree_path):

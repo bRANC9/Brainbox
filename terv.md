@@ -8,6 +8,13 @@ A rendszer fő célja nem egy klasszikus wiki létrehozása, hanem egy központi
 
 > „Nézd meg a céges tudástárban, hogyan szoktuk ezt megoldani.”
 
+> **Megvalósítási megjegyzés:** a projekt és a mappa egyetlen fa-csomóponttá
+> olvadt (`role=project` / `role=folder`), és minden csomópont a workspace-hez
+> viszonyított *tree path*ján címezhető (web: `/workspaces/<ws>/f/<tree_path>/`;
+> API/MCP: `tree_path` a válaszban, `node` a create/move bemeneten). Az alábbi
+> spec helyenként a "projektet" önálló tengelyként írja le; ahol eltér, a
+> fa-csomópont modell az érvényes.
+
 Az AI agent a válasz vagy kód generálása előtt képes legyen a releváns céges skill-eket, konvenciókat, patternöket, döntéseket és referenciafájlokat megkeresni, majd azokat követni.
 
 A rendszernek támogatnia kell:

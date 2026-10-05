@@ -220,14 +220,18 @@ def rename_folder(*, folder: DocumentFolder, path: str) -> DocumentFolder:
         raise ValidationError({"name": f"„{new_name}” már létezik itt."})
 
     workspace, project = folder.workspace, folder.project
-    _move_disk(workspace, project, old_path, folder)
 
     folder.name = new_name
     folder.resource.name = new_name
     folder.resource.metadata = {**(folder.resource.metadata or {}), "name": new_name}
     folder.save(update_fields=["name", "updated_at"])
     folder.resource.save(update_fields=["name", "metadata", "updated_at"])
+    # Recompute *before* moving: `_move_disk` reads the destination off
+    # ``folder.path``, so renaming the row first and then moving keeps the cached
+    # path and the bytes together. The old order changed the path and left the
+    # files under the old name.
     folder.recompute_path()
+    _move_disk(workspace, project, old_path, folder)
     rewrite_descendants(folder)
     return folder
 
@@ -237,6 +241,7 @@ def move_folder(
     *,
     folder: DocumentFolder,
     new_parent: DocumentFolder | str | None = None,
+    to_root: bool = False,
     user=None,
 ) -> DocumentFolder:
     """Re-parent a folder. Its subtree follows, because paths recompute.
@@ -244,6 +249,9 @@ def move_folder(
     ``new_parent`` may be a folder node or a path string: the drag-and-drop
     endpoint has a path, the API and the tests have a node, and making them
     resolve between the two here is better than making every caller translate.
+    ``to_root`` moves it to its storage scope's root (the project, or the
+    workspace) - what a drop on the page background means - while ``new_parent``
+    left as None without it keeps the folder where it is.
     """
     if isinstance(new_parent, str):
         new_parent = resolve_folder_path(folder, new_parent) if new_parent.strip() else None
@@ -256,14 +264,18 @@ def move_folder(
                 raise ValidationError({"path": "Nem moztható a saját leszármazottjába."})
 
     old_path = folder.path
-    if DocumentFolder.objects.filter(
-        container=new_parent.resource if new_parent else folder.container,
-        name=folder.name,
-    ).exclude(pk=folder.pk).exists():
+    if new_parent is not None:
+        container = new_parent.resource
+    elif to_root:
+        container = scope_resource(folder.workspace, folder.project)
+    else:
+        container = folder.container
+
+    if DocumentFolder.objects.filter(container=container, name=folder.name).exclude(
+        pk=folder.pk
+    ).exists():
         raise ValidationError({"name": f"„{folder.name}” már létezik az új helyen."})
 
-    _move_disk(folder.workspace, folder.project, old_path, folder, new_parent=new_parent)
-    container = new_parent.resource if new_parent else folder.container
     folder.container = container
     folder.save(update_fields=["container", "updated_at"])
     # The Resource chain is what the permission engine walks, so it has to follow
@@ -272,7 +284,10 @@ def move_folder(
     if folder.resource.parent_id != container.id:
         folder.resource.parent = container
         folder.resource.save(update_fields=["parent", "updated_at"])
+    # Recompute first, then move the bytes to match: `_move_disk` reads the
+    # destination off ``folder.path``.
     folder.recompute_path()
+    _move_disk(folder.workspace, folder.project, old_path, folder)
     rewrite_descendants(folder)
     return folder
 
@@ -336,14 +351,16 @@ def repath_scope(workspace, project) -> None:
         _repath_contents(folder)
 
 
-def _move_disk(workspace, project, old_path, folder, new_parent=None) -> None:
-    """Relocate the folder and everything below it on disk."""
+def _move_disk(workspace, project, old_path, folder) -> None:
+    """Relocate the folder and everything below it on disk.
+
+    ``old_path`` is where it is now; the destination is ``folder.path``, which
+    the caller has already recomputed from the chain - so a rename and a move go
+    through the same one code path, and the bytes always follow the cached path.
+    """
     storage = get_storage()
     new_path = folder.path
-    if new_parent is not None:
-        new_path = f"{new_parent.path}/{folder.name}" if new_parent.path else folder.name
-
-    if folder.path == new_path:
+    if old_path == new_path:
         return
 
     for kind in ("documents", "files"):
@@ -642,6 +659,46 @@ def ensure_node_by_tree_path(
 def ancestors_of(node: DocumentFolder) -> list[DocumentFolder]:
     """The enclosing nodes, nearest first, excluding the node itself."""
     return node.chain()[1:]
+
+
+def project_of_node(node: DocumentFolder | None):
+    """The Project a node belongs to, or None.
+
+    A project node *is* the project - it shares the Project's Resource - so its
+    own ``project`` FK is NULL by construction; the Project is found through the
+    shared Resource id. One implementation, used by the web views and the API.
+    """
+    if node is None:
+        return None
+    if node.project_id:
+        return node.project
+    from apps.workspaces.models import Project
+
+    return Project.objects.filter(resource_id=node.resource_id).first()
+
+
+def split_tree_path(workspace, tree_path: str):
+    """``(project, scope-relative path)`` for a workspace-relative tree path.
+
+    Reads the first segment: if it names a project node, that project is the
+    scope and the rest is the path *inside* it; otherwise the whole path is in
+    the workspace scope. This is the one place a tree path is turned back into
+    the ``project`` + ``path`` pair the storage layer and the API still speak.
+    """
+    from apps.workspaces.models import Project
+
+    segments = [s for s in normalize_folder_path(tree_path).split("/") if s]
+    project = None
+    if segments:
+        first = (
+            DocumentFolder.objects.filter(container=workspace.resource, name=segments[0])
+            .select_related("container")
+            .first()
+        )
+        if first is not None and first.role == FolderRole.PROJECT:
+            project = Project.objects.filter(resource_id=first.resource_id).first()
+            segments = segments[1:]
+    return project, "/".join(segments)
 
 
 def folder_for_path(workspace, project, path: str) -> DocumentFolder | None:

@@ -12,7 +12,7 @@ from apps.links.services import LinkService
 from apps.permissions.constants import Permission, SubjectType
 from apps.permissions.services import PermissionService
 from apps.workspaces.personal import PersonalWorkspaceService
-from apps.workspaces.services import WorkspaceService
+from apps.workspaces.services import ProjectService, WorkspaceService
 
 
 @override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
@@ -125,6 +125,33 @@ class MCPTests(TestCase):
         )
         payload = json.loads(response.json()["result"]["content"][0]["text"])
         self.assertEqual(payload["title"], "New note")
+        self.assertEqual(payload["tree_path"], "new.md")
+
+    def test_create_document_by_node(self):
+        project = ProjectService.create(
+            workspace=self.workspace, name="Deploy", created_by=self.alice
+        )
+        response = self._call(
+            {
+                "jsonrpc": "2.0",
+                "id": 41,
+                "method": "tools/call",
+                "params": {
+                    "name": "knowledge_create_document",
+                    "arguments": {
+                        "workspace": str(self.workspace.pk),
+                        "node": "Deploy/dotnet/x.md",
+                        "title": "By node",
+                        "content": "# By node\n",
+                    },
+                },
+            },
+            self.alice_key,
+        )
+        payload = json.loads(response.json()["result"]["content"][0]["text"])
+        self.assertEqual(payload["tree_path"], "Deploy/dotnet/x.md")
+        self.assertEqual(payload["path"], "dotnet/x.md")
+        self.assertEqual(payload["project"], str(project.pk))
 
     def test_unknown_tool_returns_error_content(self):
         response = self._call(

@@ -11,9 +11,12 @@ Self-hosted, AI-native engineering knowledge platform (Django + PostgreSQL).
 
 ## Főbb képességek
 
-- **Workspace / Project / Mappa / Dokumentum / Fájl** — minden objektum egy
-  `Resource` (UUID, szülőlánc, önálló ACL). A workspace lehet `shared` vagy
-  `personal` (utóbbi kizárólag a tulajdonosé, nem megosztható).
+- **Workspace / Csomópont / Dokumentum / Fájl** — minden objektum egy
+  `Resource` (UUID, szülőlánc, önálló ACL). Egy **projekt** és egy **mappa**
+  ugyanaz a fa-csomópont (`role=project` / `role=folder`); a webcíme a
+  workspace-hez viszonyított *tree path*, és nincs külön "projekt" tengely.
+  A workspace lehet `shared` vagy `personal` (utóbbi kizárólag a tulajdonosé,
+  nem megosztható).
 - **Permission engine**: explicit ALLOW/DENY, öröklés felfelé-lefelé a fában,
   deny precedence, csoport-támogatás, API key scope szűkítés.
 - **Verziótörténet**: dokumentum és fájl snapshot + diff + restore.
@@ -133,6 +136,11 @@ search/ discovery/ quality/ drafts/ jobs/ deadlines/ settings/
   konvenciók. Nyilvános, hogy agent kulcs előtt elolvashassa.
 - `POST /mcp` — JSON-RPC 2.0 (MCP kliensek: Claude Code, OpenCode, Codex…).
   Minden tool permission-aware és auditált (`MCP_REQUEST`).
+- **Címzés**: a web a csomópontokat a tree pathjukon éri el
+  (`/workspaces/<workspace>/f/<tree_path>/`, akciók ugyanígy). Az API/MCP
+  válaszaiban megjelenik a `tree_path`, és a create/move elfogad egy `node`
+  mezőt (a tree path) a projekt + scope-path **mellett** — additív, a meglévő
+  klienseket nem töri.
 
 ---
 
@@ -142,7 +150,7 @@ search/ discovery/ quality/ drafts/ jobs/ deadlines/ settings/
 |---|---|
 | Workspace (shared) | privát, amíg meg nem osztják; a jog dinamikusan öröklődik |
 | Workspace (personal) | csak a tulajdonos; nem Share-olható, nem adható át |
-| Project / Mappa / Doksi / Fájl | a konténer ACL-jét örökli, önálló ACL is lehet |
+| Csomópont (projekt / mappa) / Doksi / Fájl | a konténer ACL-jét örökli, önálló ACL is lehet |
 
 - Négy jogszint szigorúan beágyazott: `read ⊂ write ⊂ delete ⊂ admin`.
 - A **DENY abszolút**: bármelyik ős szinten blokkol, a szűkebb ALLOW fölé megy.

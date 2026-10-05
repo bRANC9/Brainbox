@@ -628,6 +628,24 @@ class DocumentViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Mod
         ):
             raise PermissionDenied("Write permission required.")
         new_path = request.data.get("path")
+        node = (request.data.get("node") or "").strip("/")
+        if node:
+            # Additive node addressing: the whole workspace-relative path, the
+            # same one the web pages use, instead of project + scope path.
+            from apps.documents.folders import folder_by_tree_path, project_of_node
+
+            destination = folder_by_tree_path(document.workspace, node)
+            if destination is None:
+                raise ValidationError({"node": f"Nincs ilyen csomópont: {node}"})
+            dest_project = project_of_node(destination)
+            if (dest_project.pk if dest_project else None) != document.project_id:
+                raise ValidationError({"node": "Csak a saját projektjén belül mozgatható."})
+            parent = destination.path
+            new_path = (
+                f"{parent}/{Path(document.path).name}"
+                if parent
+                else Path(document.path).name
+            )
         if not new_path:
             folder = (request.data.get("folder") or "").strip("/")
             new_path = f"{folder}/{Path(document.path).name}" if folder else Path(document.path).name
@@ -1313,8 +1331,6 @@ class FolderViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Model
         return workspace.resource if workspace else None
 
     def perform_create(self, serializer):
-        from django.core.exceptions import ValidationError
-
         from apps.documents.folders import create_folder
 
         data = serializer.validated_data
@@ -1325,22 +1341,67 @@ class FolderViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Model
                 path=data["path"],
                 created_by=self.request.user,
             )
-        except ValidationError as exc:
+        except DjangoValidationError as exc:
             raise ValidationError(exc.message_dict) from exc
         serializer.instance = DocumentFolder.objects.get(
             workspace=data["workspace"], project=data.get("project"), path=serializer.validated_data["path"]
         )
 
-    def partial_update(self, request, *args, **kwargs):
-        from django.core.exceptions import ValidationError
+    def create(self, request, *args, **kwargs):
+        """Create a folder, optionally addressed by a ``node`` tree path.
 
-        from apps.documents.folders import move_folder, rename_folder
+        The additive node form: send ``workspace`` + ``node`` (the whole
+        workspace-relative path) instead of ``project`` + ``path``, and the pair
+        the storage layer needs is derived here.
+        """
+        node = (request.data.get("node") or "").strip("/")
+        if not node:
+            return super().create(request, *args, **kwargs)
+
+        from apps.documents.folders import split_tree_path
+
+        workspace = get_object_or_404(Workspace, pk=request.data.get("workspace"))
+        project, scope_path = split_tree_path(workspace, node)
+        data = request.data.copy()
+        data["path"] = scope_path
+        if project is not None:
+            data["project"] = str(project.pk)
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def partial_update(self, request, *args, **kwargs):
+        from apps.documents.folders import (
+            folder_by_tree_path,
+            move_folder,
+            project_of_node,
+            rename_folder,
+        )
 
         folder = self.get_object()
         # The folder's own resource, not the project/workspace it lives in: a
         # grant on A/B/C must not be enough to move it, and access to the
         # workspace must not be what makes A/B/C writable.
         self._require_write(folder, request)
+
+        node = (request.data.get("node") or "").strip("/")
+        if node:
+            # Additive node addressing for a move: a workspace-relative tree path.
+            destination = folder_by_tree_path(folder.workspace, node)
+            if destination is None:
+                raise ValidationError({"node": f"Nincs ilyen csomópont: {node}"})
+            dest_project = project_of_node(destination)
+            if (dest_project.pk if dest_project else None) != folder.project_id:
+                raise ValidationError({"node": "Csak a saját projektjén belül mozgatható."})
+            try:
+                move_folder(folder=folder, new_parent=destination, user=request.user)
+            except DjangoValidationError as exc:
+                raise ValidationError(exc.message_dict) from exc
+            folder.refresh_from_db()
+            return Response(self.get_serializer(folder).data)
+
         new_path = (request.data.get("path") or "").strip()
         try:
             if new_path and new_path != folder.path and "/" not in new_path:
@@ -1351,7 +1412,7 @@ class FolderViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.Model
                 # Re-parent: strip the old name, append the new one.
                 parent, _sep, _name = new_path.rpartition("/")
                 move_folder(folder=folder, new_parent=parent, user=request.user)
-        except ValidationError as exc:
+        except DjangoValidationError as exc:
             raise ValidationError(exc.message_dict) from exc
         folder.refresh_from_db()
         return Response(self.get_serializer(folder).data)

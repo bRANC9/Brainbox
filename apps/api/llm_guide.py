@@ -315,6 +315,16 @@ def _conventions() -> list[dict]:
             f"(GET {API_BASE}/workspaces/<slug>/ works the same way).",
         },
         {
+            "rule": "Address a node by its tree path when you have one.",
+            "why": "A project and a folder are the same kind of tree node, and the "
+            "workspace-relative tree path names either one unambiguously, where a "
+            "project id plus a scope-relative path has to be assembled by hand.",
+            "how": "Every document/file/folder response carries tree_path. Place a "
+            "document with knowledge_create_document using node=\"Deploy/dotnet/x.md\", "
+            f"or a folder via POST {API_BASE}/folders/ with node=\"Deploy/runbooks\"; "
+            "move with node as the destination. project + path still work.",
+        },
+        {
             "rule": "Updates create a new version; deletion is the last resort.",
             "why": "Each write appends an immutable DocumentVersion with the author, source and "
             "git commit, so history stays auditable. Knowledge that is obsolete is marked, not "
