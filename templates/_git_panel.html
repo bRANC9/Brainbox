@@ -16,11 +16,7 @@
     {% if git_state.last_error %}<p class="error">{{ git_state.last_error }}</p>{% endif %}
   {% endif %}
   {% if can_write %}
-    {% if project %}
-      <form method="post" action="{% url 'web:project_git_pull' workspace.slug project.slug %}" class="inline">
-    {% else %}
-      <form method="post" action="{% url 'web:workspace_git_pull' workspace.slug %}" class="inline">
-    {% endif %}
+    <form method="post" action="{{ tree_urls.git_pull }}" class="inline">
       {% csrf_token %}
       <button class="button" type="submit">Szinkronizálás Gitből</button>
     </form>

@@ -13,6 +13,7 @@ can read - it has no access of its own, so it carries no actions.
     <p class="crumbs">
       <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
       {% if project %} / <a href="{% node_url project %}">{{ project.name }}</a>{% endif %}
+      {% if node %} / <a href="{% node_url node %}">{{ node.name }}</a>{% endif %}
       / Mellékletek
     </p>
     <h1>Mellékletek</h1>
@@ -23,7 +24,9 @@ can read - it has no access of its own, so it carries no actions.
     </p>
   </div>
   <span>
-    {% if project %}
+    {% if node %}
+      <a class="button" href="{% node_url node %}">Vissza a mappához</a>
+    {% elif project %}
       <a class="button" href="{% node_url project %}">Projekt</a>
     {% else %}
       <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Workspace</a>

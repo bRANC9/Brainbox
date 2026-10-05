@@ -6,26 +6,22 @@ a 'depth' so it renders without recursive template tags.
 <section class="git-panel" id="tree-root"
          data-workspace="{{ workspace.slug }}"
          data-project="{{ project.slug|default:'' }}"
-         data-doc-create="{% if project %}{% url 'web:project_document_create' workspace.slug project.slug %}{% else %}{% url 'web:workspace_document_create' workspace.slug %}{% endif %}"
-         data-folder-create="{% if project %}{% url 'web:project_folder_create' workspace.slug project.slug %}{% else %}{% url 'web:workspace_folder_create' workspace.slug %}{% endif %}"
+         data-doc-create="{{ tree_urls.doc_new }}"
+         data-folder-create="{{ tree_urls.folder_new }}"
          data-folder-op="{% url 'web:tree_folder_op' %}">
   <div class="page-head" style="margin-bottom:.5rem">
     <h2 style="margin:0">Dokumentumok {% if can_write %}<span class="muted" style="font-size:.8rem">(húzd a sorokat mappák közé)</span>{% endif %}</h2>
     {% if can_write %}
       <span>
         {% comment %}
-        `folder_prefix` is set by a folder page so its "new" buttons land inside
-        the folder you are looking at rather than at the scope root.
+        `tree_urls` is built by the view for the exact scope it is rendering -
+        the workspace root or one node - so the panel no longer branches on
+        whether a project exists. `folder_prefix` is set by a node page so the
+        "new" buttons land inside the folder you are looking at.
         {% endcomment %}
-        {% if project %}
-          <a class="button" href="{% url 'web:project_folder_create' workspace.slug project.slug %}{% if folder_prefix %}?parent={{ folder_prefix|urlencode }}{% endif %}">Új mappa</a>
-          <a class="button" href="{% url 'web:project_bulk_upload' workspace.slug project.slug %}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Tömeges feltöltés</a>
-          <a class="button primary" href="{% url 'web:project_document_create' workspace.slug project.slug %}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Új doku</a>
-        {% else %}
-          <a class="button" href="{% url 'web:workspace_folder_create' workspace.slug %}{% if folder_prefix %}?parent={{ folder_prefix|urlencode }}{% endif %}">Új mappa</a>
-          <a class="button" href="{% url 'web:workspace_bulk_upload' workspace.slug %}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Tömeges feltöltés</a>
-          <a class="button primary" href="{% url 'web:workspace_document_create' workspace.slug %}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Új doku</a>
-        {% endif %}
+        <a class="button" href="{{ tree_urls.folder_new }}{% if folder_prefix %}?parent={{ folder_prefix|urlencode }}{% endif %}">Új mappa</a>
+        <a class="button" href="{{ tree_urls.bulk_upload }}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Tömeges feltöltés</a>
+        <a class="button primary" href="{{ tree_urls.doc_new }}{% if folder_prefix %}?folder={{ folder_prefix|urlencode }}{% endif %}">Új doku</a>
       </span>
     {% endif %}
   </div>

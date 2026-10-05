@@ -186,8 +186,11 @@ class FileBrowserTests(TestCase):
             effect=Effect.DENY,
             created_by=self.alice,
         )
+        from apps.documents.models import DocumentFolder
+
+        node = DocumentFolder.objects.get(resource_id=self.project.resource_id)
         self.project_url = reverse(
-            "web:project_files", args=[self.workspace.slug, self.project.slug]
+            "web:node_files", args=[self.workspace.slug, node.tree_path()]
         )
 
     def test_browser_lists_only_files_the_caller_may_read(self):

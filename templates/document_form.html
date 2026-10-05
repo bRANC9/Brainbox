@@ -7,6 +7,7 @@
     <p class="crumbs">
       <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a>
       {% if project %} / <a href="{% node_url project %}">{{ project.name }}</a>{% endif %}
+      {% if node %} / <a href="{% node_url node %}">{{ node.name }}</a>{% endif %}
     </p>
     <h1>{% if document %}Dokumentum szerkesztése{% else %}Új dokumentum{% endif %}</h1>
     {% if document %}<p class="muted">{{ document.title }} &middot; {{ document.path }}</p>{% endif %}
@@ -79,7 +80,7 @@
     {% if document %}
       <a class="button" href="{% url 'web:document_detail' document.pk %}">Mégse</a>
     {% else %}
-      <a class="button" href="{% if project %}{% node_url project %}{% else %}{% url 'web:workspace_detail' workspace.slug %}{% endif %}">Mégse</a>
+      <a class="button" href="{% if node %}{% node_url node %}{% elif project %}{% node_url project %}{% else %}{% url 'web:workspace_detail' workspace.slug %}{% endif %}">Mégse</a>
     {% endif %}
   </div>
 </form>

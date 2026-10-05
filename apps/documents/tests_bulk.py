@@ -109,7 +109,7 @@ class BulkAndTemplateTests(TestCase):
         from apps.documents.models import DocumentFolder
 
         self.client.force_login(self.user)
-        url = f"/workspaces/{self.workspace.slug}/{self.project.slug}/folders/"
+        url = f"/workspaces/{self.workspace.slug}/f/{self.project.name}/folders/"
         response = self.client.post(url, {"paths": "dotnet\npython\ndjango\nlegacy/dotnet"})
         self.assertEqual(response.status_code, 302)
         created = set(DocumentFolder.objects.values_list("path", flat=True))
@@ -147,7 +147,7 @@ class BulkAndTemplateTests(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         self.client.force_login(self.user)
-        url = f"/workspaces/{self.workspace.slug}/{self.project.slug}"
+        url = f"/workspaces/{self.workspace.slug}/f/{self.project.name}"
         response = self.client.post(
             url + "/bulk-upload/",
             {"folder": "deploy", "files": [SimpleUploadedFile("one.md", b"# One\n")]},

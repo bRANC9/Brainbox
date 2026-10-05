@@ -422,21 +422,111 @@ def _require_write_or_403(request, resource):
     return None
 
 
+def _project_of_node(node):
+    """The Project a node belongs to, or None at the workspace root.
+
+    A project node *is* the project - it shares the Project's Resource - so its own
+    ``project`` FK is NULL by construction (the node is the project, not something
+    inside one). The Project row is therefore found through the shared Resource id,
+    never through the node's pk, which is a different UUID.
+    """
+    if node is None:
+        return None
+    if node.project_id:
+        return node.project
+    from apps.workspaces.models import Project
+
+    return Project.objects.filter(resource_id=node.resource_id).first()
+
+
+def _node_scope(workspace, tree_path):
+    """``(node, project, container)`` for a node path, or the workspace root.
+
+    Every action view used to look a Project up by slug; they all take the same
+    tree path the node page uses now, so one helper answers for all of them. An
+    empty path is the workspace root, which is not a node in the tree.
+    """
+    if not tree_path:
+        return None, None, workspace.resource
+    from apps.documents.folders import folder_by_tree_path
+
+    node = folder_by_tree_path(workspace, tree_path)
+    if node is None:
+        raise Http404
+    return node, _project_of_node(node), node.resource
+
+
+def _crumb_node(node):
+    """A node to show as a breadcrumb step, or None when it *is* the project.
+
+    A project node already renders as the project crumb on every form, so
+    returning it here too would print the same name twice.
+    """
+    if node is None or node.role == "project":
+        return None
+    return node
+
+
+def _scope_prefix(node) -> str:
+    """A node's path *relative to its storage scope*, for the new/edit forms.
+
+    The scope root is the project node (or the workspace), and a project node's
+    own stored ``path`` is its name - the scope's name, which must not be
+    repeated *inside* the scope. So a project node contributes no prefix, while a
+    folder inside one contributes its already scope-relative ``path``. This is
+    what keeps "Új mappa" on a project's own page from creating ``Deploy/Deploy``.
+    """
+    from apps.documents.models import FolderRole
+
+    if node is None or node.role == FolderRole.PROJECT:
+        return ""
+    return node.path
+
+
+def _node_redirect(workspace, node):
+    """Back to the node that was acted on, or to the workspace root."""
+    if node is None:
+        return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+    return redirect(
+        "web:folder_detail", workspace_slug=workspace.slug, tree_path=node.tree_path()
+    )
+
+
+def _tree_action_urls(workspace, node) -> dict:
+    """The action URLs the file-tree panel needs, for this scope or node.
+
+    Computed once per page instead of the panel branching on whether a project
+    exists: the same panel renders at the workspace root and on any node, and
+    ``_file_tree.html`` just reads these keys.
+    """
+    if node is None:
+        return {
+            "doc_new": reverse("web:workspace_document_create", args=[workspace.slug]),
+            "folder_new": reverse("web:workspace_folder_create", args=[workspace.slug]),
+            "bulk_upload": reverse("web:workspace_bulk_upload", args=[workspace.slug]),
+            "files": reverse("web:workspace_files", args=[workspace.slug]),
+            "git_pull": reverse("web:workspace_git_pull", args=[workspace.slug]),
+        }
+    path = node.tree_path()
+    return {
+        "doc_new": reverse("web:node_document_create", args=[workspace.slug, path]),
+        "folder_new": reverse("web:node_folder_create", args=[workspace.slug, path]),
+        "bulk_upload": reverse("web:node_bulk_upload", args=[workspace.slug, path]),
+        "files": reverse("web:node_files", args=[workspace.slug, path]),
+        "git_pull": reverse("web:node_git_pull", args=[workspace.slug, path]),
+    }
+
+
 @login_required
-def folder_create(request, workspace_slug, project_slug=None):
-    """Create a folder inside a workspace/project."""
+def folder_create(request, workspace_slug, tree_path=None):
+    """Create a folder in the workspace root, or inside any node."""
     from django.core.exceptions import ValidationError
 
     from apps.documents.folders import create_folder
 
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
-    project = (
-        get_object_or_404(Project, workspace=workspace, slug=project_slug)
-        if project_slug
-        else None
-    )
-    target = project.resource if project else workspace.resource
-    if not _can(request.user, target, Permission.WRITE):
+    node, project, container = _node_scope(workspace, tree_path)
+    if not _can(request.user, container, Permission.WRITE):
         return HttpResponseForbidden("You do not have write access here.")
 
     if request.method == "POST":
@@ -451,10 +541,13 @@ def folder_create(request, workspace_slug, project_slug=None):
         else:
             ok, failed = 0, []
             for raw in raw_paths:
-                target = f"{parent}/{raw}" if parent else raw
+                folder_target = f"{parent}/{raw}" if parent else raw
                 try:
                     create_folder(
-                        workspace=workspace, project=project, path=target, created_by=request.user
+                        workspace=workspace,
+                        project=project,
+                        path=folder_target,
+                        created_by=request.user,
                     )
                     ok += 1
                 except ValidationError as exc:
@@ -463,11 +556,7 @@ def folder_create(request, workspace_slug, project_slug=None):
                 messages.success(request, f"{ok} mappa létrehozva.")
             for item in failed:
                 messages.warning(item)
-        if project:
-            return redirect(
-                "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug
-            )
-        return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+        return _node_redirect(workspace, node)
 
     return render(
         request,
@@ -475,6 +564,7 @@ def folder_create(request, workspace_slug, project_slug=None):
         {
             "workspace": workspace,
             "project": project,
+            "node": _crumb_node(node),
             "parent": (request.GET.get("parent") or "").strip("/"),
         },
     )
@@ -622,26 +712,9 @@ def workspace_detail(request, workspace_slug):
         "tag_filter": tag_filter,
         "available_tags": _available_tags(workspace, None),
         **_git_panel(workspace),
+        "tree_urls": _tree_action_urls(workspace, None),
     }
     return render(request, "workspace_detail.html", context)
-
-
-@login_required
-def project_detail(request, workspace_slug, project_slug):
-    """Retired as a page: a project is a node, and nodes are addressed by path.
-
-    Kept as a route so every existing link and bookmark keeps working - it just
-    hands over to the canonical address. Two URLs rendering the same content is
-    how the interface ended up with two hierarchies that were really one.
-    """
-    workspace = get_object_or_404(Workspace, slug=workspace_slug)
-    project = get_object_or_404(Project, workspace=workspace, slug=project_slug)
-    node = DocumentFolder.objects.filter(resource_id=project.resource_id).first()
-    if node is None:
-        raise Http404
-    return redirect(
-        reverse("web:folder_detail", args=[workspace.slug, node.tree_path()]), permanent=True
-    )
 
 
 def _subtree_folders(node, max_depth: int = 16) -> list:
@@ -791,6 +864,10 @@ def folder_detail(request, workspace_slug, tree_path):
         raise Http404
     if not PermissionService.can_browse(request.user, node.resource):
         raise Http404
+    # A project node's own `project` FK is NULL (it *is* the project), so the
+    # Project has to be looked up through the shared resource - the templates and
+    # the tree JS need the slug to scope their operations.
+    project = _project_of_node(node)
 
     tag_filter = request.GET.get("tag", "")
     ancestors = [
@@ -799,17 +876,18 @@ def folder_detail(request, workspace_slug, tree_path):
     ]
     context = {
         "workspace": workspace,
-        "project": node.project,
+        "project": project,
         "folder_node": node,
-        "folder_prefix": node.path,
+        "folder_prefix": _scope_prefix(node),
         "ancestors": ancestors,
         "can_write": _can(request.user, node.resource, Permission.WRITE),
         "owner": node.owner,
         **_access_context(request, node.resource),
         "tree_rows": _node_tree_rows(workspace, node, request.user, tag_filter),
         "tag_filter": tag_filter,
-        "available_tags": _available_tags(workspace, node.project),
-        **_git_panel(workspace, node.project),
+        "available_tags": _available_tags(workspace, project),
+        **_git_panel(workspace, project),
+        "tree_urls": _tree_action_urls(workspace, node),
     }
     return render(request, "folder_detail.html", context)
 
@@ -855,19 +933,14 @@ def document_detail(request, pk):
 
 @login_required
 @require_http_methods(["GET", "POST"])
-def document_bulk_upload(request, workspace_slug, project_slug=None):
-    """Upload many .md files into a folder of a workspace/project at once."""
+def document_bulk_upload(request, workspace_slug, tree_path=None):
+    """Upload many .md files into a folder of the workspace root or any node."""
     from apps.documents.folders import ensure_folder
     from apps.documents.services import DocumentService
 
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
-    project = (
-        get_object_or_404(Project, workspace=workspace, slug=project_slug)
-        if project_slug
-        else None
-    )
-    target = project.resource if project else workspace.resource
-    if not _can(request.user, target, Permission.WRITE):
+    node, project, container = _node_scope(workspace, tree_path)
+    if not _can(request.user, container, Permission.WRITE):
         return HttpResponseForbidden("You do not have write access here.")
 
     if request.method == "POST":
@@ -892,11 +965,7 @@ def document_bulk_upload(request, workspace_slug, project_slug=None):
             messages.success(request, f"{len(result['created'])} fájl betöltve.")
             for skipped in result["skipped"]:
                 messages.warning(f"{skipped['file']}: {skipped['reason']}")
-        if project:
-            return redirect(
-                "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug
-            )
-        return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+        return _node_redirect(workspace, node)
 
     folders = [
         row["path"]
@@ -906,19 +975,16 @@ def document_bulk_upload(request, workspace_slug, project_slug=None):
     return render(
         request,
         "document_bulk_form.html",
-        {"workspace": workspace, "project": project, "folders": folders},
+        {"workspace": workspace, "project": project, "node": _crumb_node(node), "folders": folders},
     )
 
 
 @login_required
 @require_http_methods(["GET", "POST"])
-def document_create(request, workspace_slug, project_slug=None):
+def document_create(request, workspace_slug, tree_path=None):
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
-    project = None
-    if project_slug:
-        project = get_object_or_404(Project, workspace=workspace, slug=project_slug)
-    target = project.resource if project else workspace.resource
-    if not _can(request.user, target, Permission.WRITE):
+    node, project, container = _node_scope(workspace, tree_path)
+    if not _can(request.user, container, Permission.WRITE):
         return HttpResponseForbidden("You do not have write access here.")
 
     if request.method == "POST":
@@ -970,6 +1036,7 @@ def document_create(request, workspace_slug, project_slug=None):
         {
             "workspace": workspace,
             "project": project,
+            "node": _crumb_node(node),
             "document": None,
             "content": prefill,
             "statuses": DocumentStatus.choices,
@@ -1079,41 +1146,28 @@ def document_history(request, pk):
 
 @login_required
 @require_http_methods(["POST"])
-def workspace_git_pull(request, workspace_slug):
-    workspace = get_object_or_404(Workspace, slug=workspace_slug)
-    if not _can(request.user, workspace.resource, Permission.WRITE):
-        return HttpResponseForbidden("You do not have write access here.")
-    repository = GitService.repository_for(workspace=workspace)
-    if repository is None:
-        messages.error(request, "This workspace is not Git-backed.")
-    else:
-        try:
-            result = GitService.pull_repository(repository, user=request.user, request=request)
-            messages.success(request, f"Git sync complete: {result}")
-        except Exception as exc:  # noqa: BLE001 - surface the message in the UI
-            messages.error(request, f"Git sync failed: {exc}")
-    return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+def git_pull(request, workspace_slug, tree_path=None):
+    """Git sync a workspace, or a project node inside it.
 
-
-@login_required
-@require_http_methods(["POST"])
-def project_git_pull(request, workspace_slug, project_slug):
+    One view for both: a project is a node, so ``/f/<path>/git/pull/`` and the
+    workspace-root ``/git/pull/`` differ only in which repository they target.
+    Non-project nodes fall back to the workspace repository (``project`` is None),
+    which is exactly what the old workspace-scoped view did.
+    """
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
-    project = get_object_or_404(Project, workspace=workspace, slug=project_slug)
-    if not _can(request.user, project.resource, Permission.WRITE):
+    node, project, container = _node_scope(workspace, tree_path)
+    if not _can(request.user, container, Permission.WRITE):
         return HttpResponseForbidden("You do not have write access here.")
     repository = GitService.repository_for(workspace=workspace, project=project)
     if repository is None:
-        messages.error(request, "This project is not Git-backed.")
+        messages.error(request, "There is no Git repository here.")
     else:
         try:
             result = GitService.pull_repository(repository, user=request.user, request=request)
             messages.success(request, f"Git sync complete: {result}")
         except Exception as exc:  # noqa: BLE001 - surface the message in the UI
             messages.error(request, f"Git sync failed: {exc}")
-    return redirect(
-        "web:project_detail", workspace_slug=workspace.slug, project_slug=project.slug
-    )
+    return _node_redirect(workspace, node)
 
 
 # ---------------------------------------------------------------------------
@@ -2059,13 +2113,12 @@ def _upload_rel_path(name: str) -> str:
     return "/".join(segments)
 
 
-def _file_browser_rows(workspace, project, user) -> list[dict]:
-    """Readable files of one scope as flat rows, grouped by their folder.
+def _file_browser_rows(workspace, node, project, user) -> list[dict]:
+    """Readable attachments of a scope or a node, grouped by their folder.
 
-    ``File`` has no folder row of its own - ``path`` *is* the folder structure -
-    so the tree is built from the path, the same way ``_folder_tree_rows``
-    derives document folders. Rows are ``{"type": "dir"|"file", "name", "depth",
-    ...}`` so the template renders the tree without recursion.
+    ``File`` lives *in* a folder now, so a node lists its own subtree's
+    attachments (matched through the folder chain), while the workspace root
+    lists the files attached directly to the workspace/project scope.
 
     Read and delete are resolved in two bulk passes rather than one check per
     file: a permission check walks the resource's ancestor chain, so a folder
@@ -2075,10 +2128,16 @@ def _file_browser_rows(workspace, project, user) -> list[dict]:
     """
     from apps.files.models import File
 
-    scope = {"workspace": workspace, "project": project}
-    stored_files = list(
-        File.objects.filter(**scope).select_related("resource").order_by("path")
-    )
+    if node is not None:
+        # A file's container is its Resource.parent: the node itself for a
+        # root-level attachment (its `folder` FK is NULL), a descendant folder
+        # for a nested one. Matching on `resource__parent_id` catches both,
+        # where matching on `folder` would silently drop the root-level files.
+        ids = [folder.resource_id for folder in _subtree_folders(node)]
+        scope_query = File.objects.filter(resource__parent_id__in=ids)
+    else:
+        scope_query = File.objects.filter(workspace=workspace, project=project)
+    stored_files = list(scope_query.select_related("resource").order_by("path"))
     resource_ids = [stored_file.resource_id for stored_file in stored_files]
     readable = set(
         PermissionService.allowed_resource_ids(user, resource_ids, Permission.READ)
@@ -2124,20 +2183,20 @@ def _file_browser_rows(workspace, project, user) -> list[dict]:
     return rows
 
 
-def _file_browser_redirect(workspace, project):
-    """The file browser URL of this scope - where an upload/delete returns to."""
-    if project is not None:
-        return reverse("web:project_files", args=[workspace.slug, project.slug])
+def _file_browser_redirect(workspace, node):
+    """The attachments URL of this scope or node - where an upload/delete returns."""
+    if node is not None:
+        return reverse("web:node_files", args=[workspace.slug, node.tree_path()])
     return reverse("web:workspace_files", args=[workspace.slug])
 
 
-def _file_browser_post(request, workspace, project):
+def _file_browser_post(request, workspace, node, project):
     """Upload or delete, then go back to the page the form was posted from."""
     from apps.files.models import File
     from apps.files.services import FileService
 
-    target = project.resource if project else workspace.resource
-    back = _file_browser_redirect(workspace, project)
+    target = node.resource if node is not None else workspace.resource
+    back = _file_browser_redirect(workspace, node)
 
     if request.POST.get("action") == "delete":
         stored_file = get_object_or_404(
@@ -2164,22 +2223,24 @@ def _file_browser_post(request, workspace, project):
 
     # Same shape as `document_bulk_upload`: an optional folder field, many files,
     # one stored object each, duplicates reported instead of aborting the batch.
-    # The folder prefix is prepended exactly as `bulk_create_from_files` does, so
-    # a directory upload keeps its sub-paths and the two upload forms behave the
-    # same way. There is no FileFolder row to create: `FileService.create` writes
-    # the bytes under `files/<path>`, which creates the directories on disk.
+    # On a node page the node's own scope-relative path is the prefix, so an
+    # upload lands *in* the folder being viewed, not at the scope root. The rest
+    # is prepended exactly as `bulk_create_from_files` does, so a directory
+    # upload keeps its sub-paths and the two upload forms behave the same way.
     folder = (request.POST.get("folder") or "").strip().strip("/")
+    base = _scope_prefix(node)
     created = 0
     for name, data in uploads:
         rel_path = _upload_rel_path(name)
         if not rel_path:
             continue
+        upload_path = "/".join(part for part in (base, folder, rel_path) if part)
         try:
             FileService.create(
                 workspace=workspace,
                 project=project,
                 name=Path(rel_path).name,
-                path=f"{folder}/{rel_path}" if folder else rel_path,
+                path=upload_path,
                 data=data,
                 created_by=request.user,
                 source=ChangeSource.WEB,
@@ -2196,34 +2257,30 @@ def _file_browser_post(request, workspace, project):
 
 @login_required
 @require_http_methods(["GET", "POST"])
-def file_browser(request, workspace_slug, project_slug=None):
-    """List the files of a workspace or project, and upload/delete into it."""
+def file_browser(request, workspace_slug, tree_path=None):
+    """List the attachments of the workspace root or any node, and manage them."""
     workspace = get_object_or_404(Workspace, slug=workspace_slug)
-    project = (
-        get_object_or_404(Project, workspace=workspace, slug=project_slug)
-        if project_slug
-        else None
-    )
-    container = project.resource if project else workspace.resource
-    # can_browse, not check, exactly as workspace_detail/project_detail do: a
+    node, project, container = _node_scope(workspace, tree_path)
+    # can_browse, not check, exactly as workspace_detail/folder_detail do: a
     # grant on a single file inside has to be reachable, or the page that would
     # show it is never rendered.
     if not PermissionService.can_browse(request.user, container):
         raise Http404
 
     if request.method == "POST":
-        return _file_browser_post(request, workspace, project)
+        return _file_browser_post(request, workspace, node, project)
 
-    rows = _file_browser_rows(workspace, project, request.user)
+    rows = _file_browser_rows(workspace, node, project, request.user)
     return render(
         request,
         "file_browser.html",
         {
             "workspace": workspace,
             "project": project,
+            "node": _crumb_node(node),
             "rows": rows,
             "can_write": _can(request.user, container, Permission.WRITE),
             "file_count": sum(1 for row in rows if row["type"] == "file"),
-            "detail_url": _file_browser_redirect(workspace, project),
+            "detail_url": _file_browser_redirect(workspace, node),
         },
     )

@@ -244,18 +244,32 @@ class AccessPanelInlineRegressionTests(TestCase):
         url = reverse("web:resource_permissions", args=[self.project.resource_id])
         self.assertIn(url, response.content.decode())
 
-    def test_the_old_project_url_redirects_to_the_node_page(self):
-        """Bookmarks and existing links keep working - as a redirect, not a copy.
+    def test_node_page_action_urls_address_the_node_by_tree_path(self):
+        """Every action on a node page lives under /f/<tree_path>/, not /<slug>/."""
+        response = self.client.get(
+            reverse("web:folder_detail", args=[self.workspace.slug, self.project.name])
+        )
+        html = response.content.decode()
+        expected = reverse(
+            "web:node_document_create", args=[self.workspace.slug, self.project.name]
+        )
+        self.assertIn(f'data-doc-create="{expected}"', html)
+        self.assertIn(
+            reverse("web:node_files", args=[self.workspace.slug, self.project.name]), html
+        )
+        # The retired project-slug action shape must not appear anywhere.
+        self.assertNotIn(f"/workspaces/{self.workspace.slug}/{self.project.slug}/", html)
 
-        Two URLs rendering the same thing is how "a project" and "a folder" stayed
-        two ideas in the interface for as long as they did.
-        """
-        old = reverse("web:project_detail", args=[self.workspace.slug, self.project.slug])
-        response = self.client.get(old)
-        self.assertEqual(response.status_code, 301)
-        self.assertEqual(
-            response["Location"],
-            reverse("web:folder_detail", args=[self.workspace.slug, self.project.name]),
+    def test_workspace_page_action_urls_use_the_root_shape(self):
+        """The workspace root is not a node, so its actions take the /<ws>/ shape."""
+        response = self.client.get(
+            reverse("web:workspace_detail", args=[self.workspace.slug])
+        )
+        html = response.content.decode()
+        expected = reverse("web:workspace_document_create", args=[self.workspace.slug])
+        self.assertIn(f'data-doc-create="{expected}"', html)
+        self.assertIn(
+            reverse("web:workspace_files", args=[self.workspace.slug]), html
         )
 
 
