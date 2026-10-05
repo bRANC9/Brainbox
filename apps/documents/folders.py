@@ -25,7 +25,7 @@ from apps.resources.models import Resource, ResourceType
 from apps.resources.services import ResourceService
 from apps.resources.storage import get_storage
 
-from .models import DocumentFolder
+from .models import DocumentFolder, FolderRole
 
 ILLEGAL_SEGMENTS = {"", ".", "..", "/", "\\"}
 
@@ -594,6 +594,48 @@ def folder_by_tree_path(workspace, tree_path: str) -> DocumentFolder | None:
         if node is None:
             return None
         container = node.resource
+    return node
+
+
+@transaction.atomic
+def ensure_node_by_tree_path(
+    workspace, tree_path: str, created_by=None
+) -> DocumentFolder | None:
+    """Get-or-create the node at a workspace-relative tree path.
+
+    Walks ``(container, name)`` from the workspace root and creates any missing
+    segment, so a row that exists only as a prefix - a git-imported path whose
+    folder row was never written - still gets a real node to rename or tag. The
+    project is picked up when the walk passes the project node, so a created
+    descendant lands in the right storage scope. Returns ``None`` for an empty
+    path: the workspace root is not a node.
+    """
+    from apps.workspaces.models import Project
+
+    segments = [s for s in normalize_folder_path(tree_path).split("/") if s]
+    if not segments:
+        return None
+    container = workspace.resource
+    node: DocumentFolder | None = None
+    project = None
+    for segment in segments:
+        existing = (
+            DocumentFolder.objects.filter(container=container, name=segment)
+            .select_related("container")
+            .first()
+        )
+        if existing is None:
+            existing = create_folder_node(
+                workspace=workspace,
+                project=project,
+                parent=node,
+                name=segment,
+                created_by=created_by,
+            )
+        node = existing
+        container = existing.resource
+        if project is None and existing.role == FolderRole.PROJECT:
+            project = Project.objects.filter(resource_id=existing.resource_id).first()
     return node
 
 

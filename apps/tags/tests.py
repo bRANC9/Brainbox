@@ -50,6 +50,22 @@ class TaggingTests(TestCase):
         docs = filter_documents_by_tag([doc], "nincs")
         self.assertEqual(len(docs), 0)
 
+    def test_web_folder_tags_by_tree_path(self):
+        create_folder(workspace=self.workspace, project=self.project, path="dotnet", created_by=self.user)
+        self.client.force_login(self.user)
+        response = self.client.post(
+            "/folders/tags/",
+            {
+                "action": "add",
+                "workspace": self.workspace.slug,
+                "node": f"{self.project.name}/dotnet",
+                "tags": "stack:dotnet",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        folder = DocumentFolder.objects.get(name="dotnet")
+        self.assertIn("stack-dotnet", tags_for(folder))
+
     def test_web_tag_and_filter(self):
         doc = DocumentService.create(
             workspace=self.workspace, project=self.project, title="Tagged",

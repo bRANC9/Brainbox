@@ -5,9 +5,9 @@ a 'depth' so it renders without recursive template tags.
 {% endcomment %}
 <section class="git-panel" id="tree-root"
          data-workspace="{{ workspace.slug }}"
-         data-project="{{ project.slug|default:'' }}"
          data-doc-create="{{ tree_urls.doc_new }}"
          data-folder-create="{{ tree_urls.folder_new }}"
+         data-node="{{ tree_node_path }}"
          data-folder-op="{% url 'web:tree_folder_op' %}">
   <div class="page-head" style="margin-bottom:.5rem">
     <h2 style="margin:0">Dokumentumok {% if can_write %}<span class="muted" style="font-size:.8rem">(húzd a sorokat mappák közé)</span>{% endif %}</h2>
@@ -52,7 +52,7 @@ a 'depth' so it renders without recursive template tags.
               {% if row.type == 'doc' %}data-id="{{ row.doc.pk }}"
               {% elif row.type == 'file' %}data-id="{{ row.file.pk }}"
               {% else %}data-id="folder:{{ row.path }}"{% endif %}
-              {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% elif row.type == "file" %}data-name="{{ row.file.path }}"{% else %}data-folder="{{ row.path }}"{% endif %}
+              {% if row.type == "doc" %}data-name="{{ row.doc.path }}"{% elif row.type == "file" %}data-name="{{ row.file.path }}"{% else %}data-folder="{{ row.path }}" data-tree="{{ row.tree_path }}"{% endif %}
               {% if can_admin and row.folder %}data-acl="{% url 'web:resource_permissions' row.folder.resource_id %}"{% endif %}
               data-tags="{{ row.tags|default:''|join:',' }}">
             <td style="padding-left: {{ row.depth }}rem">
@@ -123,7 +123,6 @@ a 'depth' so it renders without recursive template tags.
   const root = document.getElementById('tree-root');
   const opUrl = root ? root.dataset.folderOp : '';
   const ws = root ? root.dataset.workspace : '';
-  const proj = root ? root.dataset.project : '';
   const docCreate = root ? root.dataset.docCreate : '';
   const folderCreate = root ? root.dataset.folderCreate : '';
   let dragging = null;
@@ -164,7 +163,7 @@ a 'depth' so it renders without recursive template tags.
       e.preventDefault();
       row.classList.remove('drop-target');
       if (!dragging || dragging === row) return;
-      send(dragging, row.dataset.folder);
+      send(dragging, row.dataset.tree);
     });
   });
 
@@ -172,7 +171,7 @@ a 'depth' so it renders without recursive template tags.
     root.addEventListener('dragover', function (e) { e.preventDefault(); });
     root.addEventListener('drop', function (e) {
       e.preventDefault();
-      if (dragging) send(dragging, '');
+      if (dragging) send(dragging, root.dataset.node || '');
     });
   }
 
@@ -235,7 +234,10 @@ a 'depth' so it renders without recursive template tags.
   document.querySelectorAll('.tree-row[data-type="dir"][data-can-read="1"]').forEach(function (row) {
     row.addEventListener('contextmenu', function (e) {
       e.preventDefault();
+      // `folder` is the scope-relative path the create forms expect; `node` is
+      // the tree path the ops endpoints address. A row carries both.
       const folder = row.dataset.folder;
+      const node = row.dataset.tree;
       showMenu(e.clientX, e.clientY, [
         { label: '📄 Új doku itt', action: function () {
             window.location = docCreate + '?folder=' + encodeURIComponent(folder);
@@ -251,9 +253,9 @@ a 'depth' so it renders without recursive template tags.
             window.location = row.dataset.acl;
           } } : '-',
         { label: '✏️ Átnevezés', action: function () {
-            const name = prompt('Új mappanév:', folder.split('/').pop());
+            const name = prompt('Új mappanév:', node.split('/').pop());
             if (name === null) return;
-            postOp({ op: 'rename', workspace: ws, project: proj, path: folder, name: name });
+            postOp({ op: 'rename', workspace: ws, node: node, name: name });
           } },
         { label: '🏷 Címkék', action: function () {
             const current = (row.dataset.tags || '').split(',').filter(Boolean);
@@ -262,20 +264,20 @@ a 'depth' so it renders without recursive template tags.
             const added = entered.split(/[,\s]+/).map(function (t) { return t.trim(); }).filter(Boolean);
             const removed = current.filter(function (t) { return added.indexOf(t) === -1; });
             added.filter(function (t) { return current.indexOf(t) === -1; }).forEach(function (t) {
-              postForm('/folders/tags/', { action: 'add', workspace: ws, project: proj, path: folder, tags: t });
+              postForm('/folders/tags/', { action: 'add', workspace: ws, node: node, tags: t });
             });
             removed.forEach(function (t) {
-              postForm('/folders/tags/', { action: 'remove', workspace: ws, project: proj, path: folder, tags: t });
+              postForm('/folders/tags/', { action: 'remove', workspace: ws, node: node, tags: t });
             });
           } },
         { label: '🗑 Törlés', action: function () {
             if (confirm('Törölöd a(z) "' + folder + '" mappát?')) {
-              postOp({ op: 'delete', workspace: ws, project: proj, path: folder });
+              postOp({ op: 'delete', workspace: ws, node: node });
             }
           } },
         { label: '📤 Törlés (tartalom a gyökérbe)', action: function () {
             if (confirm('A(z) "' + folder + '" tartalmát a gyökérbe mozgatom?')) {
-              postOp({ op: 'delete', workspace: ws, project: proj, path: folder, move: 'up' });
+              postOp({ op: 'delete', workspace: ws, node: node, move: 'up' });
             }
           } }
       ]);
@@ -284,6 +286,7 @@ a 'depth' so it renders without recursive template tags.
 function postForm(url, data) {
     const form = document.createElement('form');
     form.method = 'POST';
+    form.action = url;
     Object.keys(data).forEach(function (k) {
       const input = document.createElement('input');
       input.type = 'hidden';

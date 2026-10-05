@@ -69,12 +69,56 @@ class MoveTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.post(
             "/tree/move/",
-            data=json.dumps({"type": "document", "id": str(self.doc.pk), "target": "dotnet"}),
+            data=json.dumps(
+                {
+                    "type": "document",
+                    "id": str(self.doc.pk),
+                    # A tree path, not a scope-relative one: the endpoint derives
+                    # the workspace from the moved document.
+                    "target": f"{self.project.name}/dotnet",
+                }
+            ),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
         self.doc.refresh_from_db()
         self.assertEqual(self.doc.path, "dotnet/x.md")
+
+    def test_web_tree_folder_op_renames_by_tree_path(self):
+        create_folder(workspace=self.workspace, project=self.project, path="dotnet", created_by=self.user)
+        self.client.force_login(self.user)
+        response = self.client.post(
+            "/tree/folder-op/",
+            data=json.dumps(
+                {
+                    "op": "rename",
+                    "workspace": self.workspace.slug,
+                    "node": f"{self.project.name}/dotnet",
+                    "name": "dotnetcore",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        folder = DocumentFolder.objects.get(name="dotnetcore")
+        self.assertEqual(folder.path, "dotnetcore")
+
+    def test_web_tree_folder_op_deletes_by_tree_path(self):
+        create_folder(workspace=self.workspace, project=self.project, path="dotnet", created_by=self.user)
+        self.client.force_login(self.user)
+        response = self.client.post(
+            "/tree/folder-op/",
+            data=json.dumps(
+                {
+                    "op": "delete",
+                    "workspace": self.workspace.slug,
+                    "node": f"{self.project.name}/dotnet",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(DocumentFolder.objects.filter(name="dotnet").exists())
 
     def test_api_move_action(self):
         from rest_framework.test import APIClient

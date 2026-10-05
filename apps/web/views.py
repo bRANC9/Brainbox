@@ -270,6 +270,11 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
                     "name": name,
                     "depth": depth,
                     "path": path,
+                    # The ops endpoints address by tree path; the create links and
+                    # the display keep the scope-relative path, so a row carries
+                    # both. In a project scope the tree path is prefixed with the
+                    # project node's name.
+                    "tree_path": f"{project.name}/{path}" if project is not None else path,
                     "can_read": path in readable_paths,
                     "folder": folder_by_path.get(path),
                     "node_href": (
@@ -309,13 +314,13 @@ def _folder_tags(workspace, project, path: str) -> list[str]:
 @login_required
 @require_http_methods(["POST"])
 def tree_folder_op(request):
-    """Right-click menu operations on a folder: rename / delete (by path)."""
+    """Right-click menu operations on a folder: rename / delete, by tree path."""
     import json as _json
 
     from django.core.exceptions import ValidationError
     from django.http import JsonResponse
 
-    from apps.documents.folders import delete_folder, ensure_folder, rename_folder
+    from apps.documents.folders import delete_folder, ensure_node_by_tree_path, rename_folder
 
     try:
         payload = _json.loads(request.body.decode("utf-8") or "{}")
@@ -323,40 +328,26 @@ def tree_folder_op(request):
         return JsonResponse({"ok": False, "error": "rossz JSON"}, status=400)
 
     workspace = get_object_or_404(Workspace, slug=payload.get("workspace"))
-    project = (
-        get_object_or_404(Project, workspace=workspace, slug=payload.get("project"))
-        if payload.get("project")
-        else None
-    )
-    resource = project.resource if project else workspace.resource
-    if not _can(request.user, resource, Permission.WRITE):
-        return JsonResponse({"ok": False, "error": "Nincs írási jogosultságod."}, status=403)
-
-    path = (payload.get("path") or "").strip("/")
-    op = payload.get("op")
-    if not path:
+    tree_path = (payload.get("node") or "").strip("/")
+    if not tree_path:
         return JsonResponse({"ok": False, "error": "nincs mappa megadva"}, status=400)
 
-    # Renaming or deleting an existing folder needs write on *that* folder; the
-    # workspace-level check above only covers creating a new one.
-    existing = DocumentFolder.objects.filter(
-        workspace=workspace, project=project, path=path
-    ).select_related("resource").first()
-    if existing is not None and not _can(request.user, existing.resource, Permission.WRITE):
+    # Get-or-create: a row that exists only as a prefix (a git-imported path with
+    # no folder row) still gets a node to operate on. Its resource inherits the
+    # scope's ACL, so the write check below covers creating it too.
+    folder = ensure_node_by_tree_path(workspace, tree_path, created_by=request.user)
+    if not _can(request.user, folder.resource, Permission.WRITE):
         return JsonResponse({"ok": False, "error": "Nincs írási jogosultságod."}, status=403)
 
+    op = payload.get("op")
     try:
-        folder = ensure_folder(workspace, project, path, created_by=request.user)
         if op == "rename":
             name = (payload.get("name") or "").strip("/")
             if not name:
                 return JsonResponse({"ok": False, "error": "Üres név."}, status=400)
-            if "/" in name:
-                new_path = name
-            else:
-                parent = path.rsplit("/", 1)[0] if "/" in path else ""
-                new_path = f"{parent}/{name}" if parent else name
-            rename_folder(folder=folder, path=new_path)
+            # rename_folder only reads the last segment; the parent comes from the
+            # chain now, so a bare name is all that is needed.
+            rename_folder(folder=folder, path=name.rsplit("/", 1)[-1])
         elif op == "delete":
             delete_folder(folder=folder, move_to_root=payload.get("move") == "up")
         else:
@@ -369,13 +360,18 @@ def tree_folder_op(request):
 @login_required
 @require_http_methods(["POST"])
 def tree_move(request):
-    """Drag-and-drop endpoint: move a document or a folder into a target folder."""
+    """Drag-and-drop endpoint: move a document or a folder into a target node.
+
+    ``target`` is a workspace-relative tree path ('' means the scope root), the
+    same address the node pages use - not a scope-relative path. The workspace is
+    taken from the moved object, so a drag carries only the destination.
+    """
     import json as _json
 
     from django.core.exceptions import ValidationError
     from django.http import JsonResponse
 
-    from apps.documents.folders import DocumentFolder, move_folder
+    from apps.documents.folders import DocumentFolder, folder_by_tree_path, move_folder
     from apps.documents.services import DocumentService
 
     try:
@@ -391,8 +387,12 @@ def tree_move(request):
             denied = _require_write_or_403(request, document.resource)
             if denied:
                 return denied
+            destination = (
+                folder_by_tree_path(document.workspace, target) if target else None
+            )
+            parent_path = destination.path if destination is not None else ""
             filename = Path(document.path).name
-            new_path = f"{target}/{filename}" if target else filename
+            new_path = f"{parent_path}/{filename}" if parent_path else filename
             DocumentService.move(document, new_path, user=request.user, request=request)
         elif kind == "folder":
             folder = get_object_or_404(DocumentFolder, pk=payload.get("id"))
@@ -402,7 +402,8 @@ def tree_move(request):
             denied = _require_write_or_403(request, folder.resource)
             if denied:
                 return denied
-            move_folder(folder=folder, new_parent=target, user=request.user)
+            destination = folder_by_tree_path(folder.workspace, target) if target else None
+            move_folder(folder=folder, new_parent=destination, user=request.user)
         else:
             return JsonResponse({"ok": False, "error": "ismeretlen típus"}, status=400)
     except ValidationError as exc:
@@ -713,6 +714,7 @@ def workspace_detail(request, workspace_slug):
         "available_tags": _available_tags(workspace, None),
         **_git_panel(workspace),
         "tree_urls": _tree_action_urls(workspace, None),
+        "tree_node_path": "",
     }
     return render(request, "workspace_detail.html", context)
 
@@ -806,6 +808,7 @@ def _node_tree_rows(workspace, node, user, tag_filter: str = "") -> list[dict]:
                     "name": child.name,
                     "depth": depth,
                     "path": child.path,
+                    "tree_path": child.tree_path(),
                     "can_read": can_read,
                     "folder": child,
                     "node_href": _folder_href(child),
@@ -888,6 +891,7 @@ def folder_detail(request, workspace_slug, tree_path):
         "available_tags": _available_tags(workspace, project),
         **_git_panel(workspace, project),
         "tree_urls": _tree_action_urls(workspace, node),
+        "tree_node_path": node.tree_path(),
     }
     return render(request, "folder_detail.html", context)
 
@@ -1462,26 +1466,17 @@ def folder_tags(request):
     """Attach/detach tags on a folder (affects its subtree when filtering)."""
     from django.http import JsonResponse
 
-    from apps.documents.models import DocumentFolder
+    from apps.documents.folders import ensure_node_by_tree_path
     from apps.tags.services import tag_target, untag_target
 
     workspace = get_object_or_404(Workspace, slug=request.POST.get("workspace"))
-    project = (
-        get_object_or_404(Project, workspace=workspace, slug=request.POST.get("project"))
-        if request.POST.get("project")
-        else None
-    )
-    resource = project.resource if project else workspace.resource
-    if not _can(request.user, resource, Permission.WRITE):
+    tree_path = (request.POST.get("node") or "").strip("/")
+    if not tree_path:
+        return HttpResponseForbidden("Nincs mappa megadva.")
+
+    folder = ensure_node_by_tree_path(workspace, tree_path, created_by=request.user)
+    if not _can(request.user, folder.resource, Permission.WRITE):
         return HttpResponseForbidden("Nincs írási jogosultságod ehhez a mappához.")
-
-    folder = DocumentFolder.objects.filter(
-        workspace=workspace, project=project, path=(request.POST.get("path") or "").strip("/")
-    ).first()
-    if folder is None:
-        from apps.documents.folders import ensure_folder
-
-        folder = ensure_folder(workspace, project, request.POST.get("path") or "", created_by=request.user)
 
     names = [
         part.strip()
