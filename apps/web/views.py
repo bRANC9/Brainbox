@@ -967,8 +967,57 @@ def document_detail(request, pk):
             "summary_published": (document.resource.metadata or {}).get("public_summary")
             is True,
             "publish_titles": _publish_titles(document.workspace),
+            "comments": _document_comments(document, request.user),
         },
     )
+
+
+def _document_comments(document, user):
+    from apps.documents.comments import CommentService
+
+    try:
+        return CommentService.list_for(document, user)
+    except PermissionDenied:
+        return []
+
+
+@login_required
+@require_http_methods(["POST"])
+def document_comment(request, pk):
+    """Add, resolve, reopen or delete a comment, then return to the document."""
+    from apps.documents.comments import CommentService
+    from apps.documents.models import DocumentComment
+
+    document = get_object_or_404(Document, pk=pk)
+    action = request.POST.get("action")
+    try:
+        if action == "add":
+            CommentService.add(
+                document=document,
+                author=request.user,
+                body=request.POST.get("body", ""),
+                request=request,
+            )
+        else:
+            comment = get_object_or_404(
+                DocumentComment.objects.select_related("document"),
+                pk=request.POST.get("comment"),
+            )
+            if action == "resolve":
+                CommentService.set_resolved(
+                    comment=comment, user=request.user, resolved=True, request=request
+                )
+            elif action == "reopen":
+                CommentService.set_resolved(
+                    comment=comment, user=request.user, resolved=False, request=request
+                )
+            elif action == "delete":
+                CommentService.delete(comment=comment, user=request.user, request=request)
+    except PermissionDenied:
+        messages.error(request, "Nincs jogosultságod ehhez.")
+    except ValidationError as exc:
+        messages.error(request, "; ".join(exc.messages))
+    return redirect("web:document_detail", pk=pk)
 
 
 @login_required

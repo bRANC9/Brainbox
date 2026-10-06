@@ -350,3 +350,35 @@ class DocumentVersion(models.Model):
 
     def __str__(self) -> str:
         return f"{self.document_id} v{self.version} ({self.change_type})"
+
+
+class DocumentComment(models.Model):
+    """A comment on a document.
+
+    Its visibility is exactly the document's: a comment can never be wider than
+    the thing it is attached to, and the ACL question for every action is the
+    document's own Resource.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document = models.ForeignKey(
+        "documents.Document", on_delete=models.CASCADE, related_name="comments"
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="document_comments",
+    )
+    body = models.TextField()
+    resolved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "documents_comment"
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.document_id}: {self.body[:40]}"

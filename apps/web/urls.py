@@ -118,6 +118,7 @@ urlpatterns = [
     # nothing else.
     path("files/<uuid:pk>/content/", views.file_content, name="file_content"),
     path("documents/<uuid:pk>/", views.document_detail, name="document_detail"),
+    path("documents/<uuid:pk>/comments/", views.document_comment, name="document_comment"),
     path("documents/<uuid:pk>/edit/", views.document_edit, name="document_edit"),
     path("documents/<uuid:pk>/approve/", views.document_approve, name="document_approve"),
     path("documents/<uuid:pk>/reject/", views.document_reject, name="document_reject"),

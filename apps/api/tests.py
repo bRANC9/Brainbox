@@ -600,6 +600,36 @@ class CuratorApiTests(APITestCase):
         self.assertEqual(approve.data["status"], "applied")
 
 
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class CommentApiTests(APITestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Company", created_by=self.alice)
+        self.document = DocumentService.create(
+            workspace=self.workspace, title="D", path="d.md", content="# D\n",
+            created_by=self.alice,
+        )
+        self.client.force_authenticate(self.alice)
+
+    def test_add_list_and_resolve(self):
+        created = self.client.post(
+            "/api/v1/comments/",
+            {"document": str(self.document.pk), "body": "hello"},
+            format="json",
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+
+        listing = self.client.get(f"/api/v1/comments/?document={self.document.pk}")
+        self.assertEqual(listing.data["count"], 1)
+        comment_id = listing.data["results"][0]["id"]
+
+        resolved = self.client.post(
+            f"/api/v1/comments/{comment_id}/resolve/", format="json"
+        )
+        self.assertEqual(resolved.status_code, status.HTTP_200_OK, resolved.data)
+        self.assertTrue(resolved.data["resolved"])
+
+
 class ActionRouteTests(SimpleTestCase):
     """No two ``@action``s on a viewset may resolve to the same URL path."""
 

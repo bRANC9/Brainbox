@@ -140,7 +140,7 @@ Főbb végpontok (`/api/v1/`):
 
 ```text
 workspaces/ projects/ resources/ documents/ files/ folders/ links/
-gateway/ curator/ git/ secrets/ users/ groups/ permissions/ api-keys/ audit/
+gateway/ curator/ comments/ git/ secrets/ users/ groups/ permissions/ api-keys/ audit/
 search/ discovery/ quality/ drafts/ jobs/ deadlines/ settings/
 ```
 

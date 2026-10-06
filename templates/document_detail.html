@@ -108,4 +108,46 @@
     {% endif %}
   </section>
 </article>
+
+<section class="git-panel">
+  <h2>Hozzászólások</h2>
+  {% if comments %}
+    <ul>
+      {% for c in comments %}
+        <li>
+          <p>
+            <strong>{{ c.author.username|default:"?" }}</strong>
+            <span class="meta">{{ c.created_at|date:"Y-m-d H:i" }}</span>
+            {% if c.resolved %}<span class="badge">megoldva</span>{% endif %}
+          </p>
+          <p>{{ c.body|linebreaksbr }}</p>
+          <span class="row">
+            <form method="post" action="{% url 'web:document_comment' document.pk %}" class="inline">
+              {% csrf_token %}
+              <input type="hidden" name="comment" value="{{ c.pk }}">
+              <input type="hidden" name="action" value="{% if c.resolved %}reopen{% else %}resolve{% endif %}">
+              <button class="link" type="submit">{% if c.resolved %}újranyit{% else %}megoldva{% endif %}</button>
+            </form>
+            <form method="post" action="{% url 'web:document_comment' document.pk %}" class="inline">
+              {% csrf_token %}
+              <input type="hidden" name="comment" value="{{ c.pk }}">
+              <input type="hidden" name="action" value="delete">
+              <button class="link" type="submit" onclick="return confirm('Törlöd a hozzászólást?')">törlés</button>
+            </form>
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">Még nincs hozzászólás.</p>
+  {% endif %}
+  <form method="post" action="{% url 'web:document_comment' document.pk %}" class="form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="add">
+    <label>Hozzászólás
+      <textarea name="body" rows="2" required></textarea>
+    </label>
+    <button class="button primary" type="submit">Hozzászólok</button>
+  </form>
+</section>
 {% endblock %}

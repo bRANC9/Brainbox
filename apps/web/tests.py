@@ -499,6 +499,27 @@ class SearchModeRegressionTests(TestCase):
 
 
 @override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class CommentPageTests(TestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Company", created_by=self.alice)
+        self.document = DocumentService.create(
+            workspace=self.workspace, title="D", path="d.md", content="# D\n",
+            created_by=self.alice,
+        )
+        self.client.force_login(self.alice)
+
+    def test_add_a_comment_from_the_page(self):
+        response = self.client.post(
+            reverse("web:document_comment", args=[self.document.pk]),
+            {"action": "add", "body": "hi"},
+        )
+        self.assertEqual(response.status_code, 302)
+        detail = self.client.get(reverse("web:document_detail", args=[self.document.pk]))
+        self.assertIn("hi", detail.content.decode())
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
 class CuratorPageTests(TestCase):
     def setUp(self):
         self.alice = User.objects.create_user("alice", "alice@example.com", "pw")

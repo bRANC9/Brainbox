@@ -24,7 +24,13 @@ from apps.audit.models import AuditAction, AuditEvent, AuditSource
 from apps.audit.services import AuditService
 from apps.curator.models import CuratorProposal
 from apps.deadlines.models import KnowledgeDeadline
-from apps.documents.models import Document, DocumentFolder, DocumentStatus, DocumentVersion
+from apps.documents.models import (
+    Document,
+    DocumentComment,
+    DocumentFolder,
+    DocumentStatus,
+    DocumentVersion,
+)
 from apps.documents.services import DocumentService
 from apps.files.models import File
 from apps.files.services import FileService
@@ -1336,6 +1342,68 @@ class GatewayTargetViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
             detail = getattr(exc, "message_dict", None) or {"detail": exc.messages}
             raise ValidationError(detail) from exc
         return Response(result)
+
+
+class CommentViewSet(viewsets.ModelViewSet):
+    """Comments on documents. Visibility is the document's own.
+
+    Any reader may comment; resolving or deleting needs to be the author or to
+    hold write on the document. The queryset is filtered to readable documents,
+    so an unreadable comment is a 404, not a hint that it exists.
+    """
+
+    serializer_class = s.DocumentCommentSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def get_queryset(self):
+        queryset = DocumentComment.objects.select_related("document", "author")
+        document_id = self.request.query_params.get("document")
+        if document_id:
+            queryset = queryset.filter(document_id=document_id)
+        resource_ids = list(queryset.values_list("document__resource_id", flat=True))
+        readable = PermissionService.allowed_resource_ids(
+            self.request.user,
+            resource_ids,
+            Permission.READ,
+            api_key=api_key_from_request(self.request),
+        )
+        return queryset.filter(document__resource_id__in=readable)
+
+    def perform_destroy(self, instance):
+        from apps.documents.comments import CommentService
+
+        CommentService.delete(
+            comment=instance,
+            user=self.request.user,
+            request=self.request,
+            api_key=api_key_from_request(self.request),
+        )
+
+    def _set_resolved(self, request, *, resolved):
+        from apps.documents.comments import CommentService
+
+        comment = self.get_object()
+        try:
+            CommentService.set_resolved(
+                comment=comment,
+                user=request.user,
+                resolved=resolved,
+                request=request,
+                api_key=api_key_from_request(request),
+            )
+        except DjangoPermissionDenied as exc:
+            raise PermissionDenied(str(exc)) from exc
+        comment.refresh_from_db()
+        return Response(self.get_serializer(comment).data)
+
+    @action(detail=True, methods=["post"])
+    def resolve(self, request, pk=None):
+        return self._set_resolved(request, resolved=True)
+
+    @action(detail=True, methods=["post"])
+    def reopen(self, request, pk=None):
+        return self._set_resolved(request, resolved=False)
 
 
 class CuratorProposalViewSet(PermissionFilterMixin, viewsets.ReadOnlyModelViewSet):

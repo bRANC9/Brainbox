@@ -1943,3 +1943,98 @@ def tool_curator_approve(ctx: ToolContext, args: dict) -> dict:
 )
 def tool_curator_reject(ctx: ToolContext, args: dict) -> dict:
     return _curator_decide(ctx, args, approve=False)
+
+
+# ---------------------------------------------------------------------------
+# Comments
+# ---------------------------------------------------------------------------
+def _comment_brief(comment) -> dict:
+    return {
+        "id": str(comment.pk),
+        "document": str(comment.document_id),
+        "author": comment.author.username if comment.author_id else None,
+        "body": comment.body,
+        "resolved": comment.resolved,
+        "created_at": comment.created_at.isoformat() if comment.created_at else None,
+    }
+
+
+@tool(
+    "document_comments",
+    "List the comments on a document.",
+    {
+        "type": "object",
+        "properties": {"document_id": {"type": "string"}},
+        "required": ["document_id"],
+    },
+)
+def tool_document_comments(ctx: ToolContext, args: dict) -> dict:
+    from apps.documents.comments import CommentService
+
+    document = _get_document(args["document_id"])
+    comments = CommentService.list_for(document, ctx.user, api_key=ctx.api_key)
+    return {"comments": [_comment_brief(comment) for comment in comments]}
+
+
+@tool(
+    "document_comment_add",
+    "Add a comment to a document.",
+    {
+        "type": "object",
+        "properties": {
+            "document_id": {"type": "string"},
+            "body": {"type": "string"},
+        },
+        "required": ["document_id", "body"],
+    },
+)
+def tool_document_comment_add(ctx: ToolContext, args: dict) -> dict:
+    from apps.documents.comments import CommentService
+
+    document = _get_document(args["document_id"])
+    try:
+        comment = CommentService.add(
+            document=document,
+            author=ctx.user,
+            body=args.get("body", ""),
+            request=ctx.request,
+            api_key=ctx.api_key,
+        )
+    except (PermissionDenied, ValidationError) as exc:
+        raise _service_error(exc) from exc
+    return _comment_brief(comment)
+
+
+@tool(
+    "document_comment_resolve",
+    "Resolve a comment, or reopen it with resolved=false.",
+    {
+        "type": "object",
+        "properties": {
+            "comment_id": {"type": "string"},
+            "resolved": {"type": "boolean"},
+        },
+        "required": ["comment_id"],
+    },
+)
+def tool_document_comment_resolve(ctx: ToolContext, args: dict) -> dict:
+    from apps.documents.comments import CommentService
+    from apps.documents.models import DocumentComment
+
+    try:
+        comment = DocumentComment.objects.select_related("document", "author").get(
+            pk=args["comment_id"]
+        )
+    except (DocumentComment.DoesNotExist, ValidationError, ValueError, TypeError):
+        raise ToolError(f"Comment '{args['comment_id']}' not found.") from None
+    try:
+        CommentService.set_resolved(
+            comment=comment,
+            user=ctx.user,
+            resolved=bool(args.get("resolved", True)),
+            request=ctx.request,
+            api_key=ctx.api_key,
+        )
+    except (PermissionDenied, ValidationError) as exc:
+        raise _service_error(exc) from exc
+    return _comment_brief(comment)

@@ -10,7 +10,7 @@ from apps.accounts.models import ApiKey, ApiKeyScope, User
 from apps.audit.models import AuditEvent
 from apps.curator.models import CuratorProposal
 from apps.deadlines.models import KnowledgeDeadline
-from apps.documents.models import Document, DocumentFolder, DocumentVersion
+from apps.documents.models import Document, DocumentComment, DocumentFolder, DocumentVersion
 from apps.documents.services import DocumentService
 from apps.files.models import File, FileVersion
 from apps.gateway.models import GatewayTarget
@@ -903,3 +903,29 @@ class CuratorProposalSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Comments
+# ---------------------------------------------------------------------------
+class DocumentCommentSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True)
+    document = serializers.PrimaryKeyRelatedField(
+        queryset=Document.objects.all(), write_only=True
+    )
+    author = serializers.CharField(source="author.username", read_only=True)
+
+    class Meta:
+        model = DocumentComment
+        fields = ["id", "document", "author", "body", "resolved", "created_at", "updated_at"]
+        read_only_fields = ["id", "author", "resolved", "created_at", "updated_at"]
+
+    def create(self, validated_data):
+        from apps.documents.comments import CommentService
+
+        return CommentService.add(
+            document=validated_data["document"],
+            author=_actor(self),
+            body=validated_data.get("body", ""),
+            request=self.context.get("request"),
+        )

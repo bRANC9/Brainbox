@@ -362,6 +362,22 @@ class MCPTests(TestCase):
         )
         self.assertEqual(approved["status"], "applied")
 
+    def test_document_comments(self):
+        added = self._payload(
+            "document_comment_add",
+            {"document_id": str(self.skill.pk), "body": "nice"},
+            self.alice_key,
+        )
+        self.assertEqual(added["body"], "nice")
+        listing = self._payload(
+            "document_comments", {"document_id": str(self.skill.pk)}, self.alice_key
+        )
+        self.assertEqual(len(listing["comments"]), 1)
+        resolved = self._payload(
+            "document_comment_resolve", {"comment_id": added["id"]}, self.alice_key
+        )
+        self.assertTrue(resolved["resolved"])
+
     def test_prompts_list_and_get(self):
         listed = self._call(
             {"jsonrpc": "2.0", "id": 54, "method": "prompts/list", "params": {}},
