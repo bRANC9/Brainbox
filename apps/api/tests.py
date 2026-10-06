@@ -630,6 +630,29 @@ class CommentApiTests(APITestCase):
         self.assertTrue(resolved.data["resolved"])
 
 
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class ApiKeyBudgetTests(APITestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        WorkspaceService.create(name="Company", created_by=self.alice)
+        self.api_key, self.raw = ApiKeyService.create(user=self.alice, name="k")
+
+    def test_budget_refuses_after_the_cap(self):
+        self.api_key.request_budget = 1
+        self.api_key.budget_window_seconds = 3600
+        self.api_key.save(update_fields=["request_budget", "budget_window_seconds"])
+
+        first = self.client.get("/api/v1/workspaces/", HTTP_X_API_KEY=self.raw)
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        second = self.client.get("/api/v1/workspaces/", HTTP_X_API_KEY=self.raw)
+        self.assertEqual(second.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_a_key_without_a_budget_is_unlimited(self):
+        for _ in range(3):
+            response = self.client.get("/api/v1/workspaces/", HTTP_X_API_KEY=self.raw)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
 class ActionRouteTests(SimpleTestCase):
     """No two ``@action``s on a viewset may resolve to the same URL path."""
 

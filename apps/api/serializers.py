@@ -529,10 +529,26 @@ class ApiKeySerializer(serializers.ModelSerializer):
             "expires_at",
             "last_used_at",
             "revoked_at",
+            "request_budget",
+            "budget_window_seconds",
+            "budget_used",
+            "budget_reset_at",
             "created_at",
             "scopes",
         ]
-        read_only_fields = fields
+        read_only_fields = [
+            "id",
+            "name",
+            "key_prefix",
+            "is_active",
+            "expires_at",
+            "last_used_at",
+            "revoked_at",
+            "budget_used",
+            "budget_reset_at",
+            "created_at",
+            "scopes",
+        ]
 
 
 class ApiKeyCreateSerializer(serializers.Serializer):

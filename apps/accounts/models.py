@@ -63,6 +63,12 @@ class ApiKey(models.Model):
     expires_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    # Optional request budget: a key may make at most `request_budget` requests
+    # per `budget_window_seconds`. NULL budget = unlimited.
+    request_budget = models.PositiveIntegerField(null=True, blank=True)
+    budget_window_seconds = models.PositiveIntegerField(default=86400)
+    budget_used = models.PositiveIntegerField(default=0)
+    budget_reset_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

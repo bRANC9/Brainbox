@@ -987,6 +987,19 @@ class ApiKeyViewSet(viewsets.ModelViewSet):
         api_key.revoke()
         return Response(s.ApiKeySerializer(api_key).data)
 
+    @action(detail=True, methods=["get"])
+    def usage(self, request, pk=None):
+        key = self.get_object()
+        return Response(
+            {
+                "request_budget": key.request_budget,
+                "budget_window_seconds": key.budget_window_seconds,
+                "budget_used": key.budget_used,
+                "budget_reset_at": key.budget_reset_at,
+                "last_used_at": key.last_used_at,
+            }
+        )
+
 
 # ---------------------------------------------------------------------------
 # Git

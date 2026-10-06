@@ -42,6 +42,9 @@ Self-hosted, AI-native engineering knowledge platform (Django + PostgreSQL).
   duplikátum, lejárt `review_by`), indoklással. Az alkalmazás emberi döntés, és
   a szokásos szolgáltatásokon megy át (ACL, audit, verzió); az elutasított
   javaslatot megjegyzi, nem zaklat újra. A rendszer javasol, ember dönt.
+- **Kulcsonkénti büdzsé**: az API/MCP kulcsnak opcionális kérés-kerete
+  (`request_budget` / `budget_window_seconds`); túllépéskor a kulcs 401-et kap.
+  A használat: `GET /api/v1/api-keys/<id>/usage/`.
 - **Secret Vault**: user-owned, Fernet-titkosított secret, használat-auditalva,
   redacting secret scanner.
 - **Advanced AI**: skill/pattern/convention/decision/example discovery,
