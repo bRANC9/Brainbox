@@ -23,7 +23,7 @@ from apps.audit.services import AuditService
 from apps.documents.models import ChangeSource, Document, DocumentStatus
 from apps.documents.services import DocumentService
 from apps.gateway.models import GatewayKind
-from apps.gateway.services import GatewayService
+from apps.gateway.services import GatewayService, RateLimited
 from apps.git.git_cli import GitError
 from apps.git.models import GitRepository
 from apps.git.services import GitService
@@ -1619,7 +1619,7 @@ def tool_gateway_call(ctx: ToolContext, args: dict) -> dict:
             api_key=ctx.api_key,
             source=AuditSource.MCP,
         )
-    except (PermissionDenied, ValidationError) as exc:
+    except (PermissionDenied, ValidationError, RateLimited) as exc:
         raise _service_error(exc) from exc
 
 
@@ -1665,7 +1665,7 @@ def tool_gateway_mcp(ctx: ToolContext, args: dict) -> dict:
             api_key=ctx.api_key,
             source=AuditSource.MCP,
         )
-    except (PermissionDenied, ValidationError) as exc:
+    except (PermissionDenied, ValidationError, RateLimited) as exc:
         raise _service_error(exc) from exc
     # The remote answers with a JSON-RPC envelope; surface it verbatim when it is
     # JSON, otherwise hand back the raw status/body.

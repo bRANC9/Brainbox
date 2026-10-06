@@ -1283,7 +1283,9 @@ class GatewayTargetViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
 
     @action(detail=True, methods=["post"], url_path="call")
     def call(self, request, pk=None):
-        from apps.gateway.services import GatewayService
+        from rest_framework.exceptions import Throttled
+
+        from apps.gateway.services import GatewayService, RateLimited
 
         # Use, not write: calling a target is not editing it.
         self.required_permission = Permission.USE
@@ -1299,6 +1301,8 @@ class GatewayTargetViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
                 request=request,
                 api_key=api_key_from_request(request),
             )
+        except RateLimited as exc:
+            raise Throttled(wait=exc.retry_after, detail=str(exc)) from exc
         except DjangoPermissionDenied as exc:
             raise PermissionDenied(str(exc)) from exc
         except DjangoValidationError as exc:

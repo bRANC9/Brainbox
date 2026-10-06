@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ target.name }} napló - Brainbox{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="crumbs">
+      <a href="{% url 'web:gateway' %}">Gateway</a> / {{ target.name }} / napló
+    </p>
+    <h1>{{ target.name }} — hívások</h1>
+    <p class="muted">Az utolsó 100 kimenő hívás. A credential értéke sosem szerepel itt.</p>
+  </div>
+</section>
+
+<section class="git-panel">
+  <div class="scroll-x">
+    <table class="table">
+      <thead>
+        <tr><th>Idő</th><th>Ki</th><th>Eredmény</th><th>Részletek</th></tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+          <tr>
+            <td class="meta">{{ e.timestamp|date:"Y-m-d H:i:s" }}</td>
+            <td>{% if e.user %}{{ e.user }}{% elif e.api_key %}{{ e.api_key.name }}{% else %}—{% endif %}</td>
+            <td><span class="badge">{{ e.result }}</span></td>
+            <td class="meta">{{ e.detail }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="muted">Még nincs hívás.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

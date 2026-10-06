@@ -11,7 +11,7 @@ from apps.secrets.services import SecretService
 from apps.workspaces.services import WorkspaceService
 
 from .models import GatewayKind
-from .services import GatewayService
+from .services import GatewayService, RateLimited
 
 
 @override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
@@ -79,6 +79,28 @@ class GatewayServiceTests(TestCase):
                 config={"auth": "query"},
                 created_by=self.alice,
             )
+
+    def test_rate_limit_must_be_positive_int(self):
+        with self.assertRaises(ValidationError):
+            GatewayService.create(
+                name="Bad",
+                base_url="https://api.github.com",
+                config={"rate_limit": -1},
+                created_by=self.alice,
+            )
+
+    def test_rate_limit_blocks_after_the_cap(self):
+        target = GatewayService.create(
+            name="Limited",
+            base_url="https://api.github.com",
+            config={"rate_limit": 1, "rate_window_seconds": 60},
+            workspace=self.workspace,
+            created_by=self.alice,
+        )
+        with patch.object(GatewayService, "_send", lambda *a, **k: (200, {}, "{}", False)):
+            GatewayService.call(target, user=self.alice)
+            with self.assertRaises(RateLimited):
+                GatewayService.call(target, user=self.alice)
 
     def test_host_allowlist(self):
         target = GatewayService.create(

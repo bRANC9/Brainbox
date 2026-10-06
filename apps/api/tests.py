@@ -518,6 +518,31 @@ class GatewayApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("config", response.data)
 
+    def test_rate_limit_is_a_429(self):
+        created = self.client.post(
+            "/api/v1/gateway/",
+            {
+                "name": "Limited",
+                "base_url": "https://api.github.com",
+                "workspace": str(self.workspace.pk),
+                "config": {"rate_limit": 1, "rate_window_seconds": 60},
+            },
+            format="json",
+        )
+        target_id = created.data["id"]
+        with patch(
+            "apps.gateway.services.GatewayService._send",
+            return_value=(200, {}, "{}", False),
+        ):
+            first = self.client.post(
+                f"/api/v1/gateway/{target_id}/call/", {"method": "GET"}, format="json"
+            )
+            second = self.client.post(
+                f"/api/v1/gateway/{target_id}/call/", {"method": "GET"}, format="json"
+            )
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
 
 class ActionRouteTests(SimpleTestCase):
     """No two ``@action``s on a viewset may resolve to the same URL path."""

@@ -1922,5 +1922,8 @@ külső szolgáltatás (https://…)
 - **Felületek**: REST `/api/v1/gateway/` (+ `/<id>/call/`), MCP `gateway_list`,
   `gateway_call`, `gateway_mcp` (más MCP szerver tooljának hívása), web
   `/gateway/` (létrehozás + test call). Minden hívás `GATEWAY_CALL` audit.
+- **Rate-limit és napló**: `rate_limit` / `rate_window_seconds` a configban (a
+  kész hívásokból számolva, nem folyamat-szintű számlálóval); a cél hívásairól
+  célonkénti napló a weben (`/gateway/<id>/audit/`).
 - **MVP**: generikus HTTP + MCP pass-through. Fázis 2: GitHub OAuth-kapcsolat és a
   git műveletek a gateway-en át (egy token egy helyen).

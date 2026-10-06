@@ -2332,7 +2332,7 @@ def gateway(request):
     secret injection and audit apply here as on the REST and MCP surfaces.
     """
     from apps.gateway.models import GatewayTarget
-    from apps.gateway.services import GatewayService
+    from apps.gateway.services import GatewayService, RateLimited
     from apps.secrets.models import Secret
 
     result = None
@@ -2377,6 +2377,8 @@ def gateway(request):
                 )
             except PermissionDenied:
                 messages.error(request, "Nincs jogosultságod ehhez a célhoz.")
+            except RateLimited:
+                messages.error(request, "Túl sok kérés ehhez a célhoz, próbáld később.")
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
 
@@ -2395,4 +2397,30 @@ def gateway(request):
             "result": result,
             "called_target": called_target,
         },
+    )
+
+
+@login_required
+def gateway_audit(request, pk):
+    """The calls made through one target, newest first.
+
+    Readable by anyone who may read the target's Resource: seeing that an egress
+    target exists and how it is used is the same audience the target itself has.
+    """
+    from apps.gateway.models import GatewayTarget
+
+    target = get_object_or_404(
+        GatewayTarget.objects.select_related("resource", "workspace", "project"), pk=pk
+    )
+    if not _can(request.user, target.resource, Permission.READ):
+        raise Http404
+    events = (
+        AuditEvent.objects.filter(
+            resource=target.resource, action=AuditAction.GATEWAY_CALL
+        )
+        .select_related("user", "api_key")
+        .order_by("-timestamp")[:100]
+    )
+    return render(
+        request, "gateway_audit.html", {"target": target, "events": events}
     )

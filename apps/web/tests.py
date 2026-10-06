@@ -517,3 +517,20 @@ class GatewayPageTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(GatewayTarget.objects.filter(name="GH").exists())
+
+    def test_audit_page_lists_a_call(self):
+        from unittest.mock import patch
+
+        from apps.gateway.services import GatewayService
+
+        target = GatewayService.create(
+            name="GH", base_url="https://api.github.com", created_by=self.alice
+        )
+        with patch(
+            "apps.gateway.services.GatewayService._send",
+            return_value=(200, {}, "{}", False),
+        ):
+            GatewayService.call(target, user=self.alice)
+        response = self.client.get(reverse("web:gateway_audit", args=[target.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["events"]), 1)

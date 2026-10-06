@@ -13,12 +13,14 @@ import json as _json
 import socket
 import urllib.error
 import urllib.request
+from datetime import timedelta
 from urllib.parse import urlparse
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils import timezone
 
-from apps.audit.models import AuditAction, AuditResult, AuditSource
+from apps.audit.models import AuditAction, AuditEvent, AuditResult, AuditSource
 from apps.audit.services import AuditService
 from apps.permissions.constants import Effect, Permission, SubjectType
 from apps.permissions.services import PermissionService
@@ -43,6 +45,17 @@ def _audit_source(request, source):
     if source is not None:
         return source
     return AuditSource.API if request is not None else AuditSource.SYSTEM
+
+
+class RateLimited(Exception):
+    """A target's own rate limit is reached. Not a permission fault, so the REST
+    surface maps it to 429, not 403."""
+
+    def __init__(self, retry_after: int):
+        self.retry_after = retry_after
+        super().__init__(
+            f"Túl sok kérés ehhez a célhoz; próbáld újra {retry_after} másodperc múlva."
+        )
 
 
 class GatewayService:
@@ -175,6 +188,19 @@ class GatewayService:
 
         method = (method or "GET").upper()
         cls._validate(target, method, path)
+        retry_after = cls._rate_limited(target)
+        if retry_after is not None:
+            AuditService.log(
+                AuditAction.GATEWAY_CALL,
+                user=user,
+                api_key=api_key,
+                resource=target.resource,
+                result=AuditResult.DENIED,
+                source=_audit_source(request, source),
+                request=request,
+                detail={"target": target.name, "reason": "rate_limited"},
+            )
+            raise RateLimited(retry_after)
         url = cls._build_url(target, path)
         secret_value = cls._secret_value(target, request=request, api_key=api_key)
         request_headers = cls._request_headers(target, headers, secret_value)
@@ -224,6 +250,27 @@ class GatewayService:
 
         if not target.allow_private() and cls._is_private_host(host):
             raise ValidationError({"host": "Belső/privát cím, és nincs engedélyezve."})
+
+    @staticmethod
+    def _rate_limited(target: GatewayTarget) -> int | None:
+        """Seconds to wait when the target is over its limit, else None.
+
+        Counted from the audit trail rather than an in-process counter: it is the
+        same fact at any worker, and it survives a restart. Only completed calls
+        count, so a denied attempt does not make the limit stricter.
+        """
+        limit = target.config.get("rate_limit")
+        if not limit:
+            return None
+        window = int(target.config.get("rate_window_seconds") or 60)
+        since = timezone.now() - timedelta(seconds=window)
+        used = AuditEvent.objects.filter(
+            resource=target.resource,
+            action=AuditAction.GATEWAY_CALL,
+            result=AuditResult.SUCCESS,
+            timestamp__gte=since,
+        ).count()
+        return window if used >= int(limit) else None
 
     @staticmethod
     def _is_private_host(host: str) -> bool:

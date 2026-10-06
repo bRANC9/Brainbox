@@ -250,4 +250,6 @@ Weben: `/gateway/` — cél felvétele és „Hívás" próba.
 
 Config kulcsok: `auth` (`none`/`bearer`/`header`/`basic`), `header_name`,
 `headers`, `allow_hosts`, `allow_methods`, `allow_path_prefixes`,
-`allow_private`, `mcp_path`. Ismeretlen kulcs hiba, nem csendes default.
+`allow_private`, `mcp_path`, `rate_limit`, `rate_window_seconds`. Ismeretlen
+kulcs hiba, nem csendes default. A cél hívásairól a weben célonkénti napló:
+`/gateway/<id>/audit/`.

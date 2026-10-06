@@ -35,6 +35,8 @@ ALLOWED_CONFIG_KEYS = {
     "allow_path_prefixes",
     "allow_private",
     "mcp_path",
+    "rate_limit",
+    "rate_window_seconds",
 }
 AUTH_SCHEMES = {"none", "bearer", "header", "basic"}
 HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
@@ -81,6 +83,12 @@ def validate_config(config) -> None:
     if "allow_private" in config and not isinstance(config["allow_private"], bool):
         raise ValidationError({"config": "Az 'allow_private' logikai érték kell legyen."})
 
+    for key in ("rate_limit", "rate_window_seconds"):
+        if key in config and not (
+            isinstance(config[key], int) and not isinstance(config[key], bool) and config[key] > 0
+        ):
+            raise ValidationError({"config": f"A '{key}' pozitív egész kell legyen."})
+
 
 class GatewayTarget(models.Model):
     """A named external endpoint plus the credential and rules to reach it.
@@ -99,6 +107,7 @@ class GatewayTarget(models.Model):
     * ``allow_path_prefixes``: optional prefix allowlist
     * ``allow_private``: permit a private/loopback host (internal services)
     * ``mcp_path``: JSON-RPC path for an MCP target (default ``/mcp``)
+    * ``rate_limit`` / ``rate_window_seconds``: cap the outbound calls per window
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
