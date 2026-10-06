@@ -8,7 +8,7 @@ from pathlib import Path
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
@@ -1290,6 +1290,32 @@ class GatewayTargetViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
         # Use, not write: calling a target is not editing it.
         self.required_permission = Permission.USE
         target = self.get_object()
+        if request.query_params.get("stream"):
+            try:
+                status, headers, chunks = GatewayService.stream(
+                    target,
+                    method=request.data.get("method", "GET"),
+                    path=request.data.get("path", ""),
+                    body=request.data.get("body"),
+                    headers=request.data.get("headers"),
+                    user=request.user,
+                    request=request,
+                    api_key=api_key_from_request(request),
+                )
+            except RateLimited as exc:
+                raise Throttled(wait=exc.retry_after, detail=str(exc)) from exc
+            except DjangoPermissionDenied as exc:
+                raise PermissionDenied(str(exc)) from exc
+            except DjangoValidationError as exc:
+                detail = getattr(exc, "message_dict", None) or {"detail": exc.messages}
+                raise ValidationError(detail) from exc
+            content_type = next(
+                (value for key, value in headers.items() if key.lower() == "content-type"),
+                "application/octet-stream",
+            )
+            response = StreamingHttpResponse(chunks, status=status)
+            response["Content-Type"] = content_type
+            return response
         try:
             result = GatewayService.call(
                 target,

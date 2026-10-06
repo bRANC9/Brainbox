@@ -1925,5 +1925,9 @@ külső szolgáltatás (https://…)
 - **Rate-limit és napló**: `rate_limit` / `rate_window_seconds` a configban (a
   kész hívásokból számolva, nem folyamat-szintű számlálóval); a cél hívásairól
   célonkénti napló a weben (`/gateway/<id>/audit/`).
+- **Nagy válasz / streaming**: pufferelt cap (`max_response_bytes`, default
+  1 MiB, max 20 MiB); `allow_stream` + secret nélküli célnál `?stream=1`-gyel
+  valódi stream (nem pufferel, ezért nem redaktálható). MCP: Streamable HTTP
+  (`Accept: application/json, text/event-stream`, az SSE-válasz kibontása).
 - **MVP**: generikus HTTP + MCP pass-through. Fázis 2: GitHub OAuth-kapcsolat és a
   git műveletek a gateway-en át (egy token egy helyen).

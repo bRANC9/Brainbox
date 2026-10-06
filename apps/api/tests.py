@@ -518,6 +518,31 @@ class GatewayApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("config", response.data)
 
+    def test_stream_returns_a_streaming_response(self):
+        created = self.client.post(
+            "/api/v1/gateway/",
+            {
+                "name": "Stream",
+                "base_url": "https://api.github.com",
+                "workspace": str(self.workspace.pk),
+                "config": {"allow_stream": True},
+            },
+            format="json",
+        )
+        target_id = created.data["id"]
+        with patch(
+            "apps.gateway.services.GatewayService.stream",
+            return_value=(200, {"Content-Type": "text/plain"}, iter([b"hello", b" world"])),
+        ):
+            response = self.client.post(
+                f"/api/v1/gateway/{target_id}/call/?stream=1",
+                {"method": "GET"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(b"".join(response.streaming_content), b"hello world")
+        self.assertEqual(response["Content-Type"], "text/plain")
+
     def test_rate_limit_is_a_429(self):
         created = self.client.post(
             "/api/v1/gateway/",

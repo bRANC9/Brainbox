@@ -8,6 +8,7 @@ server-side, and the response is redacted before it is returned or logged.
 from __future__ import annotations
 
 import base64
+import http.client
 import ipaddress
 import json as _json
 import socket
@@ -30,8 +31,37 @@ from apps.secrets.services import SecretService
 
 from .models import GatewayTarget, validate_config
 
-MAX_RESPONSE_BYTES = 262144
+# A buffered response is held in memory, so it is bounded; a target may raise the
+# bound up to the hard limit, and anything genuinely large goes through `stream`,
+# which never buffers the whole body.
+DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_ALLOWED_RESPONSE_BYTES = 20 * 1024 * 1024
+STREAM_CHUNK_BYTES = 65536
 TIMEOUT_SECONDS = 20
+
+
+def parse_sse_json(body: str) -> list:
+    """The JSON payloads in a Server-Sent Events body.
+
+    The MCP Streamable HTTP transport may answer a POST with ``text/event-stream``
+    instead of ``application/json``: one JSON-RPC message per ``data:`` line
+    group. Anything that is not JSON (a heartbeat, ``[DONE]``) is skipped.
+    """
+    messages = []
+    for block in (body or "").split("\n\n"):
+        data_lines = [
+            line[5:].strip() for line in block.splitlines() if line.startswith("data:")
+        ]
+        if not data_lines:
+            continue
+        payload = "\n".join(data_lines).strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            messages.append(_json.loads(payload))
+        except ValueError:
+            continue
+    return messages
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -168,9 +198,76 @@ class GatewayService:
         api_key=None,
         source=None,
     ) -> dict:
+        method = cls._authorise(
+            target, method, path, user, request=request, api_key=api_key, source=source
+        )
+        url = cls._build_url(target, path)
+        secret_value = cls._secret_value(target, request=request, api_key=api_key)
+        request_headers = cls._request_headers(target, headers, secret_value)
+        status, response_headers, response_body, truncated = cls._send(
+            method, url, request_headers, body, cls._max_bytes(target)
+        )
+        if secret_value:
+            response_body = response_body.replace(secret_value, "***")
+        cls._audit_call(target, method, path, status, user, request, api_key, source)
+        return {
+            "status": status,
+            "headers": response_headers,
+            "body": response_body,
+            "truncated": truncated,
+        }
+
+    @classmethod
+    def stream(
+        cls,
+        target: GatewayTarget,
+        *,
+        method: str = "GET",
+        path: str = "",
+        body=None,
+        headers: dict | None = None,
+        user,
+        request=None,
+        api_key=None,
+        source=None,
+    ):
+        """Forward the upstream body as a stream: ``(status, headers, chunks)``.
+
+        For a response too large to buffer, at the cost of not being able to
+        redact: a target that injects a credential must not stream, because a
+        secret could come back inside the body and there is no buffered copy to
+        clean. So streaming is allowed only when the target is explicitly
+        ``allow_stream`` and carries no secret.
+        """
+        method = cls._authorise(
+            target, method, path, user, request=request, api_key=api_key, source=source
+        )
+        if not target.config.get("allow_stream"):
+            raise ValidationError(
+                {"stream": "A streamelés ehhez a célhoz nincs engedélyezve (allow_stream)."}
+            )
+        if target.secret_id:
+            raise ValidationError(
+                {
+                    "stream": "Secretet injektáló cél nem streamelhető "
+                    "(a választ nem lehet redaktálni)."
+                }
+            )
+        url = cls._build_url(target, path)
+        request_headers = cls._request_headers(target, headers, None)
+        status, response_headers, chunks = cls._open_stream(
+            method, url, request_headers, body
+        )
+        cls._audit_call(
+            target, method, path, status, user, request, api_key, source, stream=True
+        )
+        return status, response_headers, chunks
+
+    @classmethod
+    def _authorise(cls, target, method, path, user, *, request, api_key, source) -> str:
+        """Enabled + USE + allowlists + rate limit, or raise. Returns the method."""
         if not target.enabled:
             raise ValidationError({"target": "Ez a gateway cél ki van kapcsolva."})
-
         if not PermissionService.check(
             user, target.resource, Permission.USE, api_key=api_key
         ):
@@ -201,14 +298,10 @@ class GatewayService:
                 detail={"target": target.name, "reason": "rate_limited"},
             )
             raise RateLimited(retry_after)
-        url = cls._build_url(target, path)
-        secret_value = cls._secret_value(target, request=request, api_key=api_key)
-        request_headers = cls._request_headers(target, headers, secret_value)
-        status, response_headers, response_body, truncated = cls._send(
-            method, url, request_headers, body
-        )
-        if secret_value:
-            response_body = response_body.replace(secret_value, "***")
+        return method
+
+    @staticmethod
+    def _audit_call(target, method, path, status, user, request, api_key, source, *, stream=False):
         AuditService.log(
             AuditAction.GATEWAY_CALL,
             user=user,
@@ -222,14 +315,16 @@ class GatewayService:
                 "method": method,
                 "path": path,
                 "status": status,
+                **({"stream": True} if stream else {}),
             },
         )
-        return {
-            "status": status,
-            "headers": response_headers,
-            "body": response_body,
-            "truncated": truncated,
-        }
+
+    @staticmethod
+    def _max_bytes(target: GatewayTarget) -> int:
+        configured = target.config.get("max_response_bytes")
+        if configured:
+            return min(int(configured), MAX_ALLOWED_RESPONSE_BYTES)
+        return DEFAULT_MAX_RESPONSE_BYTES
 
     # -- validation ----------------------------------------------------------
     @classmethod
@@ -341,22 +436,27 @@ class GatewayService:
         return out
 
     # -- transport -----------------------------------------------------------
+    @staticmethod
+    def _body_bytes(body) -> bytes | None:
+        if body is None:
+            return None
+        if isinstance(body, str):
+            return body.encode("utf-8")
+        return _json.dumps(body).encode("utf-8")
+
     @classmethod
-    def _send(cls, method, url, headers, body):
-        data = None
-        if body is not None:
-            data = (
-                body.encode("utf-8") if isinstance(body, str) else _json.dumps(body).encode("utf-8")
-            )
-        req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    def _send(cls, method, url, headers, body, max_bytes):
+        req = urllib.request.Request(
+            url, data=cls._body_bytes(body), method=method, headers=headers
+        )
         opener = urllib.request.build_opener(_NoRedirect())
         try:
             with opener.open(req, timeout=TIMEOUT_SECONDS) as response:
-                response_body, truncated = cls._read_capped(response)
+                response_body, truncated = cls._read_capped(response, max_bytes)
                 return response.status, cls._response_headers(response), response_body, truncated
         except urllib.error.HTTPError as exc:
             raw = exc.read() if hasattr(exc, "read") else b""
-            response_body, truncated = cls._decode(raw)
+            response_body, truncated = cls._decode(raw, max_bytes)
             return exc.code, cls._response_headers(exc), response_body, truncated
         except urllib.error.URLError as exc:
             raise ValidationError(
@@ -364,15 +464,54 @@ class GatewayService:
             ) from exc
 
     @classmethod
-    def _read_capped(cls, stream) -> tuple[str, bool]:
-        raw = stream.read(MAX_RESPONSE_BYTES + 1)
-        truncated = len(raw) > MAX_RESPONSE_BYTES
-        return cls._decode(raw[:MAX_RESPONSE_BYTES])[0], truncated
+    def _open_stream(cls, method, url, headers, body):
+        """Open the upstream connection and return ``(status, headers, chunks)``.
+
+        Uses ``http.client`` directly (not urllib) so the body can be read in
+        chunks instead of buffered, and so no redirect is followed. The generator
+        owns the connection and closes it when the client stops reading.
+        """
+        parsed = urlparse(url)
+        connection_class = (
+            http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+        )
+        connection = connection_class(parsed.hostname, parsed.port, timeout=TIMEOUT_SECONDS)
+        target_path = parsed.path or "/"
+        if parsed.query:
+            target_path = f"{target_path}?{parsed.query}"
+        try:
+            connection.request(
+                method, target_path, body=cls._body_bytes(body), headers=headers
+            )
+            response = connection.getresponse()
+        except OSError as exc:
+            connection.close()
+            raise ValidationError(
+                {"detail": f"A külső hívás nem sikerült: {exc}"}
+            ) from exc
+
+        def chunks():
+            try:
+                while True:
+                    chunk = response.read(STREAM_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                connection.close()
+
+        return response.status, cls._response_headers(response), chunks()
+
+    @classmethod
+    def _read_capped(cls, stream, max_bytes) -> tuple[str, bool]:
+        raw = stream.read(max_bytes + 1)
+        truncated = len(raw) > max_bytes
+        return cls._decode(raw[:max_bytes], max_bytes)[0], truncated
 
     @staticmethod
-    def _decode(raw: bytes) -> tuple[str, bool]:
-        truncated = len(raw) > MAX_RESPONSE_BYTES
-        raw = raw[:MAX_RESPONSE_BYTES]
+    def _decode(raw: bytes, max_bytes: int) -> tuple[str, bool]:
+        truncated = len(raw) > max_bytes
+        raw = raw[:max_bytes]
         try:
             return raw.decode("utf-8"), truncated
         except UnicodeDecodeError:

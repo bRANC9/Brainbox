@@ -23,7 +23,7 @@ from apps.audit.services import AuditService
 from apps.documents.models import ChangeSource, Document, DocumentStatus
 from apps.documents.services import DocumentService
 from apps.gateway.models import GatewayKind
-from apps.gateway.services import GatewayService, RateLimited
+from apps.gateway.services import GatewayService, RateLimited, parse_sse_json
 from apps.git.git_cli import GitError
 from apps.git.models import GitRepository
 from apps.git.services import GitService
@@ -1660,6 +1660,8 @@ def tool_gateway_mcp(ctx: ToolContext, args: dict) -> dict:
             method="POST",
             path=path,
             body=rpc,
+            # Streamable HTTP: a server may answer with JSON or an SSE stream.
+            headers={"Accept": "application/json, text/event-stream"},
             user=ctx.user,
             request=ctx.request,
             api_key=ctx.api_key,
@@ -1667,6 +1669,20 @@ def tool_gateway_mcp(ctx: ToolContext, args: dict) -> dict:
         )
     except (PermissionDenied, ValidationError, RateLimited) as exc:
         raise _service_error(exc) from exc
+    content_type = next(
+        (
+            value
+            for key, value in (result.get("headers") or {}).items()
+            if key.lower() == "content-type"
+        ),
+        "",
+    )
+    if "text/event-stream" in content_type.lower():
+        messages = parse_sse_json(result["body"])
+        for message in messages:
+            if isinstance(message, dict) and message.get("id") is not None:
+                return message
+        return {"messages": messages}
     # The remote answers with a JSON-RPC envelope; surface it verbatim when it is
     # JSON, otherwise hand back the raw status/body.
     try:

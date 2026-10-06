@@ -242,6 +242,32 @@ class MCPTests(TestCase):
         self.assertEqual(result["status"], 200)
         self.assertIn("ok", result["body"])
 
+    def test_gateway_mcp_parses_an_sse_response(self):
+        from apps.gateway.services import GatewayService
+
+        target = GatewayService.create(
+            name="RemoteMCP",
+            base_url="https://mcp.example.com",
+            kind="mcp",
+            config={"auth": "none"},
+            workspace=self.workspace,
+            created_by=self.alice,
+        )
+        sse = (
+            "event: message\n"
+            'data: {"jsonrpc": "2.0", "id": 1, "result": {"tools": []}}\n\n'
+        )
+        with patch(
+            "apps.gateway.services.GatewayService._send",
+            return_value=(200, {"Content-Type": "text/event-stream"}, sse, False),
+        ):
+            result = self._payload(
+                "gateway_mcp",
+                {"target": str(target.pk), "list_tools": True},
+                self.alice_key,
+            )
+        self.assertEqual(result["result"], {"tools": []})
+
     def test_unknown_tool_returns_error_content(self):
         response = self._call(
             {

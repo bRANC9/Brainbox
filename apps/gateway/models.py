@@ -37,6 +37,8 @@ ALLOWED_CONFIG_KEYS = {
     "mcp_path",
     "rate_limit",
     "rate_window_seconds",
+    "max_response_bytes",
+    "allow_stream",
 }
 AUTH_SCHEMES = {"none", "bearer", "header", "basic"}
 HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
@@ -83,11 +85,14 @@ def validate_config(config) -> None:
     if "allow_private" in config and not isinstance(config["allow_private"], bool):
         raise ValidationError({"config": "Az 'allow_private' logikai érték kell legyen."})
 
-    for key in ("rate_limit", "rate_window_seconds"):
+    for key in ("rate_limit", "rate_window_seconds", "max_response_bytes"):
         if key in config and not (
             isinstance(config[key], int) and not isinstance(config[key], bool) and config[key] > 0
         ):
             raise ValidationError({"config": f"A '{key}' pozitív egész kell legyen."})
+
+    if "allow_stream" in config and not isinstance(config["allow_stream"], bool):
+        raise ValidationError({"config": "Az 'allow_stream' logikai érték kell legyen."})
 
 
 class GatewayTarget(models.Model):
@@ -108,6 +113,8 @@ class GatewayTarget(models.Model):
     * ``allow_private``: permit a private/loopback host (internal services)
     * ``mcp_path``: JSON-RPC path for an MCP target (default ``/mcp``)
     * ``rate_limit`` / ``rate_window_seconds``: cap the outbound calls per window
+    * ``max_response_bytes``: buffered-response cap (default 1 MiB, hard max 20 MiB)
+    * ``allow_stream``: allow the caller to stream the response (needs no secret)
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
