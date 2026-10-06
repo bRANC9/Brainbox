@@ -862,13 +862,18 @@ class GatewayTargetSerializer(serializers.ModelSerializer):
         )
 
     def update(self, instance, validated_data):
+        from apps.gateway.services import UNSET, GatewayService
+
         # workspace/project are deliberately not re-parented after creation; the
         # Resource chain is the ACL and moving it silently would move the grants.
-        for field in ("name", "kind", "base_url", "secret", "config", "enabled"):
-            if field in validated_data:
-                setattr(instance, field, validated_data[field])
-        instance.save()
-        if "name" in validated_data:
-            instance.resource.name = validated_data["name"]
-            instance.resource.save(update_fields=["name", "updated_at"])
-        return instance
+        return GatewayService.update(
+            instance,
+            name=validated_data.get("name"),
+            base_url=validated_data.get("base_url"),
+            kind=validated_data.get("kind"),
+            config=validated_data.get("config"),
+            enabled=validated_data.get("enabled"),
+            secret=validated_data["secret"] if "secret" in validated_data else UNSET,
+            created_by=_actor(self),
+            request=self.context.get("request"),
+        )

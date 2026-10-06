@@ -12,7 +12,7 @@ from apps.permissions.services import PermissionService
 from apps.secrets.services import SecretService
 from apps.workspaces.services import WorkspaceService
 
-from .models import GatewayKind
+from .models import GatewayKind, GatewayTarget
 from .services import GatewayService, RateLimited, parse_sse_json
 
 
@@ -161,6 +161,23 @@ class GatewayServiceTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             GatewayService.stream(target, user=self.alice)
+
+    def test_update_and_delete(self):
+        target = GatewayService.create(
+            name="T", base_url="https://api.github.com", created_by=self.alice
+        )
+        GatewayService.update(target, name="T2", enabled=False)
+        target.refresh_from_db()
+        self.assertEqual(target.name, "T2")
+        self.assertFalse(target.enabled)
+        self.assertEqual(target.resource.name, "T2")
+
+        GatewayService.delete(target, user=self.alice)
+        self.assertFalse(GatewayTarget.objects.filter(pk=target.pk).exists())
+
+    def test_update_rejects_a_bad_config(self):
+        with self.assertRaises(ValidationError):
+            GatewayService.update(self.target, config={"nope": 1})
 
 
 class ParseSseTests(SimpleTestCase):

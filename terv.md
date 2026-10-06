@@ -1920,8 +1920,10 @@ külső szolgáltatás (https://…)
 - **SSRF-védelem**: host-allowlist (alapból a `base_url` hostja), metódus- és
   path-prefix korlát, privát/loopback IP tiltás, átirányítás tiltása.
 - **Felületek**: REST `/api/v1/gateway/` (+ `/<id>/call/`), MCP `gateway_list`,
-  `gateway_call`, `gateway_mcp` (más MCP szerver tooljának hívása), web
-  `/gateway/` (létrehozás + test call). Minden hívás `GATEWAY_CALL` audit.
+  `gateway_call`, `gateway_mcp` (más MCP szerver tooljának hívása), a
+  konfigurálás pedig `knowledge_create/update/delete_gateway_target` (workspace
+  write; a credential a hívó saját secretje kell legyen), web `/gateway/`
+  (létrehozás + test call). Minden hívás `GATEWAY_CALL` audit.
 - **Rate-limit és napló**: `rate_limit` / `rate_window_seconds` a configban (a
   kész hívásokból számolva, nem folyamat-szintű számlálóval); a cél hívásairól
   célonkénti napló a weben (`/gateway/<id>/audit/`).

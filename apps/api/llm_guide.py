@@ -331,7 +331,9 @@ def _conventions() -> list[dict]:
             "permission-checked (USE) and audited.",
             "how": "gateway_list, then gateway_call(target, method, path, body) or "
             f"gateway_mcp to call another MCP server's tool. REST: "
-            f"POST {API_BASE}/gateway/<id>/call/.",
+            f"POST {API_BASE}/gateway/<id>/call/. Configure a target with "
+            "knowledge_create_gateway_target / _update_ / _delete_ (needs write on "
+            "the workspace; the credential must be one of your own secrets).",
         },
         {
             "rule": "Updates create a new version; deletion is the last resort.",

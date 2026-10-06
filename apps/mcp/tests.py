@@ -268,6 +268,40 @@ class MCPTests(TestCase):
             )
         self.assertEqual(result["result"], {"tools": []})
 
+    def test_gateway_target_lifecycle(self):
+        created = self._payload(
+            "knowledge_create_gateway_target",
+            {
+                "name": "GH",
+                "base_url": "https://api.github.com",
+                "workspace": str(self.workspace.pk),
+                "config": {"auth": "none"},
+            },
+            self.alice_key,
+        )
+        self.assertEqual(created["name"], "GH")
+        updated = self._payload(
+            "knowledge_update_gateway_target",
+            {"target": created["id"], "enabled": False},
+            self.alice_key,
+        )
+        self.assertFalse(updated["enabled"])
+        deleted = self._payload(
+            "knowledge_delete_gateway_target", {"target": created["id"]}, self.alice_key
+        )
+        self.assertEqual(deleted["deleted"], "GH")
+
+    def test_gateway_target_create_needs_write(self):
+        self._assert_error(
+            "knowledge_create_gateway_target",
+            {
+                "name": "X",
+                "base_url": "https://api.github.com",
+                "workspace": str(self.workspace.pk),
+            },
+            self.bob_key,
+        )
+
     def test_unknown_tool_returns_error_content(self):
         response = self._call(
             {

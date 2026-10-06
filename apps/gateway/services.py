@@ -39,6 +39,10 @@ MAX_ALLOWED_RESPONSE_BYTES = 20 * 1024 * 1024
 STREAM_CHUNK_BYTES = 65536
 TIMEOUT_SECONDS = 20
 
+# Sentinel for "leave this field alone" on update, so `secret=None` can mean
+# "clear it" while an omitted secret means "do not touch".
+UNSET = object()
+
 
 def parse_sse_json(body: str) -> list:
     """The JSON payloads in a Server-Sent Events body.
@@ -159,6 +163,67 @@ class GatewayService:
             detail={"type": "gateway_target", "kind": kind, "base_url": base_url},
         )
         return target
+
+    @classmethod
+    @transaction.atomic
+    def update(
+        cls,
+        target: GatewayTarget,
+        *,
+        name=None,
+        base_url=None,
+        kind=None,
+        config=None,
+        enabled=None,
+        secret=UNSET,
+        created_by=None,
+        request=None,
+    ) -> GatewayTarget:
+        """Change a target. ``secret`` uses ``UNSET`` so None can mean "clear"."""
+        if name is not None:
+            target.name = name
+        if base_url is not None:
+            target.base_url = base_url
+        if kind is not None:
+            target.kind = kind
+        if config is not None:
+            validate_config(config)
+            target.config = config
+        if enabled is not None:
+            target.enabled = enabled
+        if secret is not UNSET:
+            target.secret = secret
+
+        target.clean()
+        target.save()
+        if name is not None:
+            target.resource.name = name
+            target.resource.save(update_fields=["name", "updated_at"])
+        AuditService.log(
+            AuditAction.UPDATE,
+            user=created_by,
+            resource=target.resource,
+            source=AuditSource.API if request is not None else AuditSource.SYSTEM,
+            request=request,
+            detail={"type": "gateway_target", "name": target.name},
+        )
+        return target
+
+    @classmethod
+    @transaction.atomic
+    def delete(cls, target: GatewayTarget, *, user=None, request=None) -> None:
+        resource = target.resource
+        AuditService.log(
+            AuditAction.DELETE,
+            user=user,
+            resource=resource,
+            source=AuditSource.API if request is not None else AuditSource.SYSTEM,
+            request=request,
+            detail={"type": "gateway_target", "name": target.name},
+        )
+        # Deleting the Resource cascades to the target; the audit rows that named
+        # it keep their history with a null resource, like every other deletion.
+        resource.delete()
 
     @classmethod
     def visible(cls, user, *, api_key=None) -> list[GatewayTarget]:

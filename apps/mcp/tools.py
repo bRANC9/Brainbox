@@ -23,7 +23,7 @@ from apps.audit.services import AuditService
 from apps.documents.models import ChangeSource, Document, DocumentStatus
 from apps.documents.services import DocumentService
 from apps.gateway.models import GatewayKind
-from apps.gateway.services import GatewayService, RateLimited, parse_sse_json
+from apps.gateway.services import UNSET, GatewayService, RateLimited, parse_sse_json
 from apps.git.git_cli import GitError
 from apps.git.models import GitRepository
 from apps.git.services import GitService
@@ -1689,3 +1689,137 @@ def tool_gateway_mcp(ctx: ToolContext, args: dict) -> dict:
         return json.loads(result["body"])
     except (ValueError, TypeError):
         return result
+
+
+def _gateway_brief(target) -> dict:
+    return {
+        "id": str(target.pk),
+        "name": target.name,
+        "kind": target.kind,
+        "base_url": target.base_url,
+        "enabled": target.enabled,
+        "config": target.config,
+        "workspace": str(target.workspace_id) if target.workspace_id else None,
+        "project": str(target.project_id) if target.project_id else None,
+    }
+
+
+def _owned_secret(ctx: ToolContext, value):
+    """Resolve one of the caller's own active secrets, or None/raise.
+
+    A target's credential is a ``Secret``: it lives outside every workspace and
+    is reachable only through its owner, so an agent may only point a target at
+    a secret it owns - never at someone else's.
+    """
+    if not value:
+        return None
+    try:
+        return Secret.objects.get(pk=value, owner=ctx.user, is_active=True)
+    except (Secret.DoesNotExist, ValidationError, ValueError, TypeError):
+        raise ToolError(f"Secret '{value}' not found (must be one of yours).") from None
+
+
+@tool(
+    "knowledge_create_gateway_target",
+    "Create an egress target: an external API / MCP server reached through Brainbox. "
+    "The credential stays in the vault; the caller only names a target. Needs write "
+    "on the target workspace, or no workspace for a personal target.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "base_url": {"type": "string"},
+            "kind": {"type": "string", "enum": ["http", "mcp", "github"]},
+            "workspace": {"type": "string", "description": "Workspace id or slug (optional)"},
+            "project": {"type": "string", "description": "Project id (optional)"},
+            "secret_id": {"type": "string", "description": "One of your own secrets (optional)"},
+            "config": {"type": "object"},
+        },
+        "required": ["name", "base_url"],
+    },
+)
+def tool_create_gateway_target(ctx: ToolContext, args: dict) -> dict:
+    workspace = _get_workspace(args["workspace"]) if args.get("workspace") else None
+    project = _get_project(args["project"]) if args.get("project") else None
+    if project is not None and workspace is None:
+        workspace = project.workspace
+    if project is not None:
+        _require(ctx, project.resource, Permission.WRITE)
+    elif workspace is not None:
+        _require(ctx, workspace.resource, Permission.WRITE)
+    secret = _owned_secret(ctx, args.get("secret_id"))
+    try:
+        target = GatewayService.create(
+            name=args["name"],
+            base_url=args["base_url"],
+            kind=args.get("kind", "http"),
+            config=args.get("config") or {},
+            secret=secret,
+            workspace=workspace,
+            project=project,
+            created_by=ctx.user,
+            request=ctx.request,
+        )
+    except ValidationError as exc:
+        raise _service_error(exc) from exc
+    return _gateway_brief(target)
+
+
+@tool(
+    "knowledge_update_gateway_target",
+    "Update an egress target (name, base_url, kind, config, enabled, secret).",
+    {
+        "type": "object",
+        "properties": {
+            "target": {"type": "string", "description": "Target id or name"},
+            "name": {"type": "string"},
+            "base_url": {"type": "string"},
+            "kind": {"type": "string", "enum": ["http", "mcp", "github"]},
+            "config": {"type": "object"},
+            "enabled": {"type": "boolean"},
+            "secret_id": {
+                "type": ["string", "null"],
+                "description": "Your secret id, or null to clear the credential",
+            },
+        },
+        "required": ["target"],
+    },
+)
+def tool_update_gateway_target(ctx: ToolContext, args: dict) -> dict:
+    target = GatewayService.resolve(args["target"])
+    _require(ctx, target.resource, Permission.WRITE)
+    secret = UNSET
+    if "secret_id" in args:
+        secret = _owned_secret(ctx, args.get("secret_id"))
+    try:
+        GatewayService.update(
+            target,
+            name=args.get("name"),
+            base_url=args.get("base_url"),
+            kind=args.get("kind"),
+            config=args.get("config"),
+            enabled=args.get("enabled"),
+            secret=secret,
+            created_by=ctx.user,
+            request=ctx.request,
+        )
+    except ValidationError as exc:
+        raise _service_error(exc) from exc
+    return _gateway_brief(target)
+
+
+@tool(
+    "knowledge_delete_gateway_target",
+    "Delete an egress target.",
+    {
+        "type": "object",
+        "properties": {"target": {"type": "string"}},
+        "required": ["target"],
+    },
+)
+def tool_delete_gateway_target(ctx: ToolContext, args: dict) -> dict:
+    target = GatewayService.resolve(args["target"])
+    _require(ctx, target.resource, Permission.DELETE)
+    name = target.name
+    GatewayService.delete(target, user=ctx.user, request=ctx.request)
+    return {"deleted": name}

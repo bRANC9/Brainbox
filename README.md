@@ -246,6 +246,9 @@ curl -X POST $BASE/api/v1/gateway/<target-uuid>/call/ -H "Authorization: ApiKey 
 
 MCP-ről: `gateway_list`, majd `gateway_call(target="github", method="GET",
 path="user/repos")`; más MCP szerver toolját `gateway_mcp(target=..., tool=..., arguments=...)`.
+A konfigurálás is megy MCP-n: `knowledge_create_gateway_target` /
+`_update_` / `_delete_` (workspace-write kell hozzá; a credential a saját
+vaultod egyik secretje kell legyen, újat az agent nem hoz létre).
 Weben: `/gateway/` — cél felvétele és „Hívás" próba.
 
 Config kulcsok: `auth` (`none`/`bearer`/`header`/`basic`), `header_name`,
