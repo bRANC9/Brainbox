@@ -61,6 +61,25 @@ class GatewayServiceTests(TestCase):
         with self.assertRaises(ValidationError):
             GatewayService.call(self.target, method="DELETE", user=self.alice)
 
+    def test_unknown_config_key_is_rejected(self):
+        # A misspelt key used to fall through to the default silently.
+        with self.assertRaises(ValidationError):
+            GatewayService.create(
+                name="Typo",
+                base_url="https://api.github.com",
+                config={"allow_host": ["api.github.com"]},
+                created_by=self.alice,
+            )
+
+    def test_query_auth_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            GatewayService.create(
+                name="Query",
+                base_url="https://api.github.com",
+                config={"auth": "query"},
+                created_by=self.alice,
+            )
+
     def test_host_allowlist(self):
         target = GatewayService.create(
             name="Bad",

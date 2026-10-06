@@ -835,6 +835,17 @@ class GatewayTargetSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "resource", "owner", "created_at", "updated_at"]
         validators: list = []
 
+    def validate_config(self, value):
+        from apps.gateway.models import validate_config as _validate
+
+        try:
+            _validate(value)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(
+                getattr(exc, "message_dict", None) or {"config": exc.messages}
+            ) from exc
+        return value
+
     def create(self, validated_data):
         from apps.gateway.services import GatewayService
 

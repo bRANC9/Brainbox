@@ -504,6 +504,20 @@ class GatewayApiTests(APITestCase):
             (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND),
         )
 
+    def test_bad_config_is_a_400(self):
+        response = self.client.post(
+            "/api/v1/gateway/",
+            {
+                "name": "Bad",
+                "base_url": "https://api.github.com",
+                "workspace": str(self.workspace.pk),
+                "config": {"auth": "query"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("config", response.data)
+
 
 class ActionRouteTests(SimpleTestCase):
     """No two ``@action``s on a viewset may resolve to the same URL path."""

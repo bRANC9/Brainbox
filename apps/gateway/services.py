@@ -26,7 +26,7 @@ from apps.resources.models import ResourceType
 from apps.resources.services import ResourceService
 from apps.secrets.services import SecretService
 
-from .models import GatewayTarget
+from .models import GatewayTarget, validate_config
 
 MAX_RESPONSE_BYTES = 262144
 TIMEOUT_SECONDS = 20
@@ -68,6 +68,8 @@ class GatewayService:
         which is what makes it usable as a personal egress config with no
         workspace behind it.
         """
+        validate_config(config or {})
+
         parent = None
         if project is not None:
             parent = project.resource

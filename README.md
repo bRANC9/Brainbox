@@ -214,6 +214,7 @@ apps/
   knowledge/            Graph, AI draft, discovery, quality
   secrets/              Secret Vault (Fernet, scanner)
   mcp/                  JSON-RPC MCP szerver + tool registry
+  gateway/              Egress gateway (külső célok, secret-injektálás, audit)
   audit/                AuditEvent
   monitoring/           Prometheus domain gauge-ök + /readyz
   api/ web/             DRF + Web UI
@@ -222,3 +223,31 @@ templates/ static/      UI
 docker-compose.yml      prod/TrueNAS (pull) · dev.yml (build) · truenas.yml
 terv.md                 eredeti architektúra terv
 ```
+
+---
+
+## Egress gateway
+
+Egy helyen konfigurált kimenő hozzáférés. Az agent/CLI/MCP csak a célt nevezi
+meg; a credential a vaultban marad, a szerver injektálja, és minden hívás
+auditalt (részletek: `terv.md` 52. szakasz).
+
+```bash
+# cél (a credential a saját vaultodból; a base_url hostja az allowlist)
+curl -X POST $BASE/api/v1/gateway/ -H "Authorization: ApiKey $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"github","base_url":"https://api.github.com","kind":"http",
+       "config":{"auth":"bearer"},"secret":"<secret-uuid>"}'
+
+# hívás — a Bearer tokent a szerver teszi a kérésre, a hívó nem látja
+curl -X POST $BASE/api/v1/gateway/<target-uuid>/call/ -H "Authorization: ApiKey $KEY" \
+  -H 'Content-Type: application/json' -d '{"method":"GET","path":"user/repos"}'
+```
+
+MCP-ről: `gateway_list`, majd `gateway_call(target="github", method="GET",
+path="user/repos")`; más MCP szerver toolját `gateway_mcp(target=..., tool=..., arguments=...)`.
+Weben: `/gateway/` — cél felvétele és „Hívás" próba.
+
+Config kulcsok: `auth` (`none`/`bearer`/`header`/`basic`), `header_name`,
+`headers`, `allow_hosts`, `allow_methods`, `allow_path_prefixes`,
+`allow_private`, `mcp_path`. Ismeretlen kulcs hiba, nem csendes default.
