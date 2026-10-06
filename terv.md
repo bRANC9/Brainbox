@@ -600,6 +600,16 @@ A `secret_get` lehetőleg ne legyen szükséges a legtöbb harness számára. Az
 
 Minden MCP tool a központi authorization layeren keresztül működjön.
 
+A toolok mellett az MCP **resources** és **prompts** is támogatott:
+
+```text
+resources/list   → a kulcs által olvasható dokumentumok, brainbox://documents/<id>
+resources/read   → a dokumentum tartalma (ACL-ellenőrzött; olvashatatlan és nem
+                   létező URI ugyanúgy válaszol)
+prompts/list     → kész promptok (deploy_runbook, explain_convention, onboard_node)
+prompts/get      → a prompt approved tudással kitöltve
+```
+
 ---
 
 # 15. REST API

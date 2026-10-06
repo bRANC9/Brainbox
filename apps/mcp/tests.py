@@ -302,6 +302,63 @@ class MCPTests(TestCase):
             self.bob_key,
         )
 
+    def test_resources_list_and_read(self):
+        listing = self._call(
+            {"jsonrpc": "2.0", "id": 50, "method": "resources/list", "params": {}},
+            self.alice_key,
+        ).json()["result"]
+        uris = [row["uri"] for row in listing["resources"]]
+        self.assertIn(f"brainbox://documents/{self.skill.pk}", uris)
+
+        read = self._call(
+            {
+                "jsonrpc": "2.0",
+                "id": 51,
+                "method": "resources/read",
+                "params": {"uri": f"brainbox://documents/{self.skill.pk}"},
+            },
+            self.alice_key,
+        ).json()["result"]
+        self.assertIn("Bicep skill", read["contents"][0]["text"])
+
+    def test_resources_are_permission_filtered(self):
+        listing = self._call(
+            {"jsonrpc": "2.0", "id": 52, "method": "resources/list", "params": {}},
+            self.bob_key,
+        ).json()["result"]
+        self.assertEqual(listing["resources"], [])
+
+        read = self._call(
+            {
+                "jsonrpc": "2.0",
+                "id": 53,
+                "method": "resources/read",
+                "params": {"uri": f"brainbox://documents/{self.skill.pk}"},
+            },
+            self.bob_key,
+        ).json()
+        # An unreadable uri and a missing one answer the same way.
+        self.assertEqual(read["error"]["code"], -32602)
+
+    def test_prompts_list_and_get(self):
+        listed = self._call(
+            {"jsonrpc": "2.0", "id": 54, "method": "prompts/list", "params": {}},
+            self.alice_key,
+        ).json()["result"]
+        self.assertIn("deploy_runbook", [row["name"] for row in listed["prompts"]])
+
+        got = self._call(
+            {
+                "jsonrpc": "2.0",
+                "id": 55,
+                "method": "prompts/get",
+                "params": {"name": "deploy_runbook", "arguments": {"service": "azure"}},
+            },
+            self.alice_key,
+        ).json()["result"]
+        text = got["messages"][0]["content"]["text"]
+        self.assertIn("azure", text)
+
     def test_unknown_tool_returns_error_content(self):
         response = self._call(
             {

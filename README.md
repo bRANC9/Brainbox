@@ -28,7 +28,10 @@ Self-hosted, AI-native engineering knowledge platform (Django + PostgreSQL).
   truth; pull → import, platform írás → auto-commit/push
   (`direct_commit` / `branch_pr`). **Obsidian vault import** (frontmatter +
   `[[wikilink]]` → `ResourceLink`).
-- **MCP szerver**: JSON-RPC 2.0 a `/mcp` endpointen, ~30 permission-aware tool.
+- **MCP szerver**: JSON-RPC 2.0 a `/mcp` endpointen, permission-aware toolok
+  (`tools/*`), olvasható tudás URI-ként (`resources/*`, `brainbox://documents/…`)
+  és kész promptok (`prompts/*`, pl. `deploy_runbook`) — mind az ACL-en és az
+  auditon át.
 - **Egress gateway**: külső szolgáltatások (API-k, MCP szerverek, GitHub) egy
   helyen konfigurálva. Az agent/CLI/MCP csak a célt nevezi meg; a credential a
   vaultból injektálódik (a hívó sosem látja), a hozzáférést ugyanaz az ACL adja,

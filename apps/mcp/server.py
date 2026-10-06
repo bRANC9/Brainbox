@@ -1,7 +1,9 @@
-"""Minimal MCP (Model Context Protocol) server over JSON-RPC 2.0.
+"""MCP (Model Context Protocol) server over JSON-RPC 2.0.
 
-Supports the core lifecycle plus tools: initialize, notifications/initialized,
-ping, tools/list, tools/call. Transport is HTTP POST (works behind Pangolin).
+Supports the core lifecycle plus tools, resources and prompts: initialize,
+notifications/initialized, ping, tools/list, tools/call, resources/list,
+resources/read, prompts/list, prompts/get. Transport is HTTP POST (works behind
+Pangolin).
 """
 
 from __future__ import annotations
@@ -9,7 +11,8 @@ from __future__ import annotations
 import json
 import logging
 
-from . import tools
+from . import prompts, resources, tools
+from .errors import MCPError
 
 logger = logging.getLogger("brainbox.mcp")
 
@@ -17,12 +20,7 @@ PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "brainbox"
 SERVER_VERSION = "1.0.0"
 
-
-class MCPError(Exception):
-    def __init__(self, code: int, message: str):
-        super().__init__(message)
-        self.code = code
-        self.message = message
+__all__ = ["MCPServer", "MCPError", "PROTOCOL_VERSION", "SERVER_NAME", "SERVER_VERSION"]
 
 
 class MCPServer:
@@ -56,7 +54,11 @@ class MCPServer:
         if method == "initialize":
             return {
                 "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {"tools": {"listChanged": False}},
+                "capabilities": {
+                    "tools": {"listChanged": False},
+                    "resources": {"subscribe": False, "listChanged": False},
+                    "prompts": {"listChanged": False},
+                },
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
             }
         if method in {"notifications/initialized", "initialized"}:
@@ -73,4 +75,18 @@ class MCPServer:
             value = tools.call(name, ctx, arguments)
             text = value if isinstance(value, str) else json.dumps(value, default=str, ensure_ascii=False)
             return {"content": [{"type": "text", "text": text}], "isError": False}
+        if method == "resources/list":
+            return resources.list_resources(ctx, params.get("cursor"))
+        if method == "resources/read":
+            uri = params.get("uri")
+            if not uri:
+                raise MCPError(-32602, "Missing resource uri")
+            return resources.read_resource(ctx, uri)
+        if method == "prompts/list":
+            return prompts.list_prompts()
+        if method == "prompts/get":
+            name = params.get("name")
+            if not name:
+                raise MCPError(-32602, "Missing prompt name")
+            return prompts.get_prompt(ctx, name, params.get("arguments"))
         raise MCPError(-32601, f"Method not found: {method}")
