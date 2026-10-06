@@ -1968,3 +1968,84 @@ szokásos szolgáltatásokon megy át (ACL, audit, verzió), és visszafordítha
 
 Fázis 2: több detektor (árva, törött wikilink, túlnőtt mappa, frontmatter-
 normalizálás), és opcionális reflexiós motor (külső memória a Gateway-en át).
+
+---
+
+# 54. Konszolidált memória (mental model) — terv
+
+Cél: minden felhasználó kapjon egy **összeszedett, fa-szerű nézetet** a
+rendszerről — „ahogy én látom" —, ahol a szétszórt tények (ugyanaz a személy /
+szerep / felelősség / adat több dokumentumban) egy helyen, tömören, **minden tény
+a forrására linkelve** jelenik meg, de **soha nem az ACL határán túl**.
+
+Kétrétegű terv, és a szétválasztás a lényeg:
+
+## 1. Ténykinyerés (egyszer, ACL-független)
+
+Írás- vagy job-időben minden dokumentumból kinyerünk `Fact` sorokat:
+
+```text
+Fact
+  subject        normalizált entitás (személy, rendszer, folyamat, osztály)
+  predicate      viszony ("has_role", "reports_to", "salary_of", "owner_of", …)
+  object         érték vagy másik entitás
+  assertion      egy tömör, ember által olvasható mondat
+  source         a forrás Resource + anchor (a dokumentum, ahonnan származik)
+  confidence     mennyire biztos (determinisztikus kinyerésnél 1.0)
+  extracted_at
+```
+
+Ez referencia-adat, ACL-t még **nem** alkalmaz. Ez adja a „kisebb méretet": a
+tömörített tény, nem a nyers dokumentum több példányban.
+
+## 2. ACL-vetítés (olvasáskor, olcsó)
+
+Egy felhasználó nézete = azon tények, amelyek **forrása** benne van a
+`visible_resource_ids(user)` halmazban, a fa mentén rendezve
+(workspace → projekt → mappa → subject). Minden tény a forrás-dokumentumra linkel.
+Mivel a tények előre ki vannak nyerve, a vetítés olcsó (szűrés + csoportosítás).
+
+## Kulcs-invariánsok
+
+- **Egy tény láthatósága = a forrás-dokumentumáé.** Aggregátum (több forrásból
+  összevont állítás) láthatósága = a **források metszete**: csak az látja, aki
+  *mindegyiket* olvashatja. Így a HR-bér + Ecoform-szerep összevonás nem szivárog:
+  aki nem látja a bért, annak az aggregátum sem jelenik meg. **Aggregálás soha nem
+  emel láthatóságot.**
+- **Nincs tény link nélkül.** Minden sor a forrására (és anchorra) hivatkozik; a
+  nézetben minden állítás mellett ott a forrás.
+- **Az ACL strukturális, nem utólagos szűrő.** A vetítés a néző ACL-jével
+  történik. Anyagiasított gyorsítótár kulcsa a **permission-halmaz** (azonos
+  láthatóságú userek osztoznak egy cache-en), soha nem keveredik két határ.
+
+## Fa + subject
+
+A nézet két tengelyen rendezhető: a **node-fa** (hol él a tudás) és a **subject**
+(kiről / miről szól). A subject-nézet vonja össze a szétszórt tényeket: „Kovács
+Anna" alatt a szerep, a felelősség, és — ha jogosult vagy — a bér. A HR bér-adat
+a HR-mappához férőknek látszik; az Ecoform-csoport tagjai és a beosztások más
+helyről jönnek; a nézet ezeket *csak a közös ACL-ig* fűzi össze.
+
+## Frissítés
+
+- **Kinyerés**: dokumentum-írásra (inkrementális) vagy ütemezett backfill job.
+- **Vetítés**: olvasáskor számolva; opcionális cache a permission-halmaz kulcsával;
+  invalidálás dokumentum- vagy ACL-változásra.
+
+## Hindsight mint motor (fázis 2)
+
+A kinyerést / összevonást egy reflexiós motor végezheti — a Hindsight
+`reflect` / observations / mental model pont ezt adja —, a **Gateway-en át** érve
+el (credential a vaultban, ACL + audit). A determinisztikus detektorok maradnak;
+a motor csak **javasol** tényeket / aggregátumokat, amiket szabály vagy emberi
+jóváhagyás enged be. Így a „tanuló memória" nem kerüli meg az ACL-t.
+
+## Fokozatok
+
+1. `Fact` modell + determinisztikus kinyerés a meglévő adatokból (frontmatter
+   `owner`/`reports_to`/`review_by`, címkék, `[[wikilink]]`, táblák). Nézet:
+   subject szerint csoportosított, ACL-vetített lista, linkekkel.
+2. LLM-alapú kinyerés (tény-mondatok) a meglévő provideren.
+3. Aggregátumok (több forrásból) a **források-metszete** láthatósággal.
+4. Hindsight reflexió a Gateway-en át.
+
