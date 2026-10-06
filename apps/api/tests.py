@@ -569,6 +569,37 @@ class GatewayApiTests(APITestCase):
         self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class CuratorApiTests(APITestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Company", created_by=self.alice)
+        DocumentService.create(
+            workspace=self.workspace, title="A", path="a.md", content="# S\n",
+            created_by=self.alice,
+        )
+        DocumentService.create(
+            workspace=self.workspace, title="B", path="b.md", content="# S\n",
+            created_by=self.alice,
+        )
+        self.client.force_authenticate(self.alice)
+
+    def test_scan_list_and_approve(self):
+        scan = self.client.post(
+            "/api/v1/curator/scan/", {"workspace": str(self.workspace.pk)}, format="json"
+        )
+        self.assertEqual(scan.status_code, status.HTTP_200_OK, scan.data)
+        self.assertEqual(scan.data["created"], 1)
+
+        listing = self.client.get("/api/v1/curator/")
+        self.assertEqual(listing.data["count"], 1)
+        proposal_id = listing.data["results"][0]["id"]
+
+        approve = self.client.post(f"/api/v1/curator/{proposal_id}/approve/", format="json")
+        self.assertEqual(approve.status_code, status.HTTP_200_OK, approve.data)
+        self.assertEqual(approve.data["status"], "applied")
+
+
 class ActionRouteTests(SimpleTestCase):
     """No two ``@action``s on a viewset may resolve to the same URL path."""
 

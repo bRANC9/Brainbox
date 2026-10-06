@@ -37,6 +37,11 @@ Self-hosted, AI-native engineering knowledge platform (Django + PostgreSQL).
   vaultból injektálódik (a hívó sosem látja), a hozzáférést ugyanaz az ACL adja,
   és minden hívás auditalt. Host-allowlist + privát-IP tiltás (SSRF-védelem),
   válasz-csonkolás és secret-redakció.
+- **Curator (önszervező tudás)**: egy job és egy review-queue, ami rendszeresen
+  végigfut a fákon, és **javaslatot** ír minden rendre-valóra (pontos
+  duplikátum, lejárt `review_by`), indoklással. Az alkalmazás emberi döntés, és
+  a szokásos szolgáltatásokon megy át (ACL, audit, verzió); az elutasított
+  javaslatot megjegyzi, nem zaklat újra. A rendszer javasol, ember dönt.
 - **Secret Vault**: user-owned, Fernet-titkosított secret, használat-auditalva,
   redacting secret scanner.
 - **Advanced AI**: skill/pattern/convention/decision/example discovery,
@@ -135,7 +140,7 @@ Főbb végpontok (`/api/v1/`):
 
 ```text
 workspaces/ projects/ resources/ documents/ files/ folders/ links/
-gateway/ git/ secrets/ users/ groups/ permissions/ api-keys/ audit/
+gateway/ curator/ git/ secrets/ users/ groups/ permissions/ api-keys/ audit/
 search/ discovery/ quality/ drafts/ jobs/ deadlines/ settings/
 ```
 

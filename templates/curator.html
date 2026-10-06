@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Curator - Brainbox{% endblock %}
+{% block content %}
+{% comment %}
+The review queue. The system proposes tidy-ups; a human decides. Applying a
+proposal goes through the normal services, so it is audited and versioned like
+any other change - and a rejection is remembered, so the scan stops suggesting it.
+{% endcomment %}
+<section class="page-head">
+  <div>
+    <p class="crumbs"><a href="{% url 'web:dashboard' %}">Vezérlőpult</a> / Curator</p>
+    <h1>Curator</h1>
+    <p class="muted">
+      A rendszer javasol, ember dönt. A javaslat alkalmazása a szokásos
+      szolgáltatásokon megy át (ACL, audit, verzió).
+    </p>
+  </div>
+</section>
+
+<section class="git-panel">
+  {% if proposals %}
+    <table class="table">
+      <thead>
+        <tr><th>Típus</th><th>Javaslat</th><th>Indok</th><th>Döntés</th></tr>
+      </thead>
+      <tbody>
+        {% for p in proposals %}
+          <tr>
+            <td><span class="badge">{{ p.kind }}</span></td>
+            <td>{{ p.title }}</td>
+            <td class="meta">{{ p.rationale }}</td>
+            <td>
+              <span class="row">
+                <form method="post" class="inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="proposal" value="{{ p.pk }}">
+                  <input type="hidden" name="decision" value="approve">
+                  <button class="button primary" type="submit">Alkalmaz</button>
+                </form>
+                <form method="post" class="inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="proposal" value="{{ p.pk }}">
+                  <input type="hidden" name="decision" value="reject">
+                  <button class="button" type="submit">Elutasít</button>
+                </form>
+              </span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Nincs elbírálható javaslat.</p>
+  {% endif %}
+</section>
+{% endblock %}

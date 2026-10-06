@@ -2424,3 +2424,41 @@ def gateway_audit(request, pk):
     return render(
         request, "gateway_audit.html", {"target": target, "events": events}
     )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def curator(request):
+    """The curator's review queue: proposed tidy-ups, decided by a human.
+
+    Listing shows only proposals the caller may decide (write on the target), so
+    a reviewer never sees a queue they cannot act on.
+    """
+    from apps.curator.models import CuratorProposal, CuratorStatus
+    from apps.curator.services import CuratorService
+
+    if request.method == "POST":
+        proposal = get_object_or_404(
+            CuratorProposal.objects.select_related("resource", "workspace"),
+            pk=request.POST.get("proposal"),
+        )
+        approve = request.POST.get("decision") == "approve"
+        try:
+            CuratorService.decide(
+                proposal, approve=approve, user=request.user, request=request
+            )
+            messages.success(
+                request, "Javaslat alkalmazva." if approve else "Javaslat elutasítva."
+            )
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        return redirect("web:curator")
+
+    proposals = [
+        proposal
+        for proposal in CuratorProposal.objects.filter(
+            status=CuratorStatus.OPEN
+        ).select_related("resource", "workspace")
+        if CuratorService.can_decide(request.user, proposal)
+    ]
+    return render(request, "curator.html", {"proposals": proposals})

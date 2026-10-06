@@ -80,3 +80,10 @@ def prune_audit_log(context: JobContext) -> dict:
     days = int(context.payload.get("days") or 365)
     deleted, _ = AuditEvent.objects.filter(timestamp__lt=timezone.now() - timedelta(days=days)).delete()
     return {"deleted": deleted, "days": days}
+
+
+@register_job("curate_workspaces", "Scan every workspace for drift and write curator proposals.")
+def curate_workspaces(context: JobContext) -> dict:
+    from apps.curator.services import CuratorService
+
+    return CuratorService.scan_all()

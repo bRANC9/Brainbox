@@ -336,6 +336,15 @@ def _conventions() -> list[dict]:
             "the workspace; the credential must be one of your own secrets).",
         },
         {
+            "rule": "Tidy-ups are proposals, not edits: decide them through the curator.",
+            "why": "The system scans for drift (exact duplicates, passed review dates) "
+            "and writes a proposal instead of changing knowledge silently. Approving "
+            "applies it through the normal services (ACL, audit, versioning); a "
+            "rejection is remembered, so the scan stops suggesting it.",
+            "how": "curator_list_proposals, then curator_approve / curator_reject; "
+            f"curator_scan runs a scan on demand. REST: {API_BASE}/curator/.",
+        },
+        {
             "rule": "Updates create a new version; deletion is the last resort.",
             "why": "Each write appends an immutable DocumentVersion with the author, source and "
             "git commit, so history stays auditable. Knowledge that is obsolete is marked, not "

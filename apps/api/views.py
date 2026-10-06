@@ -22,6 +22,7 @@ from apps.accounts.models import ApiKey
 from apps.accounts.services import ApiKeyService
 from apps.audit.models import AuditAction, AuditEvent, AuditSource
 from apps.audit.services import AuditService
+from apps.curator.models import CuratorProposal
 from apps.deadlines.models import KnowledgeDeadline
 from apps.documents.models import Document, DocumentFolder, DocumentStatus, DocumentVersion
 from apps.documents.services import DocumentService
@@ -1335,6 +1336,71 @@ class GatewayTargetViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
             detail = getattr(exc, "message_dict", None) or {"detail": exc.messages}
             raise ValidationError(detail) from exc
         return Response(result)
+
+
+class CuratorProposalViewSet(PermissionFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Review queue for curator proposals.
+
+    Read on the proposal's resource to see it; write to decide. Approving applies
+    the change through the same services the rest of the platform uses, so
+    nothing here bypasses the permission engine or the audit trail.
+    """
+
+    serializer_class = s.CuratorProposalSerializer
+    permission_classes = [IsAuthenticated, ResourcePermission]
+    resource_field = "resource_id"
+    search_fields = ["title", "signature"]
+
+    def get_queryset(self):
+        queryset = CuratorProposal.objects.select_related(
+            "workspace", "resource", "decided_by"
+        )
+        params = self.request.query_params
+        if params.get("workspace"):
+            queryset = queryset.filter(workspace_id=params["workspace"])
+        if params.get("status"):
+            queryset = queryset.filter(status=params["status"])
+        return queryset
+
+    def _decide(self, request, *, approve):
+        from apps.curator.services import CuratorService
+
+        proposal = self.get_object()
+        try:
+            CuratorService.decide(
+                proposal,
+                approve=approve,
+                user=request.user,
+                request=request,
+                api_key=api_key_from_request(request),
+            )
+        except DjangoValidationError as exc:
+            detail = getattr(exc, "message_dict", None) or {"detail": exc.messages}
+            raise ValidationError(detail) from exc
+        proposal.refresh_from_db()
+        return Response(self.get_serializer(proposal).data)
+
+    @action(detail=False, methods=["post"])
+    def scan(self, request):
+        from apps.curator.services import CuratorService
+
+        workspace = get_object_or_404(Workspace, pk=request.data.get("workspace"))
+        if not PermissionService.check(
+            request.user,
+            workspace.resource,
+            Permission.WRITE,
+            api_key=api_key_from_request(request),
+        ):
+            raise PermissionDenied("Write permission required on the workspace.")
+        return Response(CuratorService.scan_workspace(workspace))
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        return self._decide(request, approve=True)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        return self._decide(request, approve=False)
 
 
 class DeadlineViewSet(CreatePermissionMixin, PermissionFilterMixin, viewsets.ModelViewSet):

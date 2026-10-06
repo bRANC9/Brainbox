@@ -340,6 +340,28 @@ class MCPTests(TestCase):
         # An unreadable uri and a missing one answer the same way.
         self.assertEqual(read["error"]["code"], -32602)
 
+    def test_curator_scan_and_approve(self):
+        DocumentService.create(
+            workspace=self.workspace, title="A", path="a.md", content="# S\n",
+            created_by=self.alice,
+        )
+        DocumentService.create(
+            workspace=self.workspace, title="B", path="b.md", content="# S\n",
+            created_by=self.alice,
+        )
+        scan = self._payload(
+            "curator_scan", {"workspace": str(self.workspace.pk)}, self.alice_key
+        )
+        self.assertEqual(scan["created"], 1)
+        listing = self._payload(
+            "curator_list_proposals", {"workspace": str(self.workspace.pk)}, self.alice_key
+        )
+        self.assertEqual(listing["count"], 1)
+        approved = self._payload(
+            "curator_approve", {"proposal_id": listing["proposals"][0]["id"]}, self.alice_key
+        )
+        self.assertEqual(approved["status"], "applied")
+
     def test_prompts_list_and_get(self):
         listed = self._call(
             {"jsonrpc": "2.0", "id": 54, "method": "prompts/list", "params": {}},

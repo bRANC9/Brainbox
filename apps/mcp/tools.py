@@ -1823,3 +1823,123 @@ def tool_delete_gateway_target(ctx: ToolContext, args: dict) -> dict:
     name = target.name
     GatewayService.delete(target, user=ctx.user, request=ctx.request)
     return {"deleted": name}
+
+
+# ---------------------------------------------------------------------------
+# Curator
+# ---------------------------------------------------------------------------
+def _proposal_brief(proposal) -> dict:
+    return {
+        "id": str(proposal.pk),
+        "kind": proposal.kind,
+        "status": proposal.status,
+        "title": proposal.title,
+        "rationale": proposal.rationale,
+        "workspace": str(proposal.workspace_id),
+        "created_at": proposal.created_at.isoformat() if proposal.created_at else None,
+    }
+
+
+def _get_proposal(value):
+    from apps.curator.models import CuratorProposal
+
+    try:
+        return CuratorProposal.objects.select_related("workspace", "resource").get(pk=value)
+    except (CuratorProposal.DoesNotExist, ValidationError, ValueError, TypeError):
+        raise ToolError(f"Proposal '{value}' not found.") from None
+
+
+@tool(
+    "curator_list_proposals",
+    "List the curator's tidy-up proposals (duplicates, stale pages). Defaults to the "
+    "open review queue; pass status to see decided ones.",
+    {
+        "type": "object",
+        "properties": {
+            "workspace": {"type": "string", "description": "Workspace id or slug (optional)"},
+            "status": {"type": "string", "enum": ["open", "applied", "rejected", "stale"]},
+        },
+    },
+)
+def tool_curator_list_proposals(ctx: ToolContext, args: dict) -> dict:
+    from apps.curator.models import CuratorProposal, CuratorStatus
+
+    queryset = CuratorProposal.objects.select_related("workspace", "resource")
+    if args.get("workspace"):
+        workspace = _get_workspace(args["workspace"])
+        _require(ctx, workspace.resource, Permission.READ)
+        queryset = queryset.filter(workspace=workspace)
+    queryset = queryset.filter(status=args.get("status") or CuratorStatus.OPEN)
+    proposals = [
+        _proposal_brief(proposal)
+        for proposal in queryset
+        if PermissionService.check(
+            ctx.user,
+            proposal.resource or proposal.workspace.resource,
+            Permission.READ,
+            api_key=ctx.api_key,
+        )
+    ]
+    return {"count": len(proposals), "proposals": proposals}
+
+
+@tool(
+    "curator_scan",
+    "Run the curator over a workspace and create proposals for any drift found.",
+    {
+        "type": "object",
+        "properties": {"workspace": {"type": "string"}},
+        "required": ["workspace"],
+    },
+)
+def tool_curator_scan(ctx: ToolContext, args: dict) -> dict:
+    from apps.curator.services import CuratorService
+
+    workspace = _get_workspace(args["workspace"])
+    _require(ctx, workspace.resource, Permission.WRITE)
+    return CuratorService.scan_workspace(workspace)
+
+
+def _curator_decide(ctx: ToolContext, args: dict, *, approve: bool) -> dict:
+    from apps.curator.services import CuratorService
+
+    proposal = _get_proposal(args["proposal_id"])
+    if not CuratorService.can_decide(ctx.user, proposal, api_key=ctx.api_key):
+        raise ToolError("Nincs jogosultságod elbírálni ezt a javaslatot.")
+    try:
+        CuratorService.decide(
+            proposal,
+            approve=approve,
+            user=ctx.user,
+            request=ctx.request,
+            api_key=ctx.api_key,
+        )
+    except ValidationError as exc:
+        raise _service_error(exc) from exc
+    return _proposal_brief(proposal)
+
+
+@tool(
+    "curator_approve",
+    "Approve a curator proposal: apply its change (through the normal services).",
+    {
+        "type": "object",
+        "properties": {"proposal_id": {"type": "string"}},
+        "required": ["proposal_id"],
+    },
+)
+def tool_curator_approve(ctx: ToolContext, args: dict) -> dict:
+    return _curator_decide(ctx, args, approve=True)
+
+
+@tool(
+    "curator_reject",
+    "Reject a curator proposal: leave the knowledge unchanged.",
+    {
+        "type": "object",
+        "properties": {"proposal_id": {"type": "string"}},
+        "required": ["proposal_id"],
+    },
+)
+def tool_curator_reject(ctx: ToolContext, args: dict) -> dict:
+    return _curator_decide(ctx, args, approve=False)

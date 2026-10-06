@@ -1943,3 +1943,28 @@ külső szolgáltatás (https://…)
   (`Accept: application/json, text/event-stream`, az SSE-válasz kibontása).
 - **MVP**: generikus HTTP + MCP pass-through. Fázis 2: GitHub OAuth-kapcsolat és a
   git műveletek a gateway-en át (egy token egy helyen).
+
+---
+
+# 53. Curator (önszervező tudás, as-built)
+
+A rendszer rendszeresen átnézi a fát, és **javaslatokat** ír minden rendre
+valóra. Az elv: **a rendszer javasol, ember dönt**; a javaslat alkalmazása a
+szokásos szolgáltatásokon megy át (ACL, audit, verzió), és visszafordítható.
+
+- **Detektorok** (determinisztikusak, nem tippek): pontos tartalom-duplikátum
+  (sha256 a scope-ban) és lejárt `review_by` (approved, de az ellenőrzés lejárt).
+- **`CuratorProposal`**: `kind`, `signature` (stabil, pl. `dup:<a>:<b>`), `title`,
+  `rationale`, `payload`, `status` (`open/applied/rejected/stale`). A `signature`
+  miatt az újraszkennelés nem halmozza a javaslatot; a `rejected`/`applied` nem
+  nyílik újra. Ami eltűnt, az `stale` lesz.
+- **Alkalmazás**: duplikátum → a másodpéldány `archived` + `related` link a
+  kanonikusra; lejárt → a dokumentum visszakerül `draft`-ba (ellenőrzés előtt
+  nem hiteles). Mind `DraftService.set_status`-on át.
+- **Felületek**: REST `/api/v1/curator/` (+ `scan/`, `/<id>/approve/`,
+  `/<id>/reject/`), MCP `curator_list_proposals` / `curator_scan` /
+  `curator_approve` / `curator_reject`, web `/curator/` review-queue, és a
+  `curate_workspaces` ütemezett job. A döntés WRITE a cél dokumentum resource-án.
+
+Fázis 2: több detektor (árva, törött wikilink, túlnőtt mappa, frontmatter-
+normalizálás), és opcionális reflexiós motor (külső memória a Gateway-en át).

@@ -499,6 +499,41 @@ class SearchModeRegressionTests(TestCase):
 
 
 @override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class CuratorPageTests(TestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Company", created_by=self.alice)
+        DocumentService.create(
+            workspace=self.workspace, title="A", path="a.md", content="# S\n",
+            created_by=self.alice,
+        )
+        DocumentService.create(
+            workspace=self.workspace, title="B", path="b.md", content="# S\n",
+            created_by=self.alice,
+        )
+        self.client.force_login(self.alice)
+
+    def test_page_lists_and_applies(self):
+        from apps.curator.models import CuratorProposal
+        from apps.curator.services import CuratorService
+
+        CuratorService.scan_workspace(self.workspace)
+        proposal = CuratorProposal.objects.get()
+
+        response = self.client.get(reverse("web:curator"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(proposal.title, response.content.decode())
+
+        posted = self.client.post(
+            reverse("web:curator"),
+            {"proposal": str(proposal.pk), "decision": "approve"},
+        )
+        self.assertEqual(posted.status_code, 302)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, "applied")
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
 class GatewayPageTests(TestCase):
     def setUp(self):
         self.alice = User.objects.create_user("alice", "alice@example.com", "pw")

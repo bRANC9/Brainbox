@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from apps.accounts.models import ApiKey, ApiKeyScope, User
 from apps.audit.models import AuditEvent
+from apps.curator.models import CuratorProposal
 from apps.deadlines.models import KnowledgeDeadline
 from apps.documents.models import Document, DocumentFolder, DocumentVersion
 from apps.documents.services import DocumentService
@@ -877,3 +878,28 @@ class GatewayTargetSerializer(serializers.ModelSerializer):
             created_by=_actor(self),
             request=self.context.get("request"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Curator
+# ---------------------------------------------------------------------------
+class CuratorProposalSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True)
+
+    class Meta:
+        model = CuratorProposal
+        fields = [
+            "id",
+            "workspace",
+            "resource",
+            "kind",
+            "title",
+            "rationale",
+            "payload",
+            "status",
+            "decided_by",
+            "decided_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
