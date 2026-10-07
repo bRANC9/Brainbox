@@ -3,7 +3,7 @@
 {% block title %}Vezérlőpult - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
-  <h1>Workspaces</h1>
+  <h1>Workspace-ek</h1>
 </section>
 
 {% comment %}
@@ -47,7 +47,7 @@ the card above and the loop share one grid.
       {% for document in recent_documents %}
         <tr>
           <td><a href="{% url 'web:document_detail' document.pk %}">{{ document.title }}</a></td>
-          <td>{{ document.workspace.name }}{% if document.project %} / {{ document.project.name }}{% endif %}</td>
+          <td>{{ document.workspace.name }} / {{ document.tree_path }}</td>
           <td><span class="badge badge-{{ document.status }}">{{ document.status|hu }}</span></td>
           <td>{{ document.updated_at|date:"Y-m-d H:i" }}</td>
         </tr>

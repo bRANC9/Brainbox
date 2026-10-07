@@ -610,3 +610,25 @@ class GatewayPageTests(TestCase):
         response = self.client.get(reverse("web:gateway_audit", args=[target.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.context["events"]), 1)
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class WorkspaceTreeProjectNodeTests(TestCase):
+    def test_a_project_node_is_a_named_row(self):
+        from apps.documents.models import DocumentFolder
+        from apps.web.views import _folder_tree_rows
+
+        alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        workspace = WorkspaceService.create(name="Ecoform", created_by=alice)
+        ProjectService.create(workspace=workspace, name="Deploy", created_by=alice)
+
+        # The state the 0006 migration left behind, and the bug it caused: an
+        # empty project path collapsed every project into one nameless row.
+        DocumentFolder.objects.filter(role="project").update(path="")
+
+        rows = [row for row in _folder_tree_rows(workspace, None, alice) if row["type"] == "dir"]
+        self.assertEqual([row["name"] for row in rows], ["Deploy"])
+        self.assertEqual(
+            rows[0]["node_href"],
+            reverse("web:folder_detail", args=[workspace.slug, "Deploy"]),
+        )

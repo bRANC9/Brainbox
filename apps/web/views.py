@@ -195,7 +195,11 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
     scope_folders = [f for f in folders if f.container_id == scope_root.id]
     # Every folder in the scope, at any depth, so a nested row can be drawn and
     # know its own access; ``scope_folders`` are the ones that *start* a row here.
-    folder_by_path = {folder.path: folder for folder in folders}
+    # A node's key in this scope: its scope-relative path, or - for a project
+    # node, whose own path is empty because it *is* the scope - its name. Keyed
+    # this way a project node is a named row, and two projects never collapse
+    # into one nameless one (which is what an empty path used to do here).
+    folder_by_path = {(folder.path or folder.name): folder for folder in folders}
     resource_ids = [folder.resource_id for folder in folders if folder.resource_id]
     resource_ids += [document.resource_id for document in documents]
     visible = set(
@@ -214,11 +218,11 @@ def _folder_tree_rows(workspace, project=None, user=None, tag_filter: str = "") 
         # row is rendered in the trie and must report its real access, not the
         # scope's.
         if folder.resource_id in readable:
-            readable_paths.add(folder.path)
+            readable_paths.add(folder.path or folder.name)
         # Only the nodes hanging directly off this scope start a row here; deeper
         # ones enter the trie as ancestors of the documents inside them.
         if folder in scope_folders and folder.resource_id in visible:
-            folder_paths.add(folder.path)
+            folder_paths.add(folder.path or folder.name)
     for document in documents:
         # A readable document's ancestors have to appear so the tree shows the way
         # to it - but they are *not* readable themselves. Marking them readable
