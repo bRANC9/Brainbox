@@ -691,6 +691,26 @@ class EventApiTests(APITestCase):
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
 
 
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class MemoryApiTests(APITestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Ecoform", created_by=self.alice)
+        document = DocumentService.create(
+            workspace=self.workspace, title="Payroll", path="hr/payroll.md",
+            content="---\nowner: Anna\n---\n# P\n", created_by=self.alice,
+        )
+        from apps.memory.services import FactService
+
+        FactService.extract_document(document)
+        self.client.force_authenticate(self.alice)
+
+    def test_memory_view(self):
+        response = self.client.get("/api/v1/memory/?subject=anna")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["subjects"][0]["subject"], "Anna")
+
+
 class ActionRouteTests(SimpleTestCase):
     """No two ``@action``s on a viewset may resolve to the same URL path."""
 

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Memória - Brainbox{% endblock %}
+{% block content %}
+{% comment %}
+The consolidated view: the same subject gathered from several documents into one
+place. Every fact links to the document it came from, and only facts the viewer
+may read appear - the projection stops at their ACL boundary.
+{% endcomment %}
+<section class="page-head">
+  <div>
+    <p class="crumbs"><a href="{% url 'web:dashboard' %}">Vezérlőpult</a> / Memória</p>
+    <h1>Memória</h1>
+    <p class="muted">
+      Amint a rendszer tud egy-egy subjectről — összegyűjtve, minden tény a
+      forrására linkelve. Csak azt látod, amit olvashatsz.
+    </p>
+  </div>
+  <form method="get" class="row">
+    <input type="text" name="subject" value="{{ subject }}" placeholder="subject (pl. egy név)">
+    <button class="button" type="submit">Szűrés</button>
+  </form>
+</section>
+
+{% for group in subjects %}
+  <section class="git-panel">
+    <h2>{{ group.subject }}</h2>
+    <ul>
+      {% for fact in group.facts %}
+        <li>
+          {{ fact.predicate }} → {{ fact.object }}
+          {% if fact.source.document_id %}
+            <span class="meta">— forrás:
+              <a href="{% url 'web:document_detail' fact.source.document_id %}">{{ fact.source.title }}</a>
+              ({{ fact.source.tree_path }})
+            </span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+{% empty %}
+  <section class="git-panel">
+    <p class="muted">Nincs megjeleníthető tény. Futtasd a kinyerést (`extract_facts` job vagy `memory_extract`).</p>
+  </section>
+{% endfor %}
+{% endblock %}

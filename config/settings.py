@@ -71,6 +71,7 @@ LOCAL_APPS = [
     "apps.gateway",
     "apps.curator",
     "apps.events",
+    "apps.memory",
     "apps.knowledge",
     "apps.jobs",
     "apps.deadlines",

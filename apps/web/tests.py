@@ -499,6 +499,26 @@ class SearchModeRegressionTests(TestCase):
 
 
 @override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class MemoryPageTests(TestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Ecoform", created_by=self.alice)
+        document = DocumentService.create(
+            workspace=self.workspace, title="Payroll", path="hr/payroll.md",
+            content="---\nowner: Anna\n---\n# P\n", created_by=self.alice,
+        )
+        from apps.memory.services import FactService
+
+        FactService.extract_document(document)
+        self.client.force_login(self.alice)
+
+    def test_page_lists_subjects(self):
+        response = self.client.get(reverse("web:memory"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Anna", response.content.decode())
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
 class CommentPageTests(TestCase):
     def setUp(self):
         self.alice = User.objects.create_user("alice", "alice@example.com", "pw")

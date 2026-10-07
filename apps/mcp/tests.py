@@ -340,6 +340,17 @@ class MCPTests(TestCase):
         # An unreadable uri and a missing one answer the same way.
         self.assertEqual(read["error"]["code"], -32602)
 
+    def test_memory_view(self):
+        from apps.memory.services import FactService
+
+        document = DocumentService.create(
+            workspace=self.workspace, title="Payroll", path="hr/payroll.md",
+            content="---\nowner: Anna\n---\n# P\n", created_by=self.alice,
+        )
+        FactService.extract_document(document)
+        view = self._payload("memory_view", {"subject": "anna"}, self.alice_key)
+        self.assertEqual(view["subjects"][0]["subject"], "Anna")
+
     def test_webhook_and_saved_search_tools(self):
         from apps.gateway.services import GatewayService
 

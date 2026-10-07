@@ -1945,3 +1945,25 @@ class AuditEventViewSet(viewsets.ReadOnlyModelViewSet):
         if isinstance(response.data, dict):
             self._redact([response.data])
         return response
+
+
+class MemoryView(APIView):
+    """The caller's consolidated view: facts they may read, grouped by subject.
+
+    Every fact is cited back to its source document, and a fact whose source the
+    caller cannot read is simply absent - the projection never widens access.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.memory.services import FactService
+
+        return Response(
+            FactService.view(
+                request.user,
+                subject=request.query_params.get("subject"),
+                workspace=request.query_params.get("workspace"),
+                api_key=api_key_from_request(request),
+            )
+        )

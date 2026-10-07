@@ -2157,3 +2157,59 @@ def tool_saved_search_create(ctx: ToolContext, args: dict) -> dict:
         webhook=webhook,
     )
     return {"id": str(saved.pk), "name": saved.name, "query": saved.query}
+
+
+# ---------------------------------------------------------------------------
+# Consolidated memory
+# ---------------------------------------------------------------------------
+@tool(
+    "memory_view",
+    "The consolidated view: facts you may read, grouped by subject, each cited "
+    "back to the document it came from. Only your own ACL boundary.",
+    {
+        "type": "object",
+        "properties": {
+            "subject": {"type": "string", "description": "Only facts about this subject"},
+            "workspace": {"type": "string"},
+        },
+    },
+)
+def tool_memory_view(ctx: ToolContext, args: dict) -> dict:
+    from apps.memory.services import FactService
+
+    workspace_id = None
+    if args.get("workspace"):
+        workspace_id = _get_workspace(args["workspace"]).pk
+    return FactService.view(
+        ctx.user,
+        subject=args.get("subject"),
+        workspace=workspace_id,
+        api_key=ctx.api_key,
+    )
+
+
+@tool(
+    "memory_extract",
+    "Rebuild consolidated-memory facts from documents (one workspace, or all).",
+    {
+        "type": "object",
+        "properties": {"workspace": {"type": "string"}},
+    },
+)
+def tool_memory_extract(ctx: ToolContext, args: dict) -> dict:
+    from apps.memory.services import FactService
+
+    if args.get("workspace"):
+        from apps.documents.models import Document
+
+        workspace = _get_workspace(args["workspace"])
+        _require(ctx, workspace.resource, Permission.WRITE)
+        count = 0
+        for document in Document.objects.filter(workspace=workspace).select_related(
+            "workspace", "project", "resource"
+        ):
+            count += FactService.extract_document(document)
+        return {"facts": count}
+    if not getattr(ctx.user, "is_superuser", False):
+        raise ToolError("A teljes újrakinyerés superuser.")
+    return FactService.rebuild_all()

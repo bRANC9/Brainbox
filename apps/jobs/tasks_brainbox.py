@@ -101,3 +101,10 @@ def run_saved_searches(context: JobContext) -> dict:
     from apps.events.services import SavedSearchService
 
     return SavedSearchService.check_all()
+
+
+@register_job("extract_facts", "Rebuild consolidated-memory facts from every document.")
+def extract_facts(context: JobContext) -> dict:
+    from apps.memory.services import FactService
+
+    return FactService.rebuild_all()

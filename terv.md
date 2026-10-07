@@ -2049,6 +2049,15 @@ jóváhagyás enged be. Így a „tanuló memória" nem kerüli meg az ACL-t.
 3. Aggregátumok (több forrásból) a **források-metszete** láthatósággal.
 4. Hindsight reflexió a Gateway-en át.
 
+**As-built (fázis 1):** `apps/memory` — `Fact` (subject/subject_key/predicate/
+object/assertion + `source_resource`/`source_document`), determinisztikus
+kinyerés frontmatterből (`owner`, `reports_to`, `maintainer`, `reviewer`,
+`author`), címkékből és linkekből; a nézet (`FactService.view`) a néző
+`allowed_resource_ids(READ)`-jével vetít, subject szerint csoportosít, és minden
+tényt a forrás-dokumentumra linkel. Felületek: REST `/api/v1/memory/`, MCP
+`memory_view` / `memory_extract`, web `/memory/`, `extract_facts` job. Az
+aggregátumok (fázis 3) a források-metszete láthatóságot kapják majd.
+
 ---
 
 # 55. Kimenő események: webhookok és mentett keresések (as-built)

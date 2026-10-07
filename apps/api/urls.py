@@ -48,6 +48,7 @@ urlpatterns = router.urls + [
     path("llm/", views.LLMGuideView.as_view(), name="llm"),
     path("search/", views.SearchView.as_view(), name="search"),
     path("discovery/", views.DiscoveryView.as_view(), name="discovery"),
+    path("memory/", views.MemoryView.as_view(), name="memory"),
     path("quality/", views.QualityView.as_view(), name="quality"),
     path("drafts/", views.DraftCreateView.as_view(), name="drafts"),
 ]
