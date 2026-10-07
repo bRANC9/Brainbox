@@ -42,7 +42,7 @@ from apps.search.services import SearchService
 from apps.workspaces.models import Project, Workspace
 from apps.workspaces.ownership import OwnershipService
 from apps.workspaces.personal import PersonalWorkspaceService
-from apps.workspaces.services import WorkspaceService
+from apps.workspaces.services import ProjectService, WorkspaceService
 
 User = get_user_model()
 
@@ -2067,6 +2067,75 @@ def personal_workspace(request):
     if workspace is None:
         workspace = PersonalWorkspaceService.get_or_create(request.user)
     return redirect(reverse("web:workspace_detail", args=[workspace.slug]))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def workspace_create(request):
+    """Open a workspace. Any signed-in user may: they own it and set its access.
+
+    This is the whole point of the platform not being self-hosted - being here is
+    enough to start using it, and each workspace carries its own, independent
+    ACL (the creator gets ADMIN and shares from there).
+    """
+    if request.method == "POST":
+        name = (request.POST.get("name") or "").strip()
+        if not name:
+            messages.error(request, "Adj nevet a workspace-nek.")
+        else:
+            try:
+                workspace = WorkspaceService.create(
+                    name=name,
+                    description=(request.POST.get("description") or "").strip(),
+                    slug=(request.POST.get("slug") or "").strip() or None,
+                    created_by=request.user,
+                    request=request,
+                )
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+            else:
+                messages.success(
+                    request, "Workspace létrehozva. Te vagy a tulajdonosa."
+                )
+                return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+    return render(request, "workspace_form.html", {})
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def project_create(request, workspace_slug):
+    """Create a project node in a workspace the caller may write to."""
+    workspace = get_object_or_404(Workspace, slug=workspace_slug)
+    if not _can(request.user, workspace.resource, Permission.WRITE):
+        return HttpResponseForbidden("Nincs írási jogosultságod ehhez a workspace-hez.")
+
+    if request.method == "POST":
+        name = (request.POST.get("name") or "").strip()
+        if not name:
+            messages.error(request, "Adj nevet a projektnek.")
+        else:
+            try:
+                project = ProjectService.create(
+                    workspace=workspace,
+                    name=name,
+                    description=(request.POST.get("description") or "").strip(),
+                    created_by=request.user,
+                    request=request,
+                )
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+            else:
+                node = DocumentFolder.objects.filter(
+                    resource_id=project.resource_id
+                ).first()
+                if node is not None:
+                    return redirect(
+                        "web:folder_detail",
+                        workspace_slug=workspace.slug,
+                        tree_path=node.tree_path(),
+                    )
+                return redirect("web:workspace_detail", workspace_slug=workspace.slug)
+    return render(request, "project_form.html", {"workspace": workspace})
 
 
 # ---------------------------------------------------------------------------

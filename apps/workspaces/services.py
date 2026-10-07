@@ -15,12 +15,17 @@ from apps.resources.services import ResourceService
 
 from .models import Project, Workspace, WorkspaceKind
 
+# Slugs the web reserves for its own routes, so no workspace may take them.
+_RESERVED_WORKSPACE_SLUGS = {"new"}
+
 
 def _unique_workspace_slug(base: str) -> str:
     base = base or "workspace"
     slug = base
     counter = 1
-    while Workspace.objects.filter(slug=slug).exists():
+    # "new" is reserved: /workspaces/new/ is the create page, so a workspace with
+    # that slug could never be opened by its own URL.
+    while slug in _RESERVED_WORKSPACE_SLUGS or Workspace.objects.filter(slug=slug).exists():
         counter += 1
         slug = f"{base}-{counter}"
     return slug
@@ -163,6 +168,10 @@ class WorkspaceService:
             if not candidate:
                 raise ValidationError({"slug": "A címke nem lehet üres."})
             if candidate != workspace.slug:
+                if candidate in _RESERVED_WORKSPACE_SLUGS:
+                    raise ValidationError(
+                        {"slug": f"A „{candidate}” címke fenntartott."}
+                    )
                 clash = Workspace.objects.filter(slug=candidate).exclude(pk=workspace.pk)
                 if clash.exists():
                     raise ValidationError({"slug": f"A „{candidate}” címke már foglalt."})

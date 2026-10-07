@@ -632,3 +632,35 @@ class WorkspaceTreeProjectNodeTests(TestCase):
             rows[0]["node_href"],
             reverse("web:folder_detail", args=[workspace.slug, "Deploy"]),
         )
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class WorkspaceCreateTests(TestCase):
+    def test_any_signed_in_user_can_create_a_workspace(self):
+        from apps.workspaces.models import Workspace
+
+        alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.client.force_login(alice)
+        response = self.client.post(reverse("web:workspace_create"), {"name": "Ecoform"})
+        self.assertEqual(response.status_code, 302)
+        workspace = Workspace.objects.get(name="Ecoform")
+        self.assertEqual(workspace.owner_id, alice.id)
+        self.assertTrue(
+            PermissionService.check(alice, workspace.resource, Permission.ADMIN)
+        )
+
+    def test_create_a_project_from_the_workspace_page(self):
+        from apps.workspaces.models import Project
+
+        alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        workspace = WorkspaceService.create(name="Ecoform", created_by=alice)
+        self.client.force_login(alice)
+        response = self.client.post(
+            reverse("web:project_create", args=[workspace.slug]), {"name": "Deploy"}
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            Project.objects.filter(workspace=workspace, name="Deploy").exists()
+        )
+        page = self.client.get(reverse("web:workspace_detail", args=[workspace.slug]))
+        self.assertIn("Deploy", page.content.decode())

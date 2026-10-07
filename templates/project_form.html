@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Új projekt - {{ workspace.name }}{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="crumbs">
+      <a href="{% url 'web:dashboard' %}">Vezérlőpult</a> /
+      <a href="{% url 'web:workspace_detail' workspace.slug %}">{{ workspace.name }}</a> /
+      Új projekt
+    </p>
+    <h1>Új projekt</h1>
+    <p class="muted">
+      A projekt a workspace-en belüli csomópont. Saját jogosultságokat kaphat,
+      és a saját fáját a workspace fájában látod.
+    </p>
+  </div>
+</section>
+
+<form method="post" class="form">
+  {% csrf_token %}
+  <div class="row">
+    <label>Név
+      <input type="text" name="name" required maxlength="255" autofocus>
+    </label>
+  </div>
+  <label>Leírás
+    <textarea name="description" rows="2"></textarea>
+  </label>
+  <div class="row">
+    <button class="button primary" type="submit">Létrehozás</button>
+    <a class="button" href="{% url 'web:workspace_detail' workspace.slug %}">Mégse</a>
+  </div>
+</form>
+{% endblock %}

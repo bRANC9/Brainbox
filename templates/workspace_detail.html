@@ -8,12 +8,15 @@
     {% if workspace.description %}<p class="muted">{{ workspace.description }}</p>{% else %}<p class="meta">Nincs leírás.</p>{% endif %}
     <p class="meta">Tulajdonos: {% if owner %}{{ owner.display_name|default:owner.username }}{% if owner.display_name and owner.display_name != owner.username %} ({{ owner.username }}){% endif %}{% else %}nincs (örökség){% endif %}</p>
   </div>
-  {% if can_admin and not is_personal %}
-    <span class="actions">
+  <span class="actions">
+    {% if can_write %}
+      <a class="button primary" href="{% url 'web:project_create' workspace.slug %}">Új projekt</a>
+    {% endif %}
+    {% if can_admin and not is_personal %}
       <a class="button" href="{{ tree_urls.files }}">Mellékletek</a>
       <a class="button" href="{% url 'web:resource_permissions' workspace.resource_id %}">Jogosultságok</a>
-    </span>
-  {% endif %}
+    {% endif %}
+  </span>
 </section>
 
 {% if is_personal %}

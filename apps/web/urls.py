@@ -32,7 +32,14 @@ urlpatterns = [
     path("calendar/agenda/", views.agenda, name="agenda"),
     path("calendar/ical/", views.deadlines_ical, name="deadlines_ical"),
     # -- workspace root: content that sits directly in a workspace -------------
+    # Declared before the <slug> detail route: "new" must not be read as a slug.
+    path("workspaces/new/", views.workspace_create, name="workspace_create"),
     path("workspaces/<slug:workspace_slug>/", views.workspace_detail, name="workspace_detail"),
+    path(
+        "workspaces/<slug:workspace_slug>/projects/new/",
+        views.project_create,
+        name="project_create",
+    ),
     path(
         "workspaces/<slug:workspace_slug>/settings/",
         views.workspace_rename,

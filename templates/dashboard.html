@@ -3,7 +3,10 @@
 {% block title %}Vezérlőpult - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
-  <h1>Workspace-ek</h1>
+  <div><h1>Workspace-ek</h1></div>
+  <span class="actions">
+    <a class="button primary" href="{% url 'web:workspace_create' %}">Új workspace</a>
+  </span>
 </section>
 
 {% comment %}
