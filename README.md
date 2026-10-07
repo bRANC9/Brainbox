@@ -52,10 +52,12 @@ Self-hosted, AI-native engineering knowledge platform (Django + PostgreSQL).
 - **Konszolidált memória**: dokumentumokból kinyert **tények** — determinisztikusan
   (`owner`, `reports_to`, címkék, linkek) és opcionálisan **LLM-mel** —, subject
   szerint csoportosítva, **minden tény a forrására linkelve**. **Aggregátumok**
-  több forrásból, és **reflexió** egy Hindsight MCP-szerverről a gateway-en át
-  (`memory_reflect`). A nézet a néző ACL-jével vetítve készül; egy aggregátum csak
-  akkor látszik, ha **minden** forrását olvashatod. REST `/api/v1/memory/`, MCP
-  `memory_view` / `memory_extract` / `memory_reflect`, web `/memory/`.
+  több forrásból (bizonyíték + `proof_count`, finomítva) és **natív reflexió**
+  (`memory_reflect`) a platform saját LLM-providerével — offline a determinisztikus
+  összevonásra esik vissza, tehát **nem kell külső szolgáltatás**. A nézet a néző
+  ACL-jével vetítve készül; egy aggregátum csak akkor látszik, ha **minden**
+  forrását olvashatod. REST `/api/v1/memory/`, MCP `memory_view` / `memory_extract`
+  / `memory_reflect`, web `/memory/`.
 - **Secret Vault**: user-owned, Fernet-titkosított secret, használat-auditalva,
   redacting secret scanner.
 - **Advanced AI**: skill/pattern/convention/decision/example discovery,

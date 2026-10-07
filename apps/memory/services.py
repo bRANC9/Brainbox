@@ -221,6 +221,7 @@ class FactService:
                 {
                     "text": aggregate.text,
                     "origin": aggregate.origin,
+                    "proof_count": aggregate.proof_count,
                     "sources": [str(source_id) for source_id in source_ids],
                 }
             )
@@ -265,7 +266,13 @@ class FactService:
 
 
 class AggregateService:
-    """Roll a subject's facts from several sources into one cited statement."""
+    """Consolidate a subject's facts into one evidence-backed statement.
+
+    One aggregate per (subject, workspace): as evidence changes it is refined,
+    not duplicated, and ``proof_count`` records how many sources back it. Its
+    visibility is the intersection of those sources, so a belief assembled from
+    several places is visible only to someone who can read all of them.
+    """
 
     @classmethod
     def build_workspace(cls, workspace) -> int:
@@ -277,22 +284,25 @@ class AggregateService:
             by_subject.setdefault(fact.subject_key, []).append(fact)
 
         built = 0
-        for subject_key, subject_facts in by_subject.items():
-            sources = {fact.source_resource_id: fact.source_resource for fact in subject_facts}
+        for subject_facts in by_subject.values():
+            sources = {
+                fact.source_resource_id: fact.source_resource for fact in subject_facts
+            }
             if len(sources) < 2:
                 # A single source is not a consolidation.
                 continue
-            text = "; ".join(sorted({fact.assertion for fact in subject_facts if fact.assertion}))
-            if cls._upsert(
+            text = "; ".join(
+                sorted({fact.assertion for fact in subject_facts if fact.assertion})
+            )
+            cls._upsert(
                 subject=subject_facts[0].subject,
-                subject_key=subject_key,
                 text=text,
                 sources=list(sources.values()),
                 workspace=workspace,
                 origin="deterministic",
                 confidence=1.0,
-            ):
-                built += 1
+            )
+            built += 1
         return built
 
     @classmethod
@@ -305,24 +315,25 @@ class AggregateService:
         return {"aggregates": built}
 
     @classmethod
-    def store(cls, *, subject, text, sources, workspace=None, origin="reflection", confidence=0.6):
-        """Store a reflection result as an aggregate citing its sources."""
-        source_ids = [getattr(source, "pk", source) for source in sources]
+    def store(
+        cls, *, subject, text, sources, workspace=None, origin="reflection", confidence=0.6
+    ):
+        """Refine the subject's aggregate, citing the sources behind it."""
         cls._upsert(
             subject=subject,
-            subject_key=subject.strip().lower(),
             text=text,
-            sources=source_ids,
+            sources=sources,
             workspace=workspace,
             origin=origin,
             confidence=confidence,
         )
 
     @classmethod
-    def _upsert(cls, *, subject, subject_key, text, sources, workspace, origin, confidence) -> bool:
-        source_ids = sorted(str(getattr(source, "pk", source)) for source in sources)
+    def _upsert(cls, *, subject, text, sources, workspace, origin, confidence) -> bool:
+        subject_key = subject.strip().lower()
+        source_ids = [getattr(source, "pk", source) for source in sources]
         dedupe_key = hashlib.sha256(
-            f"{subject_key}|{'|'.join(source_ids)}".encode("utf-8")
+            f"{subject_key}|{workspace.pk if workspace is not None else ''}".encode("utf-8")
         ).hexdigest()
         aggregate, created = MemoryAggregate.objects.get_or_create(
             dedupe_key=dedupe_key,
@@ -333,62 +344,71 @@ class AggregateService:
                 "workspace": workspace,
                 "origin": origin,
                 "confidence": confidence,
+                "proof_count": len(source_ids),
             },
         )
-        aggregate.sources.set([getattr(source, "pk", source) for source in sources])
-        if not created:
-            aggregate.text = text
-            aggregate.save(update_fields=["text", "updated_at"])
+        aggregate.sources.set(source_ids)
+        aggregate.text = text
+        aggregate.origin = origin
+        aggregate.proof_count = len(source_ids)
+        aggregate.save(update_fields=["text", "origin", "proof_count", "updated_at"])
         return created
 
 
 class ReflectionService:
-    """Ask a Hindsight MCP server, through the gateway, to reflect on a bank.
+    """Recreate the reflection step natively.
 
-    The result is stored as an aggregate whose sources are the documents the
-    question was built from, so the reflection inherits their intersection - it
-    can never say more than the caller could have read directly.
+    Hindsight is an external memory service; this is the same idea built in. Take
+    the facts already extracted about a subject, ask our own LLM provider for a
+    grounded summary, and store it as an evidence-backed aggregate. No external
+    service and no credential - and the result inherits its sources' intersection
+    like every other aggregate, so a reflection can never say more than the
+    caller could have read directly.
     """
 
     @classmethod
-    def reflect(cls, *, target, bank, query, user, api_key=None) -> str:
-        from apps.gateway.services import GatewayService, parse_sse_json
+    def reflect(cls, subject, *, user, workspace=None, api_key=None) -> str | None:
+        facts = list(FactService._facts(subject=subject, workspace=workspace))
+        readable = set(
+            PermissionService.allowed_resource_ids(
+                user,
+                [fact.source_resource_id for fact in facts],
+                Permission.READ,
+                api_key=api_key,
+            )
+        )
+        usable = [fact for fact in facts if fact.source_resource_id in readable]
+        if not usable:
+            return None
+        sources = {fact.source_resource_id: fact.source_resource for fact in usable}
+        grounded = "; ".join(sorted({fact.assertion for fact in usable if fact.assertion}))
+        text = cls._synthesize(usable[0].subject, grounded)
+        AggregateService.store(
+            subject=usable[0].subject,
+            text=text,
+            sources=list(sources.values()),
+            workspace=usable[0].workspace,
+            origin="reflection",
+            confidence=0.6,
+        )
+        return text
 
-        path = (target.config or {}).get("mcp_path") or "/mcp"
-        tool = (target.config or {}).get("reflect_tool") or "reflect"
-        rpc = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {"name": tool, "arguments": {"bank_id": bank, "query": query}},
-        }
-        result = GatewayService.call(
-            target,
-            method="POST",
-            path=path,
-            body=rpc,
-            headers={"Accept": "application/json, text/event-stream"},
-            user=user,
-            api_key=api_key,
-        )
-        body = result.get("body", "")
-        content_type = next(
-            (
-                value
-                for key, value in (result.get("headers") or {}).items()
-                if key.lower() == "content-type"
-            ),
-            "",
-        )
-        if "text/event-stream" in content_type.lower():
-            messages = parse_sse_json(body)
-        else:
-            try:
-                messages = [json.loads(body)]
-            except ValueError:
-                messages = []
-        for message in messages:
-            content = ((message or {}).get("result") or {}).get("content") or []
-            if isinstance(content, list) and content:
-                return str(content[0].get("text", ""))
-        return body
+    @staticmethod
+    def _synthesize(subject, grounded) -> str:
+        from apps.knowledge.llm import LLMError, get_llm_provider
+
+        fallback = f"{subject}: {grounded}" if grounded else subject
+        try:
+            provider = get_llm_provider()
+            if getattr(provider, "name", "") == "noop":
+                # Offline: the deterministic consolidation is the reflection.
+                return fallback
+            prompt = (
+                "Summarise, in two sentences and grounded ONLY in the facts below, "
+                f"what is known about '{subject}'. If something is not covered, say so.\n"
+                f"Facts:\n{grounded}"
+            )
+            text = provider.generate(title=f"About {subject}", prompt=prompt, context="")
+            return text.strip() or fallback
+        except LLMError:
+            return fallback

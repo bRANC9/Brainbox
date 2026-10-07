@@ -2217,55 +2217,27 @@ def tool_memory_extract(ctx: ToolContext, args: dict) -> dict:
 
 @tool(
     "memory_reflect",
-    "Ask a Hindsight MCP server (through a gateway target) to reflect on a subject, "
-    "and store the answer as an aggregate citing the documents it was built from.",
+    "Recreate the reflection step natively: summarise what is known about a subject "
+    "from the facts you may read, and store it as an evidence-backed aggregate. Uses "
+    "the platform LLM provider (offline it falls back to the deterministic roll-up).",
     {
         "type": "object",
         "properties": {
             "subject": {"type": "string"},
-            "target": {"type": "string", "description": "Gateway target id or name"},
-            "bank": {"type": "string", "description": "Hindsight bank (defaults to subject)"},
+            "workspace": {"type": "string"},
         },
-        "required": ["subject", "target"],
+        "required": ["subject"],
     },
 )
 def tool_memory_reflect(ctx: ToolContext, args: dict) -> dict:
-    from apps.gateway.services import GatewayService
-    from apps.memory.services import AggregateService, FactService, ReflectionService
+    from apps.memory.services import ReflectionService
 
-    subject = args["subject"]
-    target = GatewayService.resolve(args["target"])
-    facts = list(FactService._facts(subject=subject))
-    readable = set(
-        PermissionService.allowed_resource_ids(
-            ctx.user,
-            [fact.source_resource_id for fact in facts],
-            Permission.READ,
-            api_key=ctx.api_key,
-        )
-    )
-    sources = {
-        fact.source_resource_id: fact.source_resource
-        for fact in facts
-        if fact.source_resource_id in readable
-    }
-    if not sources:
-        raise ToolError("Nincs olvasható tény ehhez a subjecthez.")
+    workspace_id = None
+    if args.get("workspace"):
+        workspace_id = _get_workspace(args["workspace"]).pk
     text = ReflectionService.reflect(
-        target=target,
-        bank=args.get("bank") or subject,
-        query=f"What do we know about {subject}?",
-        user=ctx.user,
-        api_key=ctx.api_key,
+        args["subject"], user=ctx.user, workspace=workspace_id, api_key=ctx.api_key
     )
-    workspace = next(
-        (fact.workspace for fact in facts if fact.source_resource_id in readable), None
-    )
-    AggregateService.store(
-        subject=subject,
-        text=text,
-        sources=list(sources.values()),
-        workspace=workspace,
-        origin="reflection",
-    )
-    return {"subject": subject, "aggregate": text, "sources": [str(i) for i in sources]}
+    if text is None:
+        raise ToolError("Nincs olvasható tény ehhez a subjecthez.")
+    return {"subject": args["subject"], "aggregate": text}

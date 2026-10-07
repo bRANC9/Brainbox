@@ -99,24 +99,23 @@ class FactTests(TestCase):
             any(g.get("aggregates") for g in FactService.view(self.bob)["subjects"])
         )
 
-    def test_reflection_parses_the_mcp_answer(self):
+    def test_reflection_is_native_and_cited(self):
         from unittest.mock import patch
 
-        from apps.gateway.services import GatewayService
+        second = DocumentService.create(
+            workspace=self.workspace, title="Roles", path="roles.md",
+            content="---\nowner: Kovács Anna\n---\n# Roles\n", created_by=self.alice,
+        )
+        FactService.extract_document(second)
+        with patch("apps.knowledge.llm.get_llm_provider") as provider:
+            provider.return_value.name = "openai"
+            provider.return_value.generate.return_value = "Anna owns Payroll and Roles."
+            text = ReflectionService.reflect("Kovács Anna", user=self.alice)
+        self.assertEqual(text, "Anna owns Payroll and Roles.")
+        aggregate = MemoryAggregate.objects.get(subject_key="kovács anna")
+        self.assertEqual(aggregate.origin, "reflection")
+        self.assertEqual(aggregate.sources.count(), 2)
 
-        target = GatewayService.create(
-            name="hindsight", base_url="https://hindsight.example.com",
-            workspace=self.workspace, created_by=self.alice,
-        )
-        sse = (
-            'data: {"jsonrpc": "2.0", "id": 1, "result": '
-            '{"content": [{"type": "text", "text": "Anna owns Payroll."}]}}\n\n'
-        )
-        with patch.object(
-            GatewayService, "_send",
-            lambda *a, **k: (200, {"Content-Type": "text/event-stream"}, sse, False),
-        ):
-            text = ReflectionService.reflect(
-                target=target, bank="anna", query="?", user=self.alice
-            )
-        self.assertEqual(text, "Anna owns Payroll.")
+    def test_reflection_falls_back_offline(self):
+        text = ReflectionService.reflect("Kovács Anna", user=self.alice)
+        self.assertIn("Kovács Anna", text)

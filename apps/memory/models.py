@@ -92,6 +92,7 @@ class MemoryAggregate(models.Model):
     sources = models.ManyToManyField(
         "resources.Resource", related_name="memory_aggregates"
     )
+    proof_count = models.PositiveIntegerField(default=0)
     confidence = models.FloatField(default=0.7)
     origin = models.CharField(max_length=16, default="deterministic")
     dedupe_key = models.CharField(max_length=64, unique=True)

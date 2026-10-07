@@ -354,7 +354,6 @@ class MCPTests(TestCase):
     def test_memory_reflect(self):
         from unittest.mock import patch
 
-        from apps.gateway.services import GatewayService
         from apps.memory.services import FactService
 
         document = DocumentService.create(
@@ -362,18 +361,10 @@ class MCPTests(TestCase):
             content="---\nowner: Anna\n---\n# P\n", created_by=self.alice,
         )
         FactService.extract_document(document)
-        target = GatewayService.create(
-            name="hindsight", base_url="https://hindsight.example.com", created_by=self.alice
-        )
-        with patch(
-            "apps.memory.services.ReflectionService.reflect",
-            return_value="Anna owns Payroll.",
-        ):
-            result = self._payload(
-                "memory_reflect",
-                {"subject": "Anna", "target": str(target.pk)},
-                self.alice_key,
-            )
+        with patch("apps.knowledge.llm.get_llm_provider") as provider:
+            provider.return_value.name = "openai"
+            provider.return_value.generate.return_value = "Anna owns Payroll."
+            result = self._payload("memory_reflect", {"subject": "Anna"}, self.alice_key)
         self.assertEqual(result["aggregate"], "Anna owns Payroll.")
 
     def test_webhook_and_saved_search_tools(self):

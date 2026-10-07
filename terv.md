@@ -2047,7 +2047,10 @@ jóváhagyás enged be. Így a „tanuló memória" nem kerüli meg az ACL-t.
    subject szerint csoportosított, ACL-vetített lista, linkekkel.
 2. LLM-alapú kinyerés (tény-mondatok) a meglévő provideren.
 3. Aggregátumok (több forrásból) a **források-metszete** láthatósággal.
-4. Hindsight reflexió a Gateway-en át.
+4. **Natív reflexió** — a Hindsight mintájára, **külső szolgáltatás nélkül**: a
+   platform saját LLM-providerével, offline a determinisztikus összevonásra esik
+   vissza. (A Hindsight mint külső motor opcionális maradhat, de a mechanizmus
+   újra van alkotva.)
 
 **As-built (fázis 1–4):** `apps/memory` — `Fact` (subject/subject_key/predicate/
 object/assertion + `source_resource`/`source_document` + `origin`/`confidence`):
@@ -2055,10 +2058,11 @@ determinisztikus kinyerés frontmatterből (`owner`, `reports_to`, `maintainer`,
 `reviewer`, `author`), címkékből, linkekből; **LLM-kinyerés** (`origin=llm`,
 a meglévő provideren, best-effort); a nézet (`FactService.view`) a néző
 `allowed_resource_ids(READ)`-jével vetít, subject szerint csoportosít, minden
-tényt a forrására linkel. **Aggregátumok** (`MemoryAggregate`, M2M `sources`)
-több forrásból, láthatóságuk a **források metszete**; **reflexió**
-(`ReflectionService`) egy Hindsight MCP-szerverről a Gateway-en át, eredménye
-aggregátumként, ugyanazzal a metszet-szabállyal. Felületek: REST
+tényt a forrására linkel. **Aggregátumok** (`MemoryAggregate`, M2M `sources`,
+`proof_count`): egy subject egy aggregátuma, finomítva nem duplikálva;
+láthatóságuk a **források metszete**; **natív reflexió** (`ReflectionService`, a
+platform LLM-providerével, offline determinisztikus fallback) → aggregátumként,
+ugyanazzal a metszet-szabállyal. **Nincs külső szolgáltatás.** Felületek: REST
 `/api/v1/memory/`, MCP `memory_view` / `memory_extract` / `memory_reflect`, web
 `/memory/`, `extract_facts` és `build_memory_aggregates` job.
 
