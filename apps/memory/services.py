@@ -1,19 +1,24 @@
 """Fact extraction and the ACL-projected view.
 
-Extraction is deterministic - frontmatter keys, tags, links - so a fact is a
-fact, not a guess. The view never returns a fact whose source the caller cannot
-read, and every returned fact carries its source, so nothing is asserted without
-a citation.
+Extraction comes in two flavours: deterministic (frontmatter keys, tags, links -
+a fact is a fact, not a guess) and LLM-based (triples pulled from the content,
+marked with a lower confidence). Aggregates roll several sources into one
+statement, and a reflection can store a Hindsight answer as an aggregate.
+
+The one rule across all of it: a fact is exactly as visible as its source, and an
+aggregate is visible only to someone who can read *every* source it cites.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 
 from apps.permissions.constants import Permission
 from apps.permissions.services import PermissionService
 
-from .models import Fact
+from .models import Fact, MemoryAggregate
 
 # frontmatter key -> predicate. These are the "who is behind this" keys that make
 # a document about a person, so querying that person gathers them all.
@@ -24,6 +29,13 @@ PERSON_KEYS = {
     "reviewer": "reviewer_of",
     "author": "author_of",
 }
+
+LLM_PROMPT = (
+    "Extract factual statements from the text as a JSON array of objects with keys "
+    '"subject", "predicate", "object". Subject is a person, team, system or process; '
+    "predicate is a short snake_case relation; object is a value or another entity. "
+    "Output ONLY the JSON array."
+)
 
 
 def _as_list(value) -> list[str]:
@@ -39,10 +51,10 @@ class FactService:
     # -- extraction ----------------------------------------------------------
     @classmethod
     def extract_document(cls, document) -> int:
-        """Rebuild the facts of one document from its frontmatter, tags, links."""
+        """Rebuild the deterministic facts of one document."""
         from apps.tags.services import tags_for
 
-        Fact.objects.filter(source_document=document).delete()
+        cls._clear(document, origin="deterministic")
         frontmatter = document.frontmatter or {}
         title = document.title or document.path
 
@@ -62,7 +74,64 @@ class FactService:
         return created
 
     @classmethod
-    def _create(cls, document, subject, predicate, object_name) -> bool:
+    def extract_document_llm(cls, document) -> int:
+        """Ask the LLM for facts. Best-effort: an offline provider yields none."""
+        from apps.documents.services import DocumentService
+        from apps.knowledge.llm import LLMError, get_llm_provider
+
+        try:
+            content = DocumentService.read_content(document)
+        except Exception:  # noqa: BLE001 - a missing file is not an error here
+            return 0
+        if not content or not content.strip():
+            return 0
+        try:
+            raw = get_llm_provider().generate(
+                title=document.title, prompt=LLM_PROMPT, context=content[:6000]
+            )
+        except LLMError:
+            return 0
+
+        cls._clear(document, origin="llm")
+        created = 0
+        for subject, predicate, object_name in cls._parse_triples(raw):
+            if cls._create(
+                document, subject, predicate, object_name, origin="llm", confidence=0.7
+            ):
+                created += 1
+        return created
+
+    @staticmethod
+    def _parse_triples(raw: str) -> list[tuple[str, str, str]]:
+        text = (raw or "").strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
+            text = re.sub(r"```$", "", text).strip()
+        try:
+            data = json.loads(text)
+        except ValueError:
+            return []
+        if not isinstance(data, list):
+            return []
+        triples = []
+        for row in data:
+            if not isinstance(row, dict):
+                continue
+            subject = str(row.get("subject", "")).strip()
+            predicate = str(row.get("predicate", "")).strip()
+            object_name = str(row.get("object", "")).strip()
+            if subject and predicate:
+                triples.append((subject, predicate, object_name))
+        return triples
+
+    @classmethod
+    def _clear(cls, document, *, origin: str) -> None:
+        Fact.objects.filter(source_document=document, origin=origin).delete()
+
+    @classmethod
+    def _create(
+        cls, document, subject, predicate, object_name, *, origin="deterministic", confidence=1.0
+    ) -> bool:
         subject_key = subject.strip().lower()
         if not subject_key:
             return False
@@ -81,12 +150,14 @@ class FactService:
                 "source_document": document,
                 "workspace": document.workspace,
                 "project": document.project,
+                "origin": origin,
+                "confidence": confidence,
             },
         )
         return was_created
 
     @classmethod
-    def rebuild_all(cls) -> dict:
+    def rebuild_all(cls, *, with_llm: bool = False) -> dict:
         from apps.documents.models import Document
 
         count = 0
@@ -94,17 +165,71 @@ class FactService:
             "workspace", "project", "resource"
         ).iterator():
             count += cls.extract_document(document)
+            if with_llm:
+                count += cls.extract_document_llm(document)
         return {"facts": count}
 
     # -- the view ------------------------------------------------------------
     @classmethod
     def view(cls, user, *, subject=None, workspace=None, api_key=None) -> dict:
-        """The facts the caller may read, grouped by subject, each cited.
+        """The facts and aggregates the caller may read, grouped by subject.
 
-        A fact is included only when its *source* is readable, so the projection
-        can never widen access: the salary fact from an HR document is absent for
-        anyone who cannot read that document, whatever else they can read.
+        Facts are filtered by their source's readability; an aggregate is kept
+        only when *every* source it cites is readable. The projection never
+        widens access, whatever it is asked for.
         """
+        facts = list(cls._facts(subject=subject, workspace=workspace))
+        readable_sources = set(
+            PermissionService.allowed_resource_ids(
+                user,
+                [fact.source_resource_id for fact in facts],
+                Permission.READ,
+                api_key=api_key,
+            )
+        )
+
+        aggregates = list(cls._aggregates(subject=subject, workspace=workspace))
+        aggregate_source_ids = [
+            source.pk for aggregate in aggregates for source in aggregate.sources.all()
+        ]
+        readable_aggregate_sources = set(
+            PermissionService.allowed_resource_ids(
+                user, aggregate_source_ids, Permission.READ, api_key=api_key
+            )
+        )
+
+        groups: dict[str, dict] = {}
+        for fact in facts:
+            if fact.source_resource_id not in readable_sources:
+                continue
+            group = groups.setdefault(
+                fact.subject_key,
+                {"subject": fact.subject, "facts": [], "aggregates": []},
+            )
+            group["facts"].append(cls._fact_row(fact))
+        for aggregate in aggregates:
+            source_ids = [source.pk for source in aggregate.sources.all()]
+            if not source_ids or not all(
+                source_id in readable_aggregate_sources for source_id in source_ids
+            ):
+                continue
+            group = groups.setdefault(
+                aggregate.subject_key,
+                {"subject": aggregate.subject, "facts": [], "aggregates": []},
+            )
+            group["aggregates"].append(
+                {
+                    "text": aggregate.text,
+                    "origin": aggregate.origin,
+                    "sources": [str(source_id) for source_id in source_ids],
+                }
+            )
+        return {
+            "subjects": sorted(groups.values(), key=lambda row: row["subject"].lower())
+        }
+
+    @staticmethod
+    def _facts(*, subject=None, workspace=None):
         queryset = Fact.objects.select_related(
             "source_document", "source_document__folder", "source_document__project"
         )
@@ -112,25 +237,16 @@ class FactService:
             queryset = queryset.filter(subject_key=str(subject).strip().lower())
         if workspace:
             queryset = queryset.filter(workspace_id=workspace)
-        facts = list(queryset)
+        return queryset
 
-        resource_ids = [fact.source_resource_id for fact in facts]
-        readable = set(
-            PermissionService.allowed_resource_ids(
-                user, resource_ids, Permission.READ, api_key=api_key
-            )
-        )
-        groups: dict[str, dict] = {}
-        for fact in facts:
-            if fact.source_resource_id not in readable:
-                continue
-            group = groups.setdefault(
-                fact.subject_key, {"subject": fact.subject, "facts": []}
-            )
-            group["facts"].append(cls._fact_row(fact))
-        return {
-            "subjects": sorted(groups.values(), key=lambda row: row["subject"].lower())
-        }
+    @staticmethod
+    def _aggregates(*, subject=None, workspace=None):
+        queryset = MemoryAggregate.objects.prefetch_related("sources")
+        if subject:
+            queryset = queryset.filter(subject_key=str(subject).strip().lower())
+        if workspace:
+            queryset = queryset.filter(workspace_id=workspace)
+        return queryset
 
     @staticmethod
     def _fact_row(fact: Fact) -> dict:
@@ -139,9 +255,140 @@ class FactService:
             "predicate": fact.predicate,
             "object": fact.object,
             "assertion": fact.assertion,
+            "origin": fact.origin,
             "source": {
                 "document_id": str(document.pk) if document is not None else None,
                 "title": document.title if document is not None else None,
                 "tree_path": document.tree_path() if document is not None else None,
             },
         }
+
+
+class AggregateService:
+    """Roll a subject's facts from several sources into one cited statement."""
+
+    @classmethod
+    def build_workspace(cls, workspace) -> int:
+        facts = list(
+            Fact.objects.filter(workspace=workspace).select_related("source_resource")
+        )
+        by_subject: dict[str, list[Fact]] = {}
+        for fact in facts:
+            by_subject.setdefault(fact.subject_key, []).append(fact)
+
+        built = 0
+        for subject_key, subject_facts in by_subject.items():
+            sources = {fact.source_resource_id: fact.source_resource for fact in subject_facts}
+            if len(sources) < 2:
+                # A single source is not a consolidation.
+                continue
+            text = "; ".join(sorted({fact.assertion for fact in subject_facts if fact.assertion}))
+            if cls._upsert(
+                subject=subject_facts[0].subject,
+                subject_key=subject_key,
+                text=text,
+                sources=list(sources.values()),
+                workspace=workspace,
+                origin="deterministic",
+                confidence=1.0,
+            ):
+                built += 1
+        return built
+
+    @classmethod
+    def build_all(cls) -> dict:
+        from apps.workspaces.models import Workspace
+
+        built = 0
+        for workspace in Workspace.objects.all().iterator():
+            built += cls.build_workspace(workspace)
+        return {"aggregates": built}
+
+    @classmethod
+    def store(cls, *, subject, text, sources, workspace=None, origin="reflection", confidence=0.6):
+        """Store a reflection result as an aggregate citing its sources."""
+        source_ids = [getattr(source, "pk", source) for source in sources]
+        cls._upsert(
+            subject=subject,
+            subject_key=subject.strip().lower(),
+            text=text,
+            sources=source_ids,
+            workspace=workspace,
+            origin=origin,
+            confidence=confidence,
+        )
+
+    @classmethod
+    def _upsert(cls, *, subject, subject_key, text, sources, workspace, origin, confidence) -> bool:
+        source_ids = sorted(str(getattr(source, "pk", source)) for source in sources)
+        dedupe_key = hashlib.sha256(
+            f"{subject_key}|{'|'.join(source_ids)}".encode("utf-8")
+        ).hexdigest()
+        aggregate, created = MemoryAggregate.objects.get_or_create(
+            dedupe_key=dedupe_key,
+            defaults={
+                "subject": subject,
+                "subject_key": subject_key,
+                "text": text,
+                "workspace": workspace,
+                "origin": origin,
+                "confidence": confidence,
+            },
+        )
+        aggregate.sources.set([getattr(source, "pk", source) for source in sources])
+        if not created:
+            aggregate.text = text
+            aggregate.save(update_fields=["text", "updated_at"])
+        return created
+
+
+class ReflectionService:
+    """Ask a Hindsight MCP server, through the gateway, to reflect on a bank.
+
+    The result is stored as an aggregate whose sources are the documents the
+    question was built from, so the reflection inherits their intersection - it
+    can never say more than the caller could have read directly.
+    """
+
+    @classmethod
+    def reflect(cls, *, target, bank, query, user, api_key=None) -> str:
+        from apps.gateway.services import GatewayService, parse_sse_json
+
+        path = (target.config or {}).get("mcp_path") or "/mcp"
+        tool = (target.config or {}).get("reflect_tool") or "reflect"
+        rpc = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": {"bank_id": bank, "query": query}},
+        }
+        result = GatewayService.call(
+            target,
+            method="POST",
+            path=path,
+            body=rpc,
+            headers={"Accept": "application/json, text/event-stream"},
+            user=user,
+            api_key=api_key,
+        )
+        body = result.get("body", "")
+        content_type = next(
+            (
+                value
+                for key, value in (result.get("headers") or {}).items()
+                if key.lower() == "content-type"
+            ),
+            "",
+        )
+        if "text/event-stream" in content_type.lower():
+            messages = parse_sse_json(body)
+        else:
+            try:
+                messages = [json.loads(body)]
+            except ValueError:
+                messages = []
+        for message in messages:
+            content = ((message or {}).get("result") or {}).get("content") or []
+            if isinstance(content, list) and content:
+                return str(content[0].get("text", ""))
+        return body

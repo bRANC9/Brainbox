@@ -53,6 +53,11 @@ class Fact(models.Model):
         related_name="facts",
     )
     confidence = models.FloatField(default=1.0)
+    origin = models.CharField(
+        max_length=16,
+        default="deterministic",
+        help_text="How the fact was found: deterministic, llm or reflection.",
+    )
     dedupe_key = models.CharField(max_length=64, unique=True)
     extracted_at = models.DateTimeField(auto_now_add=True)
 
@@ -63,3 +68,39 @@ class Fact(models.Model):
 
     def __str__(self) -> str:
         return f"{self.subject} {self.predicate} {self.object}"
+
+
+class MemoryAggregate(models.Model):
+    """A consolidated statement about a subject, citing several sources.
+
+    Its visibility is the **intersection** of its sources': the viewer must be
+    able to read *every* source it cites, so combining a fact from one place with
+    a fact from another can never reveal more than either alone.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    subject = models.CharField(max_length=255)
+    subject_key = models.CharField(max_length=255, db_index=True)
+    text = models.TextField()
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="memory_aggregates",
+    )
+    sources = models.ManyToManyField(
+        "resources.Resource", related_name="memory_aggregates"
+    )
+    confidence = models.FloatField(default=0.7)
+    origin = models.CharField(max_length=16, default="deterministic")
+    dedupe_key = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "memory_aggregate"
+        ordering = ["subject_key"]
+
+    def __str__(self) -> str:
+        return f"{self.subject}: {self.text[:40]}"

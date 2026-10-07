@@ -2213,3 +2213,59 @@ def tool_memory_extract(ctx: ToolContext, args: dict) -> dict:
     if not getattr(ctx.user, "is_superuser", False):
         raise ToolError("A teljes újrakinyerés superuser.")
     return FactService.rebuild_all()
+
+
+@tool(
+    "memory_reflect",
+    "Ask a Hindsight MCP server (through a gateway target) to reflect on a subject, "
+    "and store the answer as an aggregate citing the documents it was built from.",
+    {
+        "type": "object",
+        "properties": {
+            "subject": {"type": "string"},
+            "target": {"type": "string", "description": "Gateway target id or name"},
+            "bank": {"type": "string", "description": "Hindsight bank (defaults to subject)"},
+        },
+        "required": ["subject", "target"],
+    },
+)
+def tool_memory_reflect(ctx: ToolContext, args: dict) -> dict:
+    from apps.gateway.services import GatewayService
+    from apps.memory.services import AggregateService, FactService, ReflectionService
+
+    subject = args["subject"]
+    target = GatewayService.resolve(args["target"])
+    facts = list(FactService._facts(subject=subject))
+    readable = set(
+        PermissionService.allowed_resource_ids(
+            ctx.user,
+            [fact.source_resource_id for fact in facts],
+            Permission.READ,
+            api_key=ctx.api_key,
+        )
+    )
+    sources = {
+        fact.source_resource_id: fact.source_resource
+        for fact in facts
+        if fact.source_resource_id in readable
+    }
+    if not sources:
+        raise ToolError("Nincs olvasható tény ehhez a subjecthez.")
+    text = ReflectionService.reflect(
+        target=target,
+        bank=args.get("bank") or subject,
+        query=f"What do we know about {subject}?",
+        user=ctx.user,
+        api_key=ctx.api_key,
+    )
+    workspace = next(
+        (fact.workspace for fact in facts if fact.source_resource_id in readable), None
+    )
+    AggregateService.store(
+        subject=subject,
+        text=text,
+        sources=list(sources.values()),
+        workspace=workspace,
+        origin="reflection",
+    )
+    return {"subject": subject, "aggregate": text, "sources": [str(i) for i in sources]}

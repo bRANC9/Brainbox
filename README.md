@@ -49,11 +49,13 @@ Self-hosted, AI-native engineering knowledge platform (Django + PostgreSQL).
   **aláírt POST** megy ki egy gateway célon át (a signature a vaultból), a
   job-worker újrapróbálja. A mentett keresés ugyanez egy lekérdezésre: ütemezetten
   újrafut, és csak az **új** találatra értesít.
-- **Konszolidált memória**: dokumentumokból kinyert **tények** (`owner`,
-  `reports_to`, címkék, linkek), subject szerint csoportosítva, **minden tény a
-  forrására linkelve**. A nézet a néző ACL-jével vetítve készül, tehát a HR-bér
-  ténye nem látszik annak, aki a HR-dokumentumot nem olvashatja. REST
-  `/api/v1/memory/`, MCP `memory_view`, web `/memory/`.
+- **Konszolidált memória**: dokumentumokból kinyert **tények** — determinisztikusan
+  (`owner`, `reports_to`, címkék, linkek) és opcionálisan **LLM-mel** —, subject
+  szerint csoportosítva, **minden tény a forrására linkelve**. **Aggregátumok**
+  több forrásból, és **reflexió** egy Hindsight MCP-szerverről a gateway-en át
+  (`memory_reflect`). A nézet a néző ACL-jével vetítve készül; egy aggregátum csak
+  akkor látszik, ha **minden** forrását olvashatod. REST `/api/v1/memory/`, MCP
+  `memory_view` / `memory_extract` / `memory_reflect`, web `/memory/`.
 - **Secret Vault**: user-owned, Fernet-titkosított secret, használat-auditalva,
   redacting secret scanner.
 - **Advanced AI**: skill/pattern/convention/decision/example discovery,

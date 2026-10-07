@@ -108,3 +108,13 @@ def extract_facts(context: JobContext) -> dict:
     from apps.memory.services import FactService
 
     return FactService.rebuild_all()
+
+
+@register_job(
+    "build_memory_aggregates",
+    "Roll each subject's facts from several sources into one cited aggregate.",
+)
+def build_memory_aggregates(context: JobContext) -> dict:
+    from apps.memory.services import AggregateService
+
+    return AggregateService.build_all()
