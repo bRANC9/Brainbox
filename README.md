@@ -45,6 +45,10 @@ Self-hosted, AI-native engineering knowledge platform (Django + PostgreSQL).
 - **Kulcsonkénti büdzsé**: az API/MCP kulcsnak opcionális kérés-kerete
   (`request_budget` / `budget_window_seconds`); túllépéskor a kulcs 401-et kap.
   A használat: `GET /api/v1/api-keys/<id>/usage/`.
+- **Webhookok + mentett keresések**: eseményre (pl. `document.status_changed`)
+  **aláírt POST** megy ki egy gateway célon át (a signature a vaultból), a
+  job-worker újrapróbálja. A mentett keresés ugyanez egy lekérdezésre: ütemezetten
+  újrafut, és csak az **új** találatra értesít.
 - **Secret Vault**: user-owned, Fernet-titkosított secret, használat-auditalva,
   redacting secret scanner.
 - **Advanced AI**: skill/pattern/convention/decision/example discovery,
@@ -143,7 +147,8 @@ Főbb végpontok (`/api/v1/`):
 
 ```text
 workspaces/ projects/ resources/ documents/ files/ folders/ links/
-gateway/ curator/ comments/ git/ secrets/ users/ groups/ permissions/ api-keys/ audit/
+gateway/ curator/ comments/ webhooks/ saved-searches/ git/ secrets/ users/
+groups/ permissions/ api-keys/ audit/
 search/ discovery/ quality/ drafts/ jobs/ deadlines/ settings/
 ```
 

@@ -87,3 +87,17 @@ def curate_workspaces(context: JobContext) -> dict:
     from apps.curator.services import CuratorService
 
     return CuratorService.scan_all()
+
+
+@register_job("deliver_webhooks", "Deliver pending webhook deliveries (with retry).")
+def deliver_webhooks(context: JobContext) -> dict:
+    from apps.events.services import EventService
+
+    return EventService.deliver_pending()
+
+
+@register_job("run_saved_searches", "Re-run saved searches and notify on new matches.")
+def run_saved_searches(context: JobContext) -> dict:
+    from apps.events.services import SavedSearchService
+
+    return SavedSearchService.check_all()

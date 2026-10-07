@@ -340,6 +340,29 @@ class MCPTests(TestCase):
         # An unreadable uri and a missing one answer the same way.
         self.assertEqual(read["error"]["code"], -32602)
 
+    def test_webhook_and_saved_search_tools(self):
+        from apps.gateway.services import GatewayService
+
+        target = GatewayService.create(
+            name="hook", base_url="https://hooks.example.com", created_by=self.alice
+        )
+        created = self._payload(
+            "webhook_create",
+            {
+                "name": "CI",
+                "target": str(target.pk),
+                "events": ["document.status_changed"],
+            },
+            self.alice_key,
+        )
+        self.assertEqual(created["name"], "CI")
+        listing = self._payload("webhook_list", {}, self.alice_key)
+        self.assertEqual(len(listing["webhooks"]), 1)
+        saved = self._payload(
+            "saved_search_create", {"name": "w", "query": "deploy"}, self.alice_key
+        )
+        self.assertEqual(saved["query"], "deploy")
+
     def test_curator_scan_and_approve(self):
         DocumentService.create(
             workspace=self.workspace, title="A", path="a.md", content="# S\n",

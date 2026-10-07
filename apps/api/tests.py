@@ -13,6 +13,7 @@ from rest_framework.test import APITestCase
 from apps.accounts.models import ApiKey, User
 from apps.accounts.services import ApiKeyService
 from apps.documents.services import DocumentService
+from apps.gateway.services import GatewayService
 from apps.git.services import GitService
 from apps.groups.models import Group, GroupMembership
 from apps.permissions.constants import Effect, Permission
@@ -651,6 +652,43 @@ class ApiKeyBudgetTests(APITestCase):
         for _ in range(3):
             response = self.client.get("/api/v1/workspaces/", HTTP_X_API_KEY=self.raw)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class EventApiTests(APITestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.workspace = WorkspaceService.create(name="Company", created_by=self.alice)
+        self.target = GatewayService.create(
+            name="hook",
+            base_url="https://hooks.example.com",
+            workspace=self.workspace,
+            created_by=self.alice,
+        )
+        self.client.force_authenticate(self.alice)
+
+    def test_create_and_list_a_webhook(self):
+        created = self.client.post(
+            "/api/v1/webhooks/",
+            {
+                "name": "CI",
+                "target": str(self.target.pk),
+                "events": ["document.status_changed"],
+                "workspace": str(self.workspace.pk),
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+        listing = self.client.get("/api/v1/webhooks/")
+        self.assertEqual(listing.data["count"], 1)
+
+    def test_create_a_saved_search(self):
+        created = self.client.post(
+            "/api/v1/saved-searches/",
+            {"name": "w", "query": "deploy"},
+            format="json",
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
 
 
 class ActionRouteTests(SimpleTestCase):

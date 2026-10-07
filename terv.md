@@ -2049,3 +2049,29 @@ jóváhagyás enged be. Így a „tanuló memória" nem kerüli meg az ACL-t.
 3. Aggregátumok (több forrásból) a **források-metszete** láthatósággal.
 4. Hindsight reflexió a Gateway-en át.
 
+---
+
+# 55. Kimenő események: webhookok és mentett keresések (as-built)
+
+A rendszer eddig pull-alapú volt. Most esemény kifelé is megy: egy **Webhook**
+nevesített eseményekre iratkozik fel, és **aláírt POST**-ot kap.
+
+- **Webhook**: `events` (nevek vagy `*`), `workspace` (scope), `target` (a kimenő
+  Gateway-cél: URL + allowlist + credential), `signing_secret` (HMAC a vaultból).
+  A kézbesítés a `GatewayService.call`-on megy át, tehát ACL + audit.
+- **WebhookDelivery**: soronként egy kézbesítés, `pending/sent/failed`,
+  `attempts`, `last_error`; a `deliver_webhooks` job legfeljebb 5-ször próbálja.
+  Az `emit` csak sorokat ír, a küldés külön lépés — a lassú fogadó nem blokkolja
+  a kiváltó írást.
+- **Események**: `document.status_changed` (a `DraftService.set_status`-ból),
+  `saved_search.match`, `webhook.test`.
+- **Mentett keresés**: `SavedSearch` (query + mode + webhook); a
+  `run_saved_searches` job a tulajdonos nevében futtatja (ACL-szűrve), és csak az
+  `last_seen_ids`-ben nem szereplő **új** találatra emitál.
+
+Felületek: REST `/api/v1/webhooks/` (+ `/<id>/test/`), `/api/v1/saved-searches/`;
+MCP `webhook_list` / `webhook_create` / `saved_search_list` / `saved_search_create`.
+
+Fázis 2: web UI a feliratkozásokhoz, több esemény (node létrehozva, ACL változott),
+és a Hindsight-motor eseményei.
+

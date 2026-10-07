@@ -2038,3 +2038,122 @@ def tool_document_comment_resolve(ctx: ToolContext, args: dict) -> dict:
     except (PermissionDenied, ValidationError) as exc:
         raise _service_error(exc) from exc
     return _comment_brief(comment)
+
+
+# ---------------------------------------------------------------------------
+# Outbound events (webhooks and saved searches)
+# ---------------------------------------------------------------------------
+def _webhook_brief(webhook) -> dict:
+    return {
+        "id": str(webhook.pk),
+        "name": webhook.name,
+        "events": webhook.events,
+        "enabled": webhook.enabled,
+        "target": str(webhook.target_id),
+        "workspace": str(webhook.workspace_id) if webhook.workspace_id else None,
+    }
+
+
+@tool(
+    "webhook_list",
+    "List your outbound webhook subscriptions.",
+    {"type": "object", "properties": {}},
+)
+def tool_webhook_list(ctx: ToolContext, args: dict) -> dict:
+    from apps.events.models import Webhook
+
+    webhooks = Webhook.objects.filter(owner=ctx.user).select_related("target")
+    return {"webhooks": [_webhook_brief(webhook) for webhook in webhooks]}
+
+
+@tool(
+    "webhook_create",
+    "Subscribe to events; each is delivered as a signed POST through a gateway target.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "target": {"type": "string", "description": "Gateway target id or name"},
+            "events": {"type": "array", "items": {"type": "string"}},
+            "signing_secret_id": {"type": "string", "description": "Optional HMAC secret"},
+            "workspace": {"type": "string", "description": "Optional workspace scope"},
+        },
+        "required": ["name", "target", "events"],
+    },
+)
+def tool_webhook_create(ctx: ToolContext, args: dict) -> dict:
+    from apps.events.models import Webhook
+
+    target = GatewayService.resolve(args["target"])
+    _require(ctx, target.resource, Permission.USE)
+    workspace = _get_workspace(args["workspace"]) if args.get("workspace") else None
+    if workspace is not None:
+        _require(ctx, workspace.resource, Permission.WRITE)
+    secret = _owned_secret(ctx, args.get("signing_secret_id"))
+    webhook = Webhook.objects.create(
+        name=args["name"],
+        owner=ctx.user,
+        workspace=workspace,
+        target=target,
+        signing_secret=secret,
+        events=list(args.get("events") or []),
+    )
+    return _webhook_brief(webhook)
+
+
+@tool(
+    "saved_search_list",
+    "List your saved searches (the system re-runs them and notifies on new matches).",
+    {"type": "object", "properties": {}},
+)
+def tool_saved_search_list(ctx: ToolContext, args: dict) -> dict:
+    from apps.events.models import SavedSearch
+
+    rows = SavedSearch.objects.filter(owner=ctx.user)
+    return {
+        "saved_searches": [
+            {
+                "id": str(row.pk),
+                "name": row.name,
+                "query": row.query,
+                "enabled": row.enabled,
+                "webhook": str(row.webhook_id) if row.webhook_id else None,
+            }
+            for row in rows
+        ]
+    }
+
+
+@tool(
+    "saved_search_create",
+    "Save a query the system re-runs, notifying on new matches.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "query": {"type": "string"},
+            "mode": {"type": "string", "enum": ["text", "semantic", "hybrid"]},
+            "workspace": {"type": "string"},
+            "webhook": {"type": "string", "description": "One of your webhooks to notify"},
+        },
+        "required": ["name", "query"],
+    },
+)
+def tool_saved_search_create(ctx: ToolContext, args: dict) -> dict:
+    from apps.events.models import SavedSearch, Webhook
+
+    workspace = _get_workspace(args["workspace"]) if args.get("workspace") else None
+    webhook = None
+    if args.get("webhook"):
+        webhook = Webhook.objects.filter(pk=args["webhook"], owner=ctx.user).first()
+        if webhook is None:
+            raise ToolError("A webhook nem a tiéd vagy nem létezik.")
+    saved = SavedSearch.objects.create(
+        name=args["name"],
+        owner=ctx.user,
+        workspace=workspace,
+        query=args["query"],
+        mode=args.get("mode", "hybrid"),
+        webhook=webhook,
+    )
+    return {"id": str(saved.pk), "name": saved.name, "query": saved.query}

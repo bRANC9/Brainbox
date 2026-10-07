@@ -222,6 +222,24 @@ class DraftService:
             request=request,
             detail={"type": "status_change", "from": previous, "to": status},
         )
+        # Announce it. An event failure must never roll back the status change
+        # the caller asked for, so this is best-effort.
+        try:
+            from apps.events.services import EventService
+
+            EventService.emit(
+                "document.status_changed",
+                payload={
+                    "document_id": str(document.pk),
+                    "title": document.title,
+                    "previous": previous,
+                    "status": status,
+                },
+                workspace=document.workspace,
+                resource=document.resource,
+            )
+        except Exception:  # noqa: BLE001 - best-effort
+            pass
         return document
 
 

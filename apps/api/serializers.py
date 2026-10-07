@@ -12,6 +12,7 @@ from apps.curator.models import CuratorProposal
 from apps.deadlines.models import KnowledgeDeadline
 from apps.documents.models import Document, DocumentComment, DocumentFolder, DocumentVersion
 from apps.documents.services import DocumentService
+from apps.events.models import SavedSearch, Webhook
 from apps.files.models import File, FileVersion
 from apps.gateway.models import GatewayTarget
 from apps.git.models import GitCommitReference, GitRepository, GitSyncState
@@ -945,3 +946,64 @@ class DocumentCommentSerializer(serializers.ModelSerializer):
             body=validated_data.get("body", ""),
             request=self.context.get("request"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Outbound events
+# ---------------------------------------------------------------------------
+class WebhookSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True)
+    owner = serializers.CharField(source="owner.username", read_only=True)
+    target = serializers.PrimaryKeyRelatedField(queryset=GatewayTarget.objects.all())
+    signing_secret = OwnedSecretField(
+        queryset=Secret.objects.filter(is_active=True), required=False, allow_null=True
+    )
+
+    class Meta:
+        model = Webhook
+        fields = [
+            "id",
+            "name",
+            "workspace",
+            "target",
+            "signing_secret",
+            "events",
+            "enabled",
+            "owner",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "owner", "created_at", "updated_at"]
+
+    def create(self, validated_data):
+        return Webhook.objects.create(owner=_actor(self), **validated_data)
+
+
+class SavedSearchSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True)
+
+    class Meta:
+        model = SavedSearch
+        fields = [
+            "id",
+            "name",
+            "workspace",
+            "query",
+            "mode",
+            "enabled",
+            "webhook",
+            "last_checked_at",
+            "last_seen_ids",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "last_checked_at",
+            "last_seen_ids",
+            "created_at",
+            "updated_at",
+        ]
+
+    def create(self, validated_data):
+        return SavedSearch.objects.create(owner=_actor(self), **validated_data)

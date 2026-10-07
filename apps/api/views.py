@@ -32,6 +32,7 @@ from apps.documents.models import (
     DocumentVersion,
 )
 from apps.documents.services import DocumentService
+from apps.events.models import SavedSearch, Webhook
 from apps.files.models import File
 from apps.files.services import FileService
 from apps.gateway.models import GatewayTarget
@@ -1355,6 +1356,63 @@ class GatewayTargetViewSet(CreatePermissionMixin, PermissionFilterMixin, viewset
             detail = getattr(exc, "message_dict", None) or {"detail": exc.messages}
             raise ValidationError(detail) from exc
         return Response(result)
+
+
+class WebhookViewSet(viewsets.ModelViewSet):
+    """Outbound event subscriptions, delivered through a gateway target."""
+
+    serializer_class = s.WebhookSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Webhook.objects.select_related("workspace", "target", "owner")
+        if self.request.user.is_superuser:
+            return queryset
+        return queryset.filter(owner=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        if request.data.get("workspace"):
+            workspace = get_object_or_404(Workspace, pk=request.data["workspace"])
+            if not PermissionService.check(
+                request.user,
+                workspace.resource,
+                Permission.WRITE,
+                api_key=api_key_from_request(request),
+            ):
+                raise PermissionDenied("Write permission required on the workspace.")
+        return super().create(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def test(self, request, pk=None):
+        from apps.events.services import EventService
+
+        webhook = self.get_object()
+        deliveries = EventService.emit(
+            "webhook.test", payload={"webhook": webhook.name}, webhooks=[webhook]
+        )
+        EventService.deliver_pending(limit=len(deliveries) or 1)
+        return Response({"queued": len(deliveries)})
+
+
+class SavedSearchViewSet(viewsets.ModelViewSet):
+    """Saved searches: stored queries the system re-runs and notifies on."""
+
+    serializer_class = s.SavedSearchSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = SavedSearch.objects.select_related("workspace", "webhook")
+        if self.request.user.is_superuser:
+            return queryset
+        return queryset.filter(owner=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        webhook_id = request.data.get("webhook")
+        if webhook_id and not Webhook.objects.filter(
+            pk=webhook_id, owner=request.user
+        ).exists():
+            raise PermissionDenied("That webhook is not yours.")
+        return super().create(request, *args, **kwargs)
 
 
 class CommentViewSet(viewsets.ModelViewSet):

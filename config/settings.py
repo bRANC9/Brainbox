@@ -70,6 +70,7 @@ LOCAL_APPS = [
     "apps.mcp",
     "apps.gateway",
     "apps.curator",
+    "apps.events",
     "apps.knowledge",
     "apps.jobs",
     "apps.deadlines",
