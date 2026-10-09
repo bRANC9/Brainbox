@@ -35,7 +35,8 @@ _ROUTE_PARAM = re.compile(r"\(\?P<(\w+)>[^)]+\)")
 
 _PERMISSION_LABELS = {
     "IsAuthenticated": "any authenticated caller",
-    "IsAdminUser": "superuser only",
+    "IsAdminUser": "staff user",
+    "SuperuserOnly": "superuser only",
     "AllowAny": "public (no auth)",
     "ResourcePermission": "caller must hold the permission on the target resource (ACL aware)",
 }

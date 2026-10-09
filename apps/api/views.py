@@ -824,6 +824,8 @@ class UserViewSet(viewsets.ModelViewSet):
         return s.SelfUserSerializer
 
     def get_permissions(self):
+        if self.action in {"deactivate", "ownership"}:
+            return [SuperuserOnly()]
         if self.action in {"create", "destroy"} and not self.request.user.is_superuser:
             return [IsAdminUser()]
         return [IsAuthenticated()]
@@ -1838,7 +1840,7 @@ class QualityView(APIView):
     # Superuser-only, and this must stay in step with the MCP
     # ``knowledge_quality_metrics`` tool (which lives in apps.mcp): one gate or
     # the other is a way around the other.
-    permission_classes = [IsAdminUser]
+    permission_classes = [SuperuserOnly]
 
     def get(self, request):
         return Response(QualityService.metrics())

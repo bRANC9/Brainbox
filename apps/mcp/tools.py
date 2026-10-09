@@ -1549,12 +1549,11 @@ def tool_approve(ctx: ToolContext, args: dict) -> dict:
     "knowledge_quality_metrics",
     "Knowledge quality metrics (superuser only): status mix, orphans, stale docs. "
     "Counts every workspace, including other people's. "
-    "(A REST QualityView IsAdminUser ugyanazt a kaput használja.)",
+    "(The REST QualityView uses the same superuser-only gate.)",
 )
 def tool_quality(ctx: ToolContext, args: dict) -> dict:
-    # Must stay in step with the REST QualityView, which is IsAdminUser - the
-    # numbers are global (every workspace, other people's included), so `is_staff`
-    # here would be a broader audience than the REST surface allows.
+    # Must stay in step with the REST QualityView: the numbers are global
+    # (every workspace, other people's included), so staff is not sufficient.
     if not getattr(ctx.user, "is_superuser", False):
         raise ToolError("Superuser access required.")
     return QualityService.metrics()

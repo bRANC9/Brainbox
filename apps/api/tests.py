@@ -725,3 +725,76 @@ class ActionRouteTests(SimpleTestCase):
                 self.assertEqual(
                     duplicates, set(), f"{viewset.__name__}.{method} has duplicate paths"
                 )
+
+
+@override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
+class UserAdminAuthorizationTests(APITestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", "alice@example.com", "pw")
+        self.staff = User.objects.create_user(
+            "staff", "staff@example.com", "pw", is_staff=True
+        )
+        self.root = User.objects.create_user(
+            "root", "root@example.com", "pw", is_staff=True, is_superuser=True
+        )
+        self.workspace = WorkspaceService.create(name="Private", created_by=self.alice)
+        DocumentService.create(
+            workspace=self.workspace,
+            title="Private runbook",
+            path="runbook.md",
+            content="# Private",
+            created_by=self.alice,
+        )
+
+    def test_non_superuser_cannot_deactivate_another_account(self):
+        api_key, _ = ApiKeyService.create(user=self.root, name="root-agent")
+        self.client.force_authenticate(self.alice)
+
+        response = self.client.post(f"/api/v1/users/{self.root.pk}/deactivate/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.client.force_authenticate(self.staff)
+        staff_response = self.client.post(f"/api/v1/users/{self.root.pk}/deactivate/")
+        self.assertEqual(staff_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.root.refresh_from_db()
+        api_key.refresh_from_db()
+        self.assertTrue(self.root.is_active)
+        self.assertTrue(self.root.is_staff)
+        self.assertTrue(self.root.is_superuser)
+        self.assertIsNone(api_key.revoked_at)
+
+    def test_superuser_can_deactivate_an_account_without_deleting_its_workspace(self):
+        self.client.force_authenticate(self.root)
+
+        response = self.client.post(f"/api/v1/users/{self.alice.pk}/deactivate/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.alice.refresh_from_db()
+        self.workspace.refresh_from_db()
+        self.assertFalse(self.alice.is_active)
+        self.assertEqual(self.workspace.name, "Private")
+
+    def test_staff_cannot_read_another_users_ownership(self):
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.get(f"/api/v1/users/{self.alice.pk}/ownership/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_superuser_can_read_ownership(self):
+        self.client.force_authenticate(self.root)
+
+        response = self.client.get(f"/api/v1/users/{self.alice.pk}/ownership/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["owned_workspaces"][0]["name"], "Private")
+
+    def test_quality_metrics_are_superuser_only_on_rest(self):
+        self.client.force_authenticate(self.staff)
+        staff_response = self.client.get("/api/v1/quality/")
+        self.assertEqual(staff_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(self.root)
+        root_response = self.client.get("/api/v1/quality/")
+        self.assertEqual(root_response.status_code, status.HTTP_200_OK, root_response.data)
+        self.assertEqual(root_response.data["documents"], 1)

@@ -542,8 +542,8 @@ class MCPTests(TestCase):
         self.assertIn("settings", self._payload("knowledge_get_settings", {}, self.alice_key))
 
     def test_quality_metrics_is_superuser_only(self):
-        # A staff-but-not-superuser caller is still refused: the REST
-        # QualityView is IsAdminUser, and the two gates must not drift apart.
+        # A staff-but-not-superuser caller is still refused; the REST and MCP
+        # quality routes share the same superuser-only gate.
         self.alice.is_staff = True
         self.alice.save(update_fields=["is_staff"])
         self._assert_error("knowledge_quality_metrics", {}, self.alice_key)
