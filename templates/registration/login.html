@@ -25,7 +25,7 @@ Django admin string too).
     <button type="submit" class="button primary">Belépés</button>
   </form>
   {% if oidc_enabled %}
-    <p><a class="button" href="{% url 'accounts:oidc_login' %}">Belépés egységes azonosítással (SSO)</a></p>
+    <p><a class="button" href="{% url 'accounts:oidc_login' %}?next={{ next|urlencode }}">Belépés egységes azonosítással (SSO)</a></p>
   {% endif %}
 </div>
 {% endblock %}

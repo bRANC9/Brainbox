@@ -148,9 +148,9 @@ python manage.py makemigrations --check --dry-run
 
 ## API és MCP
 
-Autentikáció: session (böngésző) vagy API key: `Authorization: ApiKey <kulcs>`
-(vagy `X-API-Key`). Kulcsmenedzselés **csak sessionnel** — API kulccsal új kulcs
-nem hozható létre.
+Autentikáció: session (böngésző), API key (`Authorization: ApiKey <kulcs>` vagy
+`X-API-Key`), illetve OAuth 2.1 Bearer token. Kulcsmenedzselés **csak sessionnel**
+— API kulccsal új kulcs nem hozható létre.
 
 Főbb végpontok (`/api/v1/`):
 
@@ -166,6 +166,14 @@ search/ discovery/ quality/ drafts/ jobs/ deadlines/ settings/
   konvenciók. Nyilvános, hogy agent kulcs előtt elolvashassa.
 - `POST /mcp` — JSON-RPC 2.0 (MCP kliensek: Claude Code, OpenCode, Codex…).
   Minden tool permission-aware és auditált (`MCP_REQUEST`).
+- Az MCP OAuth-felfedezés elérhető a `/.well-known/oauth-protected-resource/mcp`
+  és `/.well-known/oauth-authorization-server` címeken. Az első kapcsolatkor a
+  kompatibilis kliens böngészőt nyit: belépés (helyi vagy OIDC/SSO), jóváhagyás,
+  majd a rövid életű kód a regisztrált `localhost` callbackre tér vissza. A
+  kliens PKCE S256-ot és OAuth Dynamic Client Registrationt használ; a
+  hozzáférési token egy óráig él, a 30 napos refresh token minden használatkor
+  cserélődik, és a tokenek kizárólag ehhez az MCP-erőforráshoz kötöttek.
+  API-kulcsok továbbra is használhatók.
 - **Címzés**: a web a csomópontokat a tree pathjukon éri el
   (`/workspaces/<workspace>/f/<tree_path>/`, akciók ugyanígy). Az API/MCP
   válaszaiban megjelenik a `tree_path`, és a create/move elfogad egy `node`

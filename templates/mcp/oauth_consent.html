@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}MCP hozzáférés - Brainbox{% endblock %}
+{% block content %}
+<div class="auth">
+  <h1>MCP-hozzáférés engedélyezése</h1>
+  <p><strong>{{ client_name }}</strong> hozzáférést kér a Brainbox-fiókodhoz.</p>
+  <p>A kliens a te felhasználói jogosultságaiddal érheti el az MCP-eszközöket és adatokat.</p>
+  {% if offline_access %}
+    <p>A bejelentkezés legfeljebb 30 napig maradhat aktív, utána újra jóvá kell hagynod.</p>
+  {% endif %}
+  <form method="post" class="form">
+    {% csrf_token %}
+    <input type="hidden" name="authorization" value="{{ authorization }}">
+    <button class="button primary" type="submit" name="decision" value="allow">Engedélyezés</button>
+    <button class="button" type="submit" name="decision" value="deny">Elutasítás</button>
+  </form>
+</div>
+{% endblock %}

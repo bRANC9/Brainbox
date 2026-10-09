@@ -19,6 +19,7 @@ from django.contrib.auth.backends import ModelBackend
 from django.http import Http404
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
 
 from .models import User
@@ -55,6 +56,14 @@ def oidc_login(request):
     nonce = secrets.token_urlsafe(24)
     request.session["oidc_state"] = state
     request.session["oidc_nonce"] = nonce
+    request.session.pop("oidc_next", None)
+    next_url = request.GET.get("next", "")
+    if url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        request.session["oidc_next"] = next_url
 
     params = {
         "response_type": "code",
@@ -175,4 +184,11 @@ def oidc_callback(request):
             GroupMembership.objects.get_or_create(user=user, group=group)
 
     login(request, user, backend="apps.accounts.oidc.OIDCBackend")
+    next_url = request.session.pop("oidc_next", "")
+    if url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return redirect(next_url)
     return redirect(settings.LOGIN_REDIRECT_URL)

@@ -8,6 +8,7 @@ from django.urls import include, path
 from apps.api.health import healthz
 from apps.api.llm_guide import llm_page
 from apps.monitoring.views import readyz
+from apps.mcp.oauth import authorization_server_metadata, protected_resource_metadata
 
 
 def _metrics_view(request):
@@ -31,6 +32,21 @@ urlpatterns = [
     path("readyz", readyz, name="readyz"),
     path("metrics", _metrics_view, name="metrics"),
     path("llm", llm_page, name="llm-manifest"),
+    path(
+        ".well-known/oauth-authorization-server",
+        authorization_server_metadata,
+        name="oauth_metadata",
+    ),
+    path(
+        ".well-known/oauth-protected-resource/mcp",
+        protected_resource_metadata,
+        name="oauth_resource_metadata",
+    ),
+    path(
+        ".well-known/oauth-protected-resource",
+        protected_resource_metadata,
+        name="oauth_root_resource_metadata",
+    ),
     path("accounts/", include("apps.accounts.urls")),
     path("accounts/", include("django.contrib.auth.urls")),
     path("api/v1/", include("apps.api.urls")),

@@ -13,6 +13,7 @@ from apps.accounts.authentication import resolve_api_key
 from apps.audit.models import AuditAction, AuditSource
 from apps.audit.services import AuditService
 
+from .oauth import authenticate_bearer, protected_resource_metadata_url
 from .server import PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION, MCPError, MCPServer
 from .tools import ToolContext
 
@@ -24,6 +25,15 @@ def _error(code: int, message: str, rpc_id=None, status: int = 200) -> JsonRespo
         {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": code, "message": message}},
         status=status,
     )
+
+
+def _authentication_error(request, message: str = "Authentication required.") -> JsonResponse:
+    response = _error(-32001, message, status=401)
+    metadata_url = protected_resource_metadata_url(request)
+    response["WWW-Authenticate"] = (
+        f'Bearer resource_metadata="{metadata_url}", scope="mcp"'
+    )
+    return response
 
 
 @csrf_exempt
@@ -40,16 +50,24 @@ def mcp_endpoint(request):
     if request.method != "POST":
         return _error(-32600, "Only GET/POST are supported.", status=405)
 
-    try:
-        user, api_key = resolve_api_key(request)
-    except AuthenticationFailed as exc:
-        return _error(-32001, str(exc), status=401)
+    authorization = request.META.get("HTTP_AUTHORIZATION", "")
+    auth_scheme = authorization.partition(" ")[0]
+    if auth_scheme.lower() == "bearer":
+        user = authenticate_bearer(request, authorization[len(auth_scheme) :].strip())
+        api_key = None
+        if user is None:
+            return _authentication_error(request, "Invalid, expired or wrong-audience access token.")
+    else:
+        try:
+            user, api_key = resolve_api_key(request)
+        except AuthenticationFailed as exc:
+            return _authentication_error(request, str(exc))
 
     if user is None:
         if getattr(request.user, "is_authenticated", False):
             user, api_key = request.user, None
         else:
-            return _error(-32001, "Authentication required.", status=401)
+            return _authentication_error(request)
 
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
