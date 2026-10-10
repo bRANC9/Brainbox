@@ -148,6 +148,10 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# Only the test runner overrides password hashing; normal application processes
+# keep Django's default secure hashers.
+TEST_RUNNER = "config.test_runner.FastPasswordTestRunner"
+
 LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"

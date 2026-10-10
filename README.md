@@ -137,6 +137,10 @@ python manage.py bootstrap --username admin --email admin@example.com --password
 python manage.py runserver
 ```
 
+A `manage.py test` futtatás idejére a tesztfuttató gyors jelszóhash-t használ,
+így a tesztfelhasználók létrehozása nem lassítja a csomagot. Ez a Dockeres és
+CI-futásokra is érvényes; az alkalmazás normál jelszókezelése változatlan.
+
 Lint / migráció-ellenőrzés:
 
 ```bash
