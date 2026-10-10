@@ -18,6 +18,9 @@ class OAuthClient(models.Model):
     class Meta:
         ordering = ["client_name"]
 
+    def __str__(self) -> str:
+        return self.client_name or self.client_id
+
 
 class AuthorizationCode(models.Model):
     """Short-lived, one-use authorization code. Only its keyed digest is stored."""
@@ -33,6 +36,9 @@ class AuthorizationCode(models.Model):
     expires_at = models.DateTimeField(db_index=True)
     used_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"Authorization code {self.pk}"
 
 
 class AccessToken(models.Model):
@@ -50,6 +56,9 @@ class AccessToken(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
 
+    def __str__(self) -> str:
+        return f"Access token {self.pk}"
+
 
 class RefreshToken(models.Model):
     """Rotating refresh token; reuse revokes its full token family."""
@@ -65,3 +74,6 @@ class RefreshToken(models.Model):
     used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"Refresh token {self.pk}"

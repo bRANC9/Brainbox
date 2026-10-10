@@ -7,8 +7,8 @@ from django.urls import include, path
 
 from apps.api.health import healthz
 from apps.api.llm_guide import llm_page
-from apps.monitoring.views import readyz
 from apps.mcp.oauth import authorization_server_metadata, protected_resource_metadata
+from apps.monitoring.views import readyz
 
 
 def _metrics_view(request):
