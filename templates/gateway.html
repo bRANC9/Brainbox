@@ -51,8 +51,17 @@ of the same gateway the REST API and the MCP tools expose.
           {% for s in my_secrets %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}
         </select>
       </label>
+        <label>Vagy credential közvetlenül
+          <input type="password" name="credential" autocomplete="new-password" placeholder="API key / token">
+      </label>
+      <label>Credential neve
+        <input type="text" name="credential_name" placeholder="API token">
+      </label>
+      <label>Extra headerek (JSON)
+        <textarea name="headers" rows="3" placeholder='{"X-API-Version":"2024-01"}'></textarea>
+      </label>
     </div>
-    <p class="meta">Secretet választva a hívás <code>Authorization: Bearer …</code> fejlécet injektál.</p>
+    <p class="meta">A credential titkosítva a vaultba kerül, bearer tokenként injektálódik.</p>
     <button class="button primary" type="submit">Létrehozás</button>
   </form>
 </section>
@@ -77,10 +86,21 @@ of the same gateway the REST API and the MCP tools expose.
                 <input type="hidden" name="target" value="{{ t.pk }}">
                 <select name="method"><option>GET</option><option>POST</option></select>
                 <input type="text" name="path" placeholder="user">
+                <textarea name="body" rows="1" placeholder='{"key":"value"}'></textarea>
                 <button class="button" type="submit">Hívás</button>
               </form>
             </td>
           </tr>
+          {% if t.kind == "mcp" %}
+          <tr><td colspan="4">
+            <form method="post" class="row">
+              {% csrf_token %}<input type="hidden" name="action" value="tool"><input type="hidden" name="target" value="{{ t.pk }}">
+              <input name="tool" placeholder="Tool neve — üresen: toolok listázása">
+              <textarea name="arguments" rows="1" placeholder='{"argument":"value"}'></textarea>
+              <button class="button" type="submit">Tool hívása / listázása</button>
+            </form>
+          </td></tr>
+          {% endif %}
         {% endfor %}
       </tbody>
     </table>

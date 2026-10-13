@@ -2456,6 +2456,8 @@ def gateway(request):
     from apps.gateway.models import GatewayTarget
     from apps.gateway.services import GatewayService, RateLimited
     from apps.secrets.models import Secret
+    from apps.secrets.services import SecretService
+    import json
 
     result = None
     called_target = None
@@ -2473,20 +2475,36 @@ def gateway(request):
                 else None
             )
             try:
+                credential = (request.POST.get("credential") or "").strip()
+                if credential:
+                    secret = SecretService.create(owner=request.user, name=(request.POST.get("credential_name") or request.POST.get("name") or "Gateway credential").strip(), payload=credential, request=request)
+                headers = json.loads(request.POST.get("headers") or "{}")
+                if not isinstance(headers, dict):
+                    raise ValidationError("A headerek JSON objektumot alkossanak.")
                 GatewayService.create(
                     name=(request.POST.get("name") or "").strip(),
                     base_url=(request.POST.get("base_url") or "").strip(),
                     kind=request.POST.get("kind") or "http",
-                    config={"auth": "bearer"} if secret else {"auth": "none"},
+                    config={"auth": "bearer" if secret else "none", "headers": headers},
                     secret=secret,
                     workspace=workspace,
                     created_by=request.user,
                     request=request,
                 )
                 messages.success(request, "Gateway cél létrehozva.")
-            except ValidationError as exc:
-                messages.error(request, "; ".join(exc.messages))
+            except (ValidationError, ValueError) as exc:
+                messages.error(request, "; ".join(exc.messages) if isinstance(exc, ValidationError) else "A headerek/argumentumok hibás JSON formátumúak.")
             return redirect("web:gateway")
+        if action == "tool":
+            called_target = get_object_or_404(GatewayTarget, pk=request.POST.get("target"))
+            try:
+                if called_target.kind != "mcp":
+                    raise ValidationError("Toolok csak MCP célon hívhatók.")
+                tool_name = (request.POST.get("tool") or "").strip()
+                rpc = {"jsonrpc": "2.0", "id": 1, "method": "tools/list" if not tool_name else "tools/call", "params": {} if not tool_name else {"name": tool_name, "arguments": json.loads(request.POST.get("arguments") or "{}")}}
+                result = GatewayService.call(called_target, method="POST", path=called_target.config.get("mcp_path") or "/mcp", body=rpc, headers={"Accept": "application/json, text/event-stream"}, user=request.user, request=request)
+            except (PermissionDenied, RateLimited, ValidationError, ValueError) as exc:
+                messages.error(request, "; ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc))
         if action == "call":
             called_target = get_object_or_404(GatewayTarget, pk=request.POST.get("target"))
             try:
@@ -2494,6 +2512,7 @@ def gateway(request):
                     called_target,
                     method=request.POST.get("method", "GET"),
                     path=request.POST.get("path", ""),
+                    body=request.POST.get("body") or None,
                     user=request.user,
                     request=request,
                 )
