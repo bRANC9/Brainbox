@@ -2610,6 +2610,19 @@ def memory(request):
     """The consolidated view: what the system knows about each subject, as I see it."""
     from apps.memory.services import FactService
 
+    if request.method == "POST":
+        if not request.user.is_superuser:
+            return HttpResponseForbidden("Superuser access required.")
+        from apps.jobs import engine, tasks_brainbox  # noqa: F401
+        from apps.jobs.models import JobTrigger
+
+        run = engine.enqueue_run("extract_facts", trigger=JobTrigger.MANUAL)
+        if run is None:
+            messages.info(request, "A ténykinyerés már fut vagy várakozik.")
+        else:
+            messages.success(request, "A ténykinyerés elindult a háttérben.")
+        return redirect("web:memory")
+
     subject = request.GET.get("subject", "").strip()
     view = FactService.view(request.user, subject=subject or None)
     return render(

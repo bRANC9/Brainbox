@@ -15,10 +15,18 @@ may read appear - the projection stops at their ACL boundary.
       forrására linkelve. Csak azt látod, amit olvashatsz.
     </p>
   </div>
-  <form method="get" class="row">
-    <input type="text" name="subject" value="{{ subject }}" placeholder="subject (pl. egy név)">
-    <button class="button" type="submit">Szűrés</button>
-  </form>
+  <div class="row">
+    <form method="get" class="row">
+      <input type="text" name="subject" value="{{ subject }}" placeholder="subject (pl. egy név)">
+      <button class="button" type="submit">Szűrés</button>
+    </form>
+    {% if user.is_superuser %}
+    <form method="post">
+      {% csrf_token %}
+      <button class="button primary" type="submit">Tények kinyerése most</button>
+    </form>
+    {% endif %}
+  </div>
 </section>
 
 {% for group in subjects %}
@@ -40,7 +48,7 @@ may read appear - the projection stops at their ACL boundary.
   </section>
 {% empty %}
   <section class="git-panel">
-    <p class="muted">Nincs megjeleníthető tény. Futtasd a kinyerést (`extract_facts` job vagy `memory_extract`).</p>
+    <p class="muted">Nincs megjeleníthető tény. {% if user.is_superuser %}Indítsd el a ténykinyerést a fenti gombbal.{% else %}Kérj meg egy admint a ténykinyerés elindítására.{% endif %}</p>
   </section>
 {% endfor %}
 {% endblock %}
