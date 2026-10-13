@@ -1641,53 +1641,62 @@ def tool_gateway_mcp(ctx: ToolContext, args: dict) -> dict:
     target = GatewayService.resolve(args["target"])
     if target.kind != GatewayKind.MCP:
         raise ToolError("Ez a cél nem MCP szerver.")
+    if not args.get("list_tools") and not args.get("tool"):
+        raise ToolError("A 'tool' mező kötelező.")
     path = target.config.get("mcp_path") or "/mcp"
-    if args.get("list_tools"):
-        rpc = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
-    else:
-        if not args.get("tool"):
-            raise ToolError("A 'tool' mező kötelező.")
-        rpc = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {"name": args["tool"], "arguments": args.get("arguments") or {}},
-        }
-    try:
-        result = GatewayService.call(
-            target,
-            method="POST",
-            path=path,
-            body=rpc,
-            # Streamable HTTP: a server may answer with JSON or an SSE stream.
-            headers={"Accept": "application/json, text/event-stream"},
-            user=ctx.user,
-            request=ctx.request,
-            api_key=ctx.api_key,
-            source=AuditSource.MCP,
+    base_headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+    initialize = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "brainbox-gateway", "version": "1.0.0"},
+        },
+    }
+
+    def call_rpc(payload, headers):
+        response = GatewayService.call(
+            target, method="POST", path=path, body=payload, headers=headers,
+            user=ctx.user, request=ctx.request, api_key=ctx.api_key, source=AuditSource.MCP,
         )
+        status = response.get("status", 0)
+        if not 200 <= status < 300:
+            raise ToolError(f"A távoli MCP HTTP {status} hibát adott: {response.get('body', '')[:500]}")
+        response_headers = response.get("headers") or {}
+        content_type = next((v for k, v in response_headers.items() if k.lower() == "content-type"), "")
+        if "text/event-stream" in content_type.lower():
+            for message in parse_sse_json(response.get("body", "")):
+                if isinstance(message, dict) and message.get("id") == payload.get("id"):
+                    return message, response_headers
+            raise ToolError("A távoli MCP SSE válasza nem tartalmazott ehhez a kéréshez tartozó választ.")
+        try:
+            return json.loads(response.get("body", "")), response_headers
+        except (ValueError, TypeError) as exc:
+            raise ToolError("A távoli MCP szerver érvénytelen JSON választ adott.") from exc
+
+    try:
+        initialized, response_headers = call_rpc(initialize, base_headers)
+        if initialized.get("error"):
+            raise ToolError(f"MCP initialize hiba: {initialized['error']}")
+        session_id = next((v for k, v in response_headers.items() if k.lower() == "mcp-session-id"), None)
+        request_headers = {**base_headers, "MCP-Protocol-Version": "2024-11-05"}
+        if session_id:
+            request_headers["Mcp-Session-Id"] = session_id
+        if args.get("list_tools"):
+            rpc = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+        else:
+            rpc = {
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": args["tool"], "arguments": args.get("arguments") or {}},
+            }
+        result, _response_headers = call_rpc(rpc, request_headers)
+        if result.get("error"):
+            raise ToolError(f"Távoli MCP hiba: {result['error']}")
+        return result
     except (PermissionDenied, ValidationError, RateLimited) as exc:
         raise _service_error(exc) from exc
-    content_type = next(
-        (
-            value
-            for key, value in (result.get("headers") or {}).items()
-            if key.lower() == "content-type"
-        ),
-        "",
-    )
-    if "text/event-stream" in content_type.lower():
-        messages = parse_sse_json(result["body"])
-        for message in messages:
-            if isinstance(message, dict) and message.get("id") is not None:
-                return message
-        return {"messages": messages}
-    # The remote answers with a JSON-RPC envelope; surface it verbatim when it is
-    # JSON, otherwise hand back the raw status/body.
-    try:
-        return json.loads(result["body"])
-    except (ValueError, TypeError):
-        return result
 
 
 def _gateway_brief(target) -> dict:

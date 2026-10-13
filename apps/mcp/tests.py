@@ -253,20 +253,25 @@ class MCPTests(TestCase):
             workspace=self.workspace,
             created_by=self.alice,
         )
-        sse = (
-            "event: message\n"
-            'data: {"jsonrpc": "2.0", "id": 1, "result": {"tools": []}}\n\n'
-        )
-        with patch(
-            "apps.gateway.services.GatewayService._send",
-            return_value=(200, {"Content-Type": "text/event-stream"}, sse, False),
-        ):
+        initialize = '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}'
+        sse = "event: message\n" 'data: {"jsonrpc":"2.0","id":2,"result":{"tools":[]}}\n\n'
+        responses = [
+            (200, {"Content-Type": "application/json", "Mcp-Session-Id": "session-123"}, initialize, False),
+            (200, {"Content-Type": "text/event-stream"}, sse, False),
+        ]
+        with patch("apps.gateway.services.GatewayService._send", side_effect=responses) as send:
             result = self._payload(
                 "gateway_mcp",
                 {"target": str(target.pk), "list_tools": True},
                 self.alice_key,
             )
         self.assertEqual(result["result"], {"tools": []})
+        initialize_headers = send.call_args_list[0].args[2]
+        followup_headers = send.call_args_list[1].args[2]
+        self.assertEqual(initialize_headers["Accept"], "application/json, text/event-stream")
+        self.assertEqual(initialize_headers["Content-Type"], "application/json")
+        self.assertEqual(followup_headers["Mcp-Session-Id"], "session-123")
+        self.assertEqual(followup_headers["MCP-Protocol-Version"], "2024-11-05")
 
     def test_gateway_target_lifecycle(self):
         created = self._payload(
