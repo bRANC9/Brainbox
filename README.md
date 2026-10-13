@@ -119,6 +119,19 @@ Első bejelentkezés: `/accounts/login/`; admin: `/admin/`. Superuser bootkor:
 
 ## Lokális fejlesztés
 
+A CI-ellenőrzések futtatásához telepítsd a fejlesztői függőségeket (`pip install -r requirements-dev.txt`), majd használd a Make-célokat:
+
+```bash
+make lint          # Ruff
+make djlint        # Django template lint
+make django-check  # Django deploy check, fallback alap checkre
+make migrations    # elmaradt migration ellenőrzése
+make test          # teljes Django tesztcsomag Docker/PostgreSQL alatt
+make check         # mindez egyben
+```
+
+A `make check` Docker Compose-t és futó Docker Engine-t igényel. A Makefile ugyanazokat a Django check, migration és teszt lépéseket futtatja, mint a GitHub CI, Ruff és djlint kiegészítéssel.
+
 ```bash
 # Docker Compose (build): http://localhost:8000 (admin/admin, lásd .env)
 docker compose -f docker-compose.dev.yml up --build

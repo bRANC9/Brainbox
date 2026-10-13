@@ -2453,11 +2453,12 @@ def gateway(request):
     Creating and calling go through :class:`GatewayService`, so the same ACL,
     secret injection and audit apply here as on the REST and MCP surfaces.
     """
+    import json
+
     from apps.gateway.models import GatewayTarget
     from apps.gateway.services import GatewayService, RateLimited
     from apps.secrets.models import Secret
     from apps.secrets.services import SecretService
-    import json
 
     result = None
     called_target = None
