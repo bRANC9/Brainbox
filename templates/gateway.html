@@ -91,6 +91,51 @@ of the same gateway the REST API and the MCP tools expose.
               </form>
             </td>
           </tr>
+          {% if t.can_edit %}
+          <tr><td colspan="4">
+            <details>
+              <summary>Beállítások szerkesztése</summary>
+              <form method="post" class="form">
+                {% csrf_token %}<input type="hidden" name="action" value="update"><input type="hidden" name="target" value="{{ t.pk }}">
+                <div class="row">
+                  <label>Név<input name="name" value="{{ t.name }}" required maxlength="255"></label>
+                  <label>Alap URL<input type="url" name="base_url" value="{{ t.base_url }}" required></label>
+                  <label>Típus<select name="kind">
+                    <option value="http" {% if t.kind == "http" %}selected{% endif %}>HTTP API</option>
+                    <option value="github" {% if t.kind == "github" %}selected{% endif %}>GitHub</option>
+                    <option value="mcp" {% if t.kind == "mcp" %}selected{% endif %}>MCP szerver</option>
+                  </select></label>
+                </div>
+                <div class="row">
+                  <label>Vault credential
+                    <select name="secret">
+                      <option value="__keep__">— marad a jelenlegi —</option>
+                      <option value="">— credential törlése —</option>
+                      {% for s in my_secrets %}<option value="{{ s.pk }}" {% if t.secret_id == s.pk %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+                    </select>
+                  </label>
+                  <label>Új credential (felülírja a választást)
+                    <input type="password" name="credential" autocomplete="new-password" placeholder="üresen hagyva változatlan">
+                  </label>
+                  <label>Új credential neve
+                    <input type="text" name="credential_name" placeholder="üresen automatikusan generáljuk">
+                  </label>
+                </div>
+                <div class="row">
+                  <label>Hitelesítés<select name="auth">
+                    <option value="none" {% if t.config.auth == "none" %}selected{% endif %}>Nincs</option>
+                    <option value="bearer" {% if t.config.auth == "bearer" %}selected{% endif %}>Bearer token</option>
+                    <option value="header" {% if t.config.auth == "header" %}selected{% endif %}>Egyedi fejléc</option>
+                    <option value="basic" {% if t.config.auth == "basic" %}selected{% endif %}>Basic</option>
+                  </select></label>
+                  <label>Credential fejlécneve<input name="header_name" value="{{ t.config.header_name|default:'X-Api-Key' }}" placeholder="X-Api-Key"></label>
+                  <label>Extra headerek (JSON)<textarea name="headers" rows="3">{{ t.headers_json }}</textarea></label>
+                </div>
+                <button class="button primary" type="submit">Mentés</button>
+              </form>
+            </details>
+          </td></tr>
+          {% endif %}
           {% if t.kind == "mcp" %}
           <tr><td colspan="4">
             <form method="post" class="row">

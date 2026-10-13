@@ -2454,9 +2454,10 @@ def gateway(request):
     secret injection and audit apply here as on the REST and MCP surfaces.
     """
     import json
+    import uuid
 
     from apps.gateway.models import GatewayTarget
-    from apps.gateway.services import GatewayService, RateLimited
+    from apps.gateway.services import UNSET, GatewayService, RateLimited
     from apps.secrets.models import Secret
     from apps.secrets.services import SecretService
 
@@ -2496,6 +2497,36 @@ def gateway(request):
             except (ValidationError, ValueError) as exc:
                 messages.error(request, "; ".join(exc.messages) if isinstance(exc, ValidationError) else "A headerek/argumentumok hibás JSON formátumúak.")
             return redirect("web:gateway")
+        if action == "update":
+            target = get_object_or_404(GatewayTarget, pk=request.POST.get("target"))
+            if not _can(request.user, target.resource, Permission.WRITE):
+                return HttpResponseForbidden("Nincs írási jogosultságod ehhez a gateway célhoz.")
+            try:
+                headers = json.loads(request.POST.get("headers") or "{}")
+                if not isinstance(headers, dict):
+                    raise ValidationError("A headerek JSON objektumot kell alkossanak.")
+                config = dict(target.config or {})
+                config["auth"] = request.POST.get("auth") or "none"
+                if config["auth"] == "header":
+                    config["header_name"] = (request.POST.get("header_name") or "").strip()
+                else:
+                    config.pop("header_name", None)
+                config["headers"] = headers
+                secret = UNSET
+                selected_secret = request.POST.get("secret", "__keep__")
+                credential = (request.POST.get("credential") or "").strip()
+                if credential:
+                    secret_name = (request.POST.get("credential_name") or "").strip()
+                    if not secret_name:
+                        secret_name = f"{target.name} credential {uuid.uuid4().hex[:8]}"
+                    secret = SecretService.create(owner=request.user, name=secret_name, payload=credential, request=request)
+                elif selected_secret != "__keep__":
+                    secret = get_object_or_404(Secret, pk=selected_secret, owner=request.user) if selected_secret else None
+                GatewayService.update(target, name=(request.POST.get("name") or "").strip(), base_url=(request.POST.get("base_url") or "").strip(), kind=request.POST.get("kind") or "http", config=config, secret=secret, created_by=request.user, request=request)
+                messages.success(request, "Gateway cél frissítve.")
+            except (ValidationError, ValueError) as exc:
+                messages.error(request, "; ".join(exc.messages) if isinstance(exc, ValidationError) else "A headerek hibás JSON formátumúak.")
+            return redirect("web:gateway")
         if action == "tool":
             called_target = get_object_or_404(GatewayTarget, pk=request.POST.get("target"))
             try:
@@ -2524,6 +2555,10 @@ def gateway(request):
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
 
+    targets = GatewayService.visible(request.user)
+    for target in targets:
+        target.can_edit = _can(request.user, target.resource, Permission.WRITE)
+        target.headers_json = json.dumps(target.config.get("headers") or {}, ensure_ascii=False)
     writable = [
         workspace
         for workspace in Workspace.objects.all()
@@ -2533,7 +2568,7 @@ def gateway(request):
         request,
         "gateway.html",
         {
-            "targets": GatewayService.visible(request.user),
+            "targets": targets,
             "workspaces": writable,
             "my_secrets": Secret.objects.filter(owner=request.user, is_active=True),
             "result": result,

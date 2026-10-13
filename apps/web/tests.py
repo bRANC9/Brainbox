@@ -592,7 +592,27 @@ class GatewayPageTests(TestCase):
             {"action": "create", "name": "GH", "base_url": "https://api.github.com", "kind": "http"},
         )
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(GatewayTarget.objects.filter(name="GH").exists())
+        target = GatewayTarget.objects.get(name="GH")
+        response = self.client.post(
+            reverse("web:gateway"),
+            {
+                "action": "update",
+                "target": str(target.pk),
+                "name": "GitHub API",
+                "base_url": "https://api.github.com/v2",
+                "kind": "http",
+                "auth": "header",
+                "header_name": "X-Api-Key",
+                "headers": '{"X-API-Version":"v1"}',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        target.refresh_from_db()
+        self.assertEqual(target.name, "GitHub API")
+        self.assertEqual(target.base_url, "https://api.github.com/v2")
+        self.assertEqual(target.config["auth"], "header")
+        self.assertEqual(target.config["header_name"], "X-Api-Key")
+        self.assertEqual(target.config["headers"], {"X-API-Version": "v1"})
 
     def test_audit_page_lists_a_call(self):
         from unittest.mock import patch
