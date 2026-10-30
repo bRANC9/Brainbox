@@ -59,6 +59,16 @@ class GatewayServiceTests(TestCase):
         self.assertNotIn("s3cr3t-value", result["body"])
         self.assertIn("***", result["body"])
 
+    def test_caller_cannot_override_a_configured_credential_header(self):
+        self.target.config = {"headers": {"X-Token": "Bearer {{credential}}"}}
+        headers = GatewayService._request_headers(
+            self.target, {"x-token": "attacker-value"}, "s3cr3t-value"
+        )
+        self.assertEqual(
+            headers,
+            {"X-Token": "Bearer s3cr3t-value", "Accept": "application/json"},
+        )
+
     def test_method_allowlist(self):
         with self.assertRaises(ValidationError):
             GatewayService.call(self.target, method="DELETE", user=self.alice)

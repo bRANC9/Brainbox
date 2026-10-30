@@ -614,6 +614,30 @@ class GatewayPageTests(TestCase):
         self.assertEqual(target.config["header_name"], "X-Api-Key")
         self.assertEqual(target.config["headers"], {"X-API-Version": "v1"})
 
+    def test_create_target_can_select_vault_credential_and_inject_it(self):
+        from unittest.mock import patch
+
+        from apps.gateway.models import GatewayTarget
+        from apps.gateway.services import GatewayService
+        from apps.secrets.services import SecretService
+
+        secret = SecretService.create(owner=self.alice, name="GitHub token", payload="secret-value")
+        response = self.client.post(reverse("web:gateway"), {
+            "action": "create", "name": "GitHub", "base_url": "https://api.github.com",
+            "credential_source": "select", "secret": str(secret.pk), "auth": "none",
+            "headers": '{"Authorization":"Bearer {{credential}}","X-API-Version":"2024-01"}',
+        })
+        self.assertEqual(response.status_code, 302)
+        target = GatewayTarget.objects.get(name="GitHub")
+        captured = {}
+        def fake_send(method, url, headers, body, max_bytes):
+            captured.update(headers)
+            return 200, {}, "ok", False
+        with patch.object(GatewayService, "_send", fake_send):
+            GatewayService.call(target, user=self.alice)
+        self.assertEqual(captured["Authorization"], "Bearer secret-value")
+        self.assertEqual(captured["X-API-Version"], "2024-01")
+
     def test_audit_page_lists_a_call(self):
         from unittest.mock import patch
 
@@ -630,6 +654,23 @@ class GatewayPageTests(TestCase):
         response = self.client.get(reverse("web:gateway_audit", args=[target.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.context["events"]), 1)
+    def test_delete_target_requires_delete_permission(self):
+        from apps.gateway.models import GatewayTarget
+        from apps.gateway.services import GatewayService
+
+        target = GatewayService.create(name="MCP", base_url="https://example.com", kind="mcp", created_by=self.alice)
+        url = reverse("web:gateway")
+        self.assertContains(self.client.get(url), 'value="delete"')
+        bob = User.objects.create_user("bob", password="pw")
+        self.client.force_login(bob)
+        self.assertNotContains(self.client.get(url), 'value="delete"')
+        response = self.client.post(url, {"action": "delete", "target": str(target.pk)})
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(GatewayTarget.objects.filter(pk=target.pk).exists())
+        self.client.force_login(self.alice)
+        response = self.client.post(url, {"action": "delete", "target": str(target.pk)})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(GatewayTarget.objects.filter(pk=target.pk).exists())
 
 
 @override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())

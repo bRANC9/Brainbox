@@ -12,8 +12,9 @@ of the same gateway the REST API and the MCP tools expose.
     <p class="crumbs"><a href="{% url 'web:dashboard' %}">Vezérlőpult</a> / Gateway</p>
     <h1>Gateway</h1>
     <p class="muted">
-      Külső szolgáltatások (API-k, MCP szerverek) egy helyen konfigurálva.
-      A credential a vaultból injektálódik, és nem hagyja el a szervert.
+      Távoli HTTP(S) szolgáltatások (API-k, MCP szerverek) egy helyen konfigurálva.
+      Helyi MCP-folyamatok indítása és környezeti változóik kezelése nem támogatott.
+      A credentialt a Gateway a vaultból olvassa ki és a távoli kérésbe illeszti.
     </p>
   </div>
 </section>
@@ -45,23 +46,40 @@ of the same gateway the REST API and the MCP tools expose.
           {% for ws in workspaces %}<option value="{{ ws.pk }}">{{ ws.name }}</option>{% endfor %}
         </select>
       </label>
-      <label>Credential (a saját vaultodból)
-        <select name="secret">
-          <option value="">— nincs —</option>
-          {% for s in my_secrets %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}
-        </select>
+      <label>Credential
+        <select name="credential_source" data-credential-source>
+          <option value="none">Nincs</option>
+          <option value="select">Vaultból választok</option>
+            <option value="new">Új credentialt adok meg</option>
+          </select>
+        </label>
+        <div data-credential-fields="select" hidden>
+          <label>Vault credential
+            <select name="secret">
+            <option value="">— válassz —</option>
+              {% for s in my_secrets %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}
+            </select>
+        </label>
+        </div>
+        <div data-credential-fields="new" hidden>
+          <label>Credential értéke
+            <input type="password" name="credential" autocomplete="new-password" placeholder="API key / token">
+          </label>
+        <label>Mentés neve
+          <input type="text" name="credential_name" placeholder="API token">
+        </label>
+      </div>
+      <label>Hitelesítés
+        <select name="auth"><option value="none">Nincs (fejlécben adható meg)</option><option value="bearer">Bearer token</option><option value="header">Credential fejlécben</option><option value="basic">Basic</option></select>
       </label>
-        <label>Vagy credential közvetlenül
-          <input type="password" name="credential" autocomplete="new-password" placeholder="API key / token">
+      <label>Credential fejlécneve
+        <input name="header_name" value="X-Api-Key" placeholder="X-Api-Key">
       </label>
-      <label>Credential neve
-        <input type="text" name="credential_name" placeholder="API token">
-      </label>
-      <label>Extra headerek (JSON)
-        <textarea name="headers" rows="3" placeholder='{"X-API-Version":"2024-01"}'></textarea>
+      <label>Extra headerek (JSON; credential helyőrző: {% templatetag openvariable %}credential{% templatetag closevariable %})
+        <textarea name="headers" rows="3" placeholder='{"X-API-Version":"2024-01","Authorization":"Bearer {% templatetag openvariable %}credential{% templatetag closevariable %}"}'></textarea>
       </label>
     </div>
-    <p class="meta">A credential titkosítva a vaultba kerül, bearer tokenként injektálódik.</p>
+    <p class="meta">A credential titkosítva kerül a vaultba. Fejlécértékben a {% templatetag openvariable %}credential{% templatetag closevariable %} helyőrzővel injektálható, például: Bearer {% templatetag openvariable %}credential{% templatetag closevariable %}.</p>
     <button class="button primary" type="submit">Létrehozás</button>
   </form>
 </section>
@@ -91,6 +109,16 @@ of the same gateway the REST API and the MCP tools expose.
               </form>
             </td>
           </tr>
+          {% if t.can_delete %}
+          <tr><td colspan="4">
+            <form method="post" onsubmit="return confirm('Biztosan törlöd ezt a gateway célt? A hozzá kapcsolódó webhookok is törlődnek.')">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="target" value="{{ t.pk }}">
+              <button class="button" type="submit">Törlés</button>
+            </form>
+          </td></tr>
+          {% endif %}
           {% if t.can_edit %}
           <tr><td colspan="4">
             <details>
@@ -107,19 +135,30 @@ of the same gateway the REST API and the MCP tools expose.
                   </select></label>
                 </div>
                 <div class="row">
-                  <label>Vault credential
-                    <select name="secret">
-                      <option value="__keep__">— marad a jelenlegi —</option>
-                      <option value="">— credential törlése —</option>
-                      {% for s in my_secrets %}<option value="{{ s.pk }}" {% if t.secret_id == s.pk %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
-                    </select>
+                  <label>Credential
+                    <select name="credential_source" data-credential-source>
+                      <option value="keep">Jelenlegi megtartása</option>
+                      <option value="select">Másik a vaultból</option>
+                      <option value="new">Új credential megadása</option>
+                        <option value="clear">Credential leválasztása</option>
+                      </select>
                   </label>
-                  <label>Új credential (felülírja a választást)
-                    <input type="password" name="credential" autocomplete="new-password" placeholder="üresen hagyva változatlan">
-                  </label>
-                  <label>Új credential neve
-                    <input type="text" name="credential_name" placeholder="üresen automatikusan generáljuk">
-                  </label>
+                    <div data-credential-fields="select" hidden>
+                      <label>Vault credential
+                        <select name="secret">
+                        <option value="">— válassz —</option>
+                          {% for s in my_secrets %}<option value="{{ s.pk }}" {% if t.secret_id == s.pk %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+                        </select>
+                      </label>
+                    </div>
+                  <div data-credential-fields="new" hidden>
+                      <label>Credential értéke
+                        <input type="password" name="credential" autocomplete="new-password" placeholder="API key / token">
+                      </label>
+                      <label>Mentés neve
+                      <input type="text" name="credential_name" placeholder="üresen automatikusan generáljuk">
+                    </label>
+                  </div>
                 </div>
                 <div class="row">
                   <label>Hitelesítés<select name="auth">
@@ -161,4 +200,16 @@ of the same gateway the REST API and the MCP tools expose.
   <pre class="scroll-x" style="max-height:24rem;overflow:auto">{{ result.body }}</pre>
 </section>
 {% endif %}
+<script>
+  document.querySelectorAll("[data-credential-source]").forEach((select) => {
+    const form = select.closest("form");
+    const updateVisibility = () => {
+      form.querySelectorAll("[data-credential-fields]").forEach((fields) => {
+        fields.hidden = fields.dataset.credentialFields !== select.value;
+      });
+    };
+    select.addEventListener("change", updateVisibility);
+    updateVisibility();
+  });
+</script>
 {% endblock %}

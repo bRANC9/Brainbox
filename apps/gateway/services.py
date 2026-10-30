@@ -476,9 +476,20 @@ class GatewayService:
         cls, target: GatewayTarget, headers: dict | None, secret_value: str | None
     ) -> dict:
         out = {str(key): str(value) for key, value in (target.config.get("headers") or {}).items()}
+        marker = "{{credential}}"
+        credential_headers = {
+            key.lower() for key, value in out.items() if marker in value
+        }
+        if credential_headers and not secret_value:
+            raise ValidationError(
+                {"headers": "A {{credential}} helyőrzőhöz credentialt kell választani."}
+            )
+        if secret_value:
+            out = {key: value.replace(marker, secret_value) for key, value in out.items()}
+        protected_headers = {"authorization", "x-api-key", "cookie"} | credential_headers
         for key, value in (headers or {}).items():
             # Never let a caller override an injected credential header.
-            if key.lower() in {"authorization", "x-api-key", "cookie"}:
+            if str(key).lower() in protected_headers:
                 continue
             out[str(key)] = str(value)
         out.setdefault("Accept", "application/json")
@@ -493,7 +504,7 @@ class GatewayService:
                 token = base64.b64encode(f":{secret_value}".encode("utf-8")).decode("ascii")
                 out["Authorization"] = f"Basic {token}"
             elif auth == "query":
-                # Query injection is handled in `_send` via the URL, but a secret
+                # Query injection is handled in _send via the URL, but a secret
                 # in a URL is logged everywhere; refuse it rather than leak.
                 raise ValidationError(
                     {"auth": "A 'query' auth nem támogatott (a secret a logba kerülne)."}

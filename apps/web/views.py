@@ -2471,23 +2471,28 @@ def gateway(request):
                 if request.POST.get("workspace")
                 else None
             )
-            secret = (
-                get_object_or_404(Secret, pk=request.POST["secret"], owner=request.user)
-                if request.POST.get("secret")
-                else None
-            )
             try:
-                credential = (request.POST.get("credential") or "").strip()
-                if credential:
-                    secret = SecretService.create(owner=request.user, name=(request.POST.get("credential_name") or request.POST.get("name") or "Gateway credential").strip(), payload=credential, request=request)
                 headers = json.loads(request.POST.get("headers") or "{}")
                 if not isinstance(headers, dict):
                     raise ValidationError("A headerek JSON objektumot alkossanak.")
+                config = {"auth": request.POST.get("auth") or "none", "headers": headers}
+                if config["auth"] == "header":
+                    config["header_name"] = (request.POST.get("header_name") or "").strip()
+                source = request.POST.get("credential_source", "none")
+                if source == "select":
+                    secret = get_object_or_404(Secret, pk=request.POST.get("secret"), owner=request.user, is_active=True)
+                elif source == "new":
+                    credential = (request.POST.get("credential") or "").strip()
+                    if not credential:
+                        raise ValidationError("Add meg az új credential értékét.")
+                    secret = SecretService.create(owner=request.user, name=(request.POST.get("credential_name") or request.POST.get("name") or "Gateway credential").strip(), payload=credential, request=request)
+                else:
+                    secret = None
                 GatewayService.create(
                     name=(request.POST.get("name") or "").strip(),
                     base_url=(request.POST.get("base_url") or "").strip(),
                     kind=request.POST.get("kind") or "http",
-                    config={"auth": "bearer" if secret else "none", "headers": headers},
+                    config=config,
                     secret=secret,
                     workspace=workspace,
                     created_by=request.user,
@@ -2513,19 +2518,28 @@ def gateway(request):
                     config.pop("header_name", None)
                 config["headers"] = headers
                 secret = UNSET
-                selected_secret = request.POST.get("secret", "__keep__")
-                credential = (request.POST.get("credential") or "").strip()
-                if credential:
-                    secret_name = (request.POST.get("credential_name") or "").strip()
-                    if not secret_name:
-                        secret_name = f"{target.name} credential {uuid.uuid4().hex[:8]}"
+                source = request.POST.get("credential_source", "keep")
+                if source == "new":
+                    credential = (request.POST.get("credential") or "").strip()
+                    if not credential:
+                        raise ValidationError("Add meg az új credential értékét.")
+                    secret_name = (request.POST.get("credential_name") or "").strip() or f"{target.name} credential {uuid.uuid4().hex[:8]}"
                     secret = SecretService.create(owner=request.user, name=secret_name, payload=credential, request=request)
-                elif selected_secret != "__keep__":
-                    secret = get_object_or_404(Secret, pk=selected_secret, owner=request.user) if selected_secret else None
+                elif source == "select":
+                    secret = get_object_or_404(Secret, pk=request.POST.get("secret"), owner=request.user, is_active=True)
+                elif source == "clear":
+                    secret = None
                 GatewayService.update(target, name=(request.POST.get("name") or "").strip(), base_url=(request.POST.get("base_url") or "").strip(), kind=request.POST.get("kind") or "http", config=config, secret=secret, created_by=request.user, request=request)
                 messages.success(request, "Gateway cél frissítve.")
             except (ValidationError, ValueError) as exc:
                 messages.error(request, "; ".join(exc.messages) if isinstance(exc, ValidationError) else "A headerek hibás JSON formátumúak.")
+            return redirect("web:gateway")
+        if action == "delete":
+            target = get_object_or_404(GatewayTarget, pk=request.POST.get("target"))
+            if not _can(request.user, target.resource, Permission.DELETE):
+                return HttpResponseForbidden("Nincs törlési jogosultságod ehhez a gateway célhoz.")
+            GatewayService.delete(target, user=request.user, request=request)
+            messages.success(request, "Gateway cél törölve.")
             return redirect("web:gateway")
         if action == "tool":
             called_target = get_object_or_404(GatewayTarget, pk=request.POST.get("target"))
@@ -2558,6 +2572,7 @@ def gateway(request):
     targets = GatewayService.visible(request.user)
     for target in targets:
         target.can_edit = _can(request.user, target.resource, Permission.WRITE)
+        target.can_delete = _can(request.user, target.resource, Permission.DELETE)
         target.headers_json = json.dumps(target.config.get("headers") or {}, ensure_ascii=False)
     writable = [
         workspace
