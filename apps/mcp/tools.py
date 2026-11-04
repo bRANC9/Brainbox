@@ -1656,28 +1656,73 @@ def tool_gateway_mcp(ctx: ToolContext, args: dict) -> dict:
         },
     }
 
-    def call_rpc(payload, headers):
+    def response_details(response):
+        response_headers = response.get("headers") or {}
+        normalized_headers = {
+            str(key).lower(): str(value) for key, value in response_headers.items()
+        }
+        details = []
+        content_type = normalized_headers.get("content-type")
+        if content_type:
+            details.append(f"Content-Type={content_type[:200]}")
+        for key, label in (
+            ("www-authenticate", "WWW-Authenticate"),
+            ("retry-after", "Retry-After"),
+        ):
+            value = normalized_headers.get(key)
+            if value:
+                details.append(f"{label}={value[:500]}")
+        request_id = normalized_headers.get("x-request-id") or normalized_headers.get(
+            "request-id"
+        )
+        if request_id:
+            details.append(f"request-id={request_id[:200]}")
+        body = str(response.get("body") or "").strip()
+        if body:
+            details.append(f"response={body[:2000]}")
+        else:
+            details.append("response body is empty")
+        if response.get("truncated"):
+            details.append("response body was truncated by the gateway")
+        return "; ".join(details)
+
+    def call_rpc(payload, headers, phase):
         response = GatewayService.call(
             target, method="POST", path=path, body=payload, headers=headers,
             user=ctx.user, request=ctx.request, api_key=ctx.api_key, source=AuditSource.MCP,
         )
         status = response.get("status", 0)
         if not 200 <= status < 300:
-            raise ToolError(f"A távoli MCP HTTP {status} hibát adott: {response.get('body', '')[:500]}")
+            raise ToolError(
+                f"A távoli MCP {phase} kérés HTTP {status} hibát adott; "
+                f"{response_details(response)}"
+            )
         response_headers = response.get("headers") or {}
         content_type = next((v for k, v in response_headers.items() if k.lower() == "content-type"), "")
         if "text/event-stream" in content_type.lower():
             for message in parse_sse_json(response.get("body", "")):
                 if isinstance(message, dict) and message.get("id") == payload.get("id"):
                     return message, response_headers
-            raise ToolError("A távoli MCP SSE válasza nem tartalmazott ehhez a kéréshez tartozó választ.")
+            raise ToolError(
+                f"A távoli MCP {phase} SSE válaszában nem volt ehhez a kéréshez tartozó üzenet; "
+                f"{response_details(response)}"
+            )
         try:
-            return json.loads(response.get("body", "")), response_headers
+            message = json.loads(response.get("body", ""))
         except (ValueError, TypeError) as exc:
-            raise ToolError("A távoli MCP szerver érvénytelen JSON választ adott.") from exc
+            raise ToolError(
+                f"A távoli MCP {phase} érvénytelen JSON választ adott; "
+                f"{response_details(response)}"
+            ) from exc
+        if not isinstance(message, dict):
+            raise ToolError(
+                f"A távoli MCP {phase} JSON válasza nem objektum, hanem {type(message).__name__}; "
+                f"{response_details(response)}"
+            )
+        return message, response_headers
 
     try:
-        initialized, response_headers = call_rpc(initialize, base_headers)
+        initialized, response_headers = call_rpc(initialize, base_headers, "initialize")
         if initialized.get("error"):
             raise ToolError(f"MCP initialize hiba: {initialized['error']}")
         session_id = next((v for k, v in response_headers.items() if k.lower() == "mcp-session-id"), None)
@@ -1691,9 +1736,12 @@ def tool_gateway_mcp(ctx: ToolContext, args: dict) -> dict:
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
                 "params": {"name": args["tool"], "arguments": args.get("arguments") or {}},
             }
-        result, _response_headers = call_rpc(rpc, request_headers)
+        phase = "tools/list" if args.get("list_tools") else "tools/call"
+        if not args.get("list_tools"):
+            phase = f"{phase} ({args['tool']})"
+        result, _response_headers = call_rpc(rpc, request_headers, phase)
         if result.get("error"):
-            raise ToolError(f"Távoli MCP hiba: {result['error']}")
+            raise ToolError(f"A távoli MCP {phase} hibát adott: {result['error']}")
         return result
     except (PermissionDenied, ValidationError, RateLimited) as exc:
         raise _service_error(exc) from exc

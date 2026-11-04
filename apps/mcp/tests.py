@@ -282,6 +282,78 @@ class MCPTests(TestCase):
         self.assertEqual(send.call_args_list[0].args[2]["Authorization"], "Bearer remote-token")
         self.assertEqual(send.call_args_list[1].args[2]["Authorization"], "Bearer remote-token")
 
+    def test_gateway_mcp_http_error_includes_remote_response_details(self):
+        from apps.gateway.services import GatewayService
+
+        target = GatewayService.create(
+            name="RemoteMCP",
+            base_url="https://mcp.example.com",
+            kind="mcp",
+            config={"auth": "none"},
+            workspace=self.workspace,
+            created_by=self.alice,
+        )
+        with patch(
+            "apps.gateway.services.GatewayService._send",
+            return_value=(
+                400,
+                {"Content-Type": "text/plain", "X-Request-Id": "req-123"},
+                "Invalid Content-Type header",
+                False,
+            ),
+        ):
+            error = self._assert_error(
+                "gateway_mcp",
+                {"target": str(target.pk), "list_tools": True},
+                self.alice_key,
+            )
+        self.assertIn("initialize", error)
+        self.assertIn("HTTP 400", error)
+        self.assertIn("text/plain", error)
+        self.assertIn("Invalid Content-Type header", error)
+        self.assertIn("req-123", error)
+
+    def test_gateway_mcp_http_error_identifies_list_and_tool_call(self):
+        from apps.gateway.services import GatewayService
+
+        target = GatewayService.create(
+            name="RemoteMCP",
+            base_url="https://mcp.example.com",
+            kind="mcp",
+            config={"auth": "none"},
+            workspace=self.workspace,
+            created_by=self.alice,
+        )
+        initialize = (
+            200,
+            {"Content-Type": "application/json"},
+            '{"jsonrpc":"2.0","id":1,"result":{}}',
+            False,
+        )
+        failure = (
+            400,
+            {"Content-Type": "application/json", "X-Request-Id": "req-456"},
+            '{"error":"Invalid Content-Type header"}',
+            False,
+        )
+        scenarios = [
+            ({"list_tools": True}, "tools/list"),
+            ({"tool": "company_search"}, "tools/call (company_search)"),
+        ]
+        for arguments, phase in scenarios:
+            with self.subTest(phase=phase), patch(
+                "apps.gateway.services.GatewayService._send",
+                side_effect=[initialize, failure],
+            ):
+                error = self._assert_error(
+                    "gateway_mcp", {"target": str(target.pk), **arguments}, self.alice_key
+                )
+            self.assertIn(phase, error)
+            self.assertIn("HTTP 400", error)
+            self.assertIn("Content-Type=application/json", error)
+            self.assertIn("req-456", error)
+            self.assertIn("Invalid Content-Type header", error)
+
     def test_gateway_mcp_parses_an_sse_response(self):
         from apps.gateway.services import GatewayService
 
