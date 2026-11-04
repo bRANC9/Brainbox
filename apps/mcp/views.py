@@ -36,6 +36,26 @@ def _authentication_error(request, message: str = "Authentication required.") ->
     return response
 
 
+def _audit_auth_failure(
+    request, reason: str, authorization: str, auth_scheme: str, api_key_header_present: bool
+) -> None:
+    AuditService.log(
+        AuditAction.MCP_REQUEST,
+        source=AuditSource.MCP,
+        result="denied",
+        request=request,
+        detail={
+            "authentication": "failed",
+            "path": request.path,
+            "method": request.method,
+            "reason": reason,
+            "authorization_present": bool(authorization),
+            "authorization_scheme": auth_scheme or "none",
+            "x_api_key_present": api_key_header_present,
+        },
+    )
+
+
 @csrf_exempt
 def mcp_endpoint(request):
     if request.method == "GET":
@@ -52,21 +72,34 @@ def mcp_endpoint(request):
 
     authorization = request.META.get("HTTP_AUTHORIZATION", "")
     auth_scheme = authorization.partition(" ")[0]
+    api_key_header_present = bool(request.META.get("HTTP_X_API_KEY", "").strip())
     if auth_scheme.lower() == "bearer":
         user = authenticate_bearer(request, authorization[len(auth_scheme) :].strip())
         api_key = None
         if user is None:
+            _audit_auth_failure(request, "invalid_bearer", authorization, auth_scheme, api_key_header_present)
+            logger.warning("mcp authentication failed: path=%s reason=invalid_bearer", request.path)
             return _authentication_error(request, "Invalid, expired or wrong-audience access token.")
     else:
         try:
             user, api_key = resolve_api_key(request)
         except AuthenticationFailed as exc:
+            _audit_auth_failure(request, "api_key_rejected", authorization, auth_scheme, api_key_header_present)
+            logger.warning(
+                "mcp authentication failed: path=%s reason=api_key_rejected authorization_present=%s authorization_scheme=%s x_api_key_present=%s error=%s",
+                request.path, bool(authorization), auth_scheme or "none", api_key_header_present, str(exc),
+            )
             return _authentication_error(request, str(exc))
 
     if user is None:
         if getattr(request.user, "is_authenticated", False):
             user, api_key = request.user, None
         else:
+            _audit_auth_failure(request, "missing_credentials", authorization, auth_scheme, api_key_header_present)
+            logger.warning(
+                "mcp authentication failed: path=%s reason=missing_credentials authorization_present=%s authorization_scheme=%s x_api_key_present=%s",
+                request.path, bool(authorization), auth_scheme or "none", api_key_header_present,
+            )
             return _authentication_error(request)
 
     try:
