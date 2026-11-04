@@ -60,7 +60,7 @@ class GatewayServiceTests(TestCase):
         self.assertIn("***", result["body"])
 
     def test_caller_cannot_override_a_configured_credential_header(self):
-        self.target.config = {"headers": {"X-Token": "Bearer {{credential}}"}}
+        self.target.config = {"auth": "none", "headers": {"X-Token": "Bearer {{credential}}"}}
         headers = GatewayService._request_headers(
             self.target, {"x-token": "attacker-value"}, "s3cr3t-value"
         )

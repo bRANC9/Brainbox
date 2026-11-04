@@ -41,9 +41,14 @@ class MCPServer:
             raise
         except tools.ToolError as exc:
             result = {"content": [{"type": "text", "text": str(exc)}], "isError": True}
-        except Exception:  # noqa: BLE001 - never leak a stack trace to the client
+        except Exception as exc:  # noqa: BLE001 - keep details in logs, not the response
             logger.exception("tool execution failed")
-            result = {"content": [{"type": "text", "text": "Internal error"}], "isError": True}
+            result = {
+                "content": [
+                    {"type": "text", "text": f"Internal error ({type(exc).__name__})"}
+                ],
+                "isError": True,
+            }
 
         if is_notification:
             return None

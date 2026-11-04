@@ -93,6 +93,14 @@ class MCPTests(TestCase):
         self.assertIn("knowledge_take_over", names)
         self.assertIn("knowledge_my_workspace", names)
 
+    def test_tool_exception_returns_safe_error_type(self):
+        with patch("apps.mcp.server.tools.call", side_effect=ValueError("sensitive detail")):
+            result = self._tool("knowledge_search", {"query": "test"}, self.alice_key)
+        self.assertTrue(result["isError"])
+        text = result["content"][0]["text"]
+        self.assertEqual(text, "Internal error (ValueError)")
+        self.assertNotIn("sensitive detail", text)
+
     def test_search_tool_is_permission_filtered(self):
         response = self._call(
             {
