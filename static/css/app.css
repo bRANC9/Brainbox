@@ -4,30 +4,30 @@
    is a dark-first tool that shows up wrong in a screenshot. */
 :root {
   color-scheme: dark;
-  --bg: #0f1115;
-  --panel: #171a21;
-  --panel-2: #1f232c;
-  --text: #e6e8ec;
-  --muted: #9aa3b2;
-  --accent: #4f8cff;
-  --border: #2a2f3a;
-  --danger: #e5484d;
-  --success: #30a46c;
+  --bg: #0b1210;
+  --panel: #111b18;
+  --panel-2: #1b2924;
+  --text: #e9f1eb;
+  --muted: #a0b0a7;
+  --accent: #b7ed68;
+  --border: #2b3b34;
+  --danger: #ff7774;
+  --success: #6fd39a;
   /* Text on a filled accent surface, and the translucent washes behind badges.
      Derived from the palette rather than repeated as literals, so a theme is a
      block of values in one place and nothing else. */
-  --on-accent: #ffffff;
-  --accent-soft: rgba(79, 140, 255, 0.15);
-  --success-soft: rgba(48, 163, 108, 0.2);
+  --on-accent: #172312;
+  --accent-soft: rgba(183, 237, 104, 0.14);
+  --success-soft: rgba(111, 211, 154, 0.16);
   /* A button and a text field have no shape of their own: the 1px line is the
      whole affordance, so it gets a separate property from the decorative
      separators and can be darkened on its own where the palette needs it. */
-  --border-input: #2a2f3a;
+  --border-input: #40534a;
   /* The panel colour at zero alpha. Used as the transparent end of the calendar
      fade, where an `rgba(0,0,0,0)` keyword would drag the gradient through grey
      in engines that interpolate unpremultiplied alpha. */
-  --panel-fade: rgba(23, 26, 33, 0);
-  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --panel-fade: rgba(17, 27, 24, 0);
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
   /* Reading width. Without a ceiling the layout stretches to the viewport, which
      at 2560px turns a four-column list into a row with the title in one corner
      and its workspace in the middle. One width for the whole page keeps panels,
@@ -36,44 +36,36 @@
   --prose-max: 78ch;
 }
 
-/* Light theme. Not an inversion of the dark palette: the accents are picked for
-   their own contrast, because the dark ones are calibrated for light text on a
-   dark ground and carry nowhere near enough weight as dark text on a near-white
-   one. Measured against the values below:
-     --text  #16181d on #ffffff -> 17.8:1, on #f6f7f9 -> 16.6:1
-     --muted #5b6472 on #ffffff ->  6.0:1, on #f6f7f9 ->  5.6:1
-     --accent #2b63c9 on #ffffff ->  5.6:1, on #f6f7f9 ->  5.2:1
-     --danger #c62f36 on #ffffff -> 5.4:1, --success #1f7a4d on #ffffff -> 5.3:1
-     --border-input #7a8496 on #eef0f4 -> 3.3:1 (WCAG 1.4.11, non-text)
-   --border stays pale on purpose: it only separates surfaces, and the controls
-   that actually need to be locatable use --border-input. */
+/* Light theme: warm paper surfaces and evergreen accents. Input borders carry
+   stronger contrast than decorative separators so controls stay easy to locate. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f6f7f9;
+  --bg: #f3f6ef;
   --panel: #ffffff;
-  --panel-2: #eef0f4;
-  --text: #16181d;
-  --muted: #5b6472;
-  --accent: #2b63c9;
-  --border: #ccd2dd;
-  --danger: #c62f36;
+  --panel-2: #e9efe6;
+  --text: #17231c;
+  --muted: #53665b;
+  --accent: #26734a;
+  --border: #d5dfd5;
+  --danger: #ba3436;
   --success: #1f7a4d;
   --on-accent: #ffffff;
-  --accent-soft: rgba(43, 99, 201, 0.12);
-  --success-soft: rgba(31, 122, 77, 0.16);
-  --border-input: #7a8496;
+  --accent-soft: rgba(38, 115, 74, 0.12);
+  --success-soft: rgba(31, 122, 77, 0.12);
+  --border-input: #829489;
   --panel-fade: rgba(255, 255, 255, 0);
-  --shadow: 0 8px 24px rgba(16, 24, 40, 0.14);
+  --shadow: 0 16px 40px rgba(22, 44, 30, 0.12);
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: radial-gradient(ellipse at 12% -10%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 38rem), var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.55;
+  letter-spacing: -0.01em;
 }
 
 main {
@@ -86,26 +78,33 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  flex-wrap: wrap;
-  padding: 0.75rem 1.5rem;
-  background: var(--panel);
+  gap: 0.75rem 2rem;
+  padding: 0.7rem clamp(1rem, 3vw, 2.5rem);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 10;
+  backdrop-filter: blur(18px);
 }
-.brand { font-weight: 700; font-size: 1.15rem; color: var(--text); }
-.topbar nav { display: flex; align-items: center; gap: 0.35rem 1rem; flex-wrap: wrap; }
+.brand { display: inline-flex; align-items: center; gap: 0.6rem; font-weight: 750; font-size: 1.15rem; letter-spacing: -0.035em; color: var(--text); white-space: nowrap; }
+.brand::before { content: "B"; display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 10px; background: var(--accent); color: var(--bg); font-size: 1.15rem; font-weight: 850; box-shadow: 0 5px 16px color-mix(in srgb, var(--accent) 22%, transparent); }
+.topbar nav { display: flex; align-items: center; justify-content: flex-end; gap: 0.2rem 0.4rem; flex-wrap: nowrap; min-width: 0; }
 .topbar .user { color: var(--muted); }
 .inline { display: inline; margin: 0; }
-.header-search { position: relative; display: flex; align-items: center; gap: 0.25rem; margin: 0; }
-.header-search input { width: clamp(9rem, 15vw, 14rem); padding: 0.35rem 0.6rem; border: 1px solid var(--border-input); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 0.9rem; }
+.nav-home { white-space: nowrap; padding: 0.45rem 0.6rem; border-radius: 7px; color: var(--text); font-size: 0.9rem; }
+.nav-home:hover { background: var(--panel-2); text-decoration: none; }
+.topbar .menu > summary { padding: 0.45rem 0.55rem; color: var(--text); font-size: 0.9rem; white-space: nowrap; }
+.account-menu > summary { max-width: 10rem; overflow: hidden; text-overflow: ellipsis; }
+
+.header-search { position: relative; display: flex; align-items: center; gap: 0.25rem; flex: 1 1 12rem; min-width: 9rem; max-width: 19rem; margin: 0 0.35rem; }
+.header-search input { width: 100%; min-width: 0; padding: 0.48rem 0.75rem; border: 1px solid var(--border-input); border-radius: 9px; background: var(--bg); color: var(--text); font: inherit; font-size: 0.9rem; }
 .header-search input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-.header-search button { width: 2rem; height: 2rem; border: 0; border-radius: 6px; background: var(--accent); color: var(--on-accent); font-size: 1.2rem; cursor: pointer; }
+.header-search button { width: 2.25rem; height: 2.25rem; flex: 0 0 2.25rem; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-size: 1.2rem; cursor: pointer; transition: transform 140ms ease, filter 140ms ease; }
+.header-search button:hover { filter: brightness(1.08); transform: translateY(-1px); }
 .search-suggestions { position: absolute; top: calc(100% + 0.4rem); left: 0; right: 2.25rem; z-index: 30; max-height: min(60vh, 24rem); overflow-y: auto; list-style: none; margin: 0; padding: 0.35rem; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
 .search-suggestions[hidden] { display: none; }
 .search-suggestions a { display: block; padding: 0.45rem 0.6rem; border-radius: 5px; color: var(--text); }
@@ -142,13 +141,14 @@ main { margin: 0 auto; padding: 1.5rem; }
 }
 .card {
   display: block;
-  background: var(--panel);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--panel) 94%, var(--accent) 6%), var(--panel));
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1rem;
+  border-radius: 14px;
+  padding: 1.2rem;
   color: var(--text);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
-.card:hover { border-color: var(--accent); text-decoration: none; }
+.card:hover { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); box-shadow: var(--shadow); transform: translateY(-2px); text-decoration: none; }
 .card h2, .card h3 { margin: 0 0 0.35rem; }
 
 .table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
@@ -328,8 +328,8 @@ a.chip:hover { border-color: var(--accent); color: var(--text); text-decoration:
 .file-tree tr.trail-row td { cursor: default; }
 .file-tree .trail-name { color: var(--muted); opacity: 0.75; font-style: italic; }
 
-/* Personal workspace: nav entry + notice banner. */
-.topbar nav a.nav-personal { color: var(--accent); font-weight: 600; }
+/* Personal workspace notice banner. */
+
 .banner {
   background: var(--panel-2);
   border-left: 3px solid var(--accent);
@@ -440,12 +440,12 @@ details pre.code { max-height: 320px; }
 
 @media (max-width: 720px) {
   main { padding: 1rem 0.75rem; }
-  .topbar { padding: 0.6rem 0.75rem; }
+  .topbar { grid-template-columns: 1fr auto; gap: 0.6rem 1rem; padding: 0.6rem 0.75rem; }
   .topbar nav { gap: 0.2rem 0.7rem; font-size: 0.9rem; }
   .topbar nav a { white-space: nowrap; }
-  .header-search { width: 100%; }
-  .header-search input { width: min(100%, 22rem); }
-  .header-search button { flex: 0 0 2rem; }
+  .header-search { width: 100%; max-width: none; margin: 0; }
+  .header-search input { width: 100%; }
+  .header-search button { flex: 0 0 2.25rem; }
   .page-head { flex-direction: column; align-items: flex-start; }
   .page-head h1 { font-size: 1.35rem; }
   .grid { grid-template-columns: 1fr; }
@@ -533,10 +533,11 @@ details pre.code { max-height: 320px; }
    put "Beallitasok" next to "Kijelentkezes". The admin-only half now sits behind
    one disclosure. Pure CSS, and <details> works on touch as well. */
 .topbar .menu { position: relative; display: inline-flex; }
+.topbar .menu:not([open]) > .menu-panel { display: none; }
 .topbar .menu > summary {
   cursor: pointer;
-  padding: 0.15rem 0.3rem;
-  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
   list-style: none;
 }
 .topbar .menu > summary::-webkit-details-marker { display: none; }
@@ -558,9 +559,14 @@ details pre.code { max-height: 320px; }
   border-radius: 10px;
   box-shadow: var(--shadow);
 }
-.topbar .menu-panel a { white-space: nowrap; padding: 0.1rem 0.35rem; }
-.topbar .nav-more > summary { color: var(--muted); }
-.topbar .nav-more .menu-panel { left: 0; right: auto; }
+.topbar .menu-panel a { white-space: nowrap; padding: 0.35rem 0.5rem; border-radius: 5px; }
+.topbar .menu-panel a:hover { background: var(--panel-2); text-decoration: none; }
+.topbar .nav-group > summary { color: var(--text); }
+.topbar .nav-group .menu-panel { left: 0; right: auto; }
+.topbar .nav-system .menu-panel { left: auto; right: 0; }
+.account-menu .menu-panel { min-width: 10rem; }
+.account-menu .menu-panel form { margin: 0; padding: 0.1rem 0.35rem; }
+.account-menu .menu-panel .theme-toggle { margin: 0.1rem 0.35rem 0.3rem; }
 
 /* A form's submit button stretched to the full column width because .form is a
    flex column. Buttons are actions, not fields: size them to their label. */
@@ -624,6 +630,7 @@ details.banner > form > .button { align-self: flex-start; }
   /* width:100% plus the header's existing flex-wrap drops the nav onto its own
      line under the brand/hamburger row instead of squeezing beside it. */
   .topbar.nav-open nav {
+    grid-column: 1 / -1;
     display: flex;
     flex-direction: column;
     align-items: flex-start;

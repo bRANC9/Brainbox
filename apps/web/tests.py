@@ -497,6 +497,24 @@ class SearchModeRegressionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["mode"], "hybrid")
 
+    def test_autocomplete_returns_json_suggestions(self):
+        from unittest.mock import patch
+
+        document_id = "00000000-0000-0000-0000-000000000001"
+        with patch(
+            "apps.web.views.SearchService.search",
+            return_value=[{"title": "Alpha guide", "document_id": document_id}],
+        ):
+            response = self.client.get(
+                reverse("web:search"), {"q": "al", "suggest": "1"}
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            [{"title": "Alpha guide", "url": reverse("web:document_detail", args=[document_id])}],
+        )
+
 
 @override_settings(KNOWLEDGE_DATA_ROOT=tempfile.mkdtemp())
 class MemoryPageTests(TestCase):

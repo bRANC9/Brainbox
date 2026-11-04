@@ -1,29 +1,35 @@
 {% extends "base.html" %}
 {% load ui %}
-{% block title %}Discover - Brainbox{% endblock %}
+{% block title %}Felfedezés - Brainbox{% endblock %}
 {% block content %}
 <section class="page-head">
   <div>
     <h1>Tudás felfedezése</h1>
-    <p class="muted">Skills, patternök, konvenciók, döntések és példák, amelyeket el tudsz olvasni.</p>
+    <p class="muted">A felfedezhető készségek, minták, konvenciók, döntések és példák gyűjteménye.</p>
   </div>
 </section>
 
 {% for type_name, items in buckets.items %}
-  <section class="git-panel">
-    <h2>{{ type_name|title }} <span class="muted">({{ items|length }})</span></h2>
-    <ul>
-      {% for item in items %}
-        <li>
-          <a href="{% url 'web:document_detail' item.document_id %}">{{ item.title }}</a>
-          <span class="badge badge-{{ item.status|hu }}">{{ item.status|hu }}</span>
-          <span class="muted">prioritás {{ item.priority }}</span>
-          {% if item.summary %}<p class="muted">{{ item.summary }}</p>{% endif %}
-        </li>
-      {% empty %}
-        <li class="muted">Még nincs semmi itt.</li>
-      {% endfor %}
-    </ul>
-  </section>
+  {% if items %}
+    <section class="git-panel">
+      <h2>{% if type_name == "skill" %}Készség{% elif type_name == "pattern" %}Minta{% elif type_name == "convention" %}Konvenció{% elif type_name == "decision" %}Döntés{% else %}Példa{% endif %} <span class="muted">({{ items|length }})</span></h2>
+      <ul>
+        {% for item in items %}
+          <li>
+            <a href="{% url 'web:document_detail' item.document_id %}">{{ item.title }}</a>
+            <span class="badge badge-{{ item.status|hu }}">{{ item.status|hu }}</span>
+            <span class="muted">prioritás {{ item.priority }}</span>
+            {% if item.summary %}<p class="muted">{{ item.summary }}</p>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
 {% endfor %}
+{% if not buckets.skill and not buckets.pattern and not buckets.convention and not buckets.decision and not buckets.example %}
+  <section class="git-panel empty-state">
+    <h2>Még nincs felfedezhető tudás</h2>
+    <p class="muted">A készségek, minták, konvenciók, döntések és példák a dokumentumok típusából vagy útvonalából kerülnek ide.</p>
+  </section>
+{% endif %}
 {% endblock %}

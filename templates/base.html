@@ -42,60 +42,54 @@
             aria-expanded="false" aria-label="Menü" title="Menü">
       <span class="bars" aria-hidden="true"></span>
     </button>
-    <nav id="topnav">
-      <a href="{% url 'web:dashboard' %}">Vezérlőpult</a>
-      <form class="header-search" method="get" action="{% url 'web:search' %}" role="search" autocomplete="off">
-        <label class="sr-only" for="header-search-input">Keresés</label>
-        <input id="header-search-input" type="search" name="q" placeholder="Keresés…" aria-label="Keresés" aria-autocomplete="list" aria-controls="header-search-suggestions" aria-expanded="false">
-        <button type="submit" aria-label="Keresés indítása">⌕</button>
+    <nav id="topnav" aria-label="Fő navigáció">
+      {% if user.is_authenticated %}
+        <a class="nav-home" href="{% url 'web:dashboard' %}">Vezérlőpult</a>
+        <form class="header-search" method="get" action="{% url 'web:search' %}" role="search" autocomplete="off">
+          <label class="sr-only" for="header-search-input">Keresés a tudásbázisban</label>
+          <input id="header-search-input" type="search" name="q" placeholder="Keresés…" aria-label="Keresés a tudásbázisban" aria-autocomplete="list" aria-controls="header-search-suggestions" aria-expanded="false">
+          <button type="submit" aria-label="Keresés indítása">⌕</button>
           <ul id="header-search-suggestions" class="search-suggestions" role="listbox" hidden></ul>
-      </form>
-      <details class="menu nav-more">
-          <summary>Továbbiak</summary>
+        </form>
+        <details class="menu nav-group">
+          <summary>Tudás</summary>
           <div class="menu-panel">
+            <a href="{% url 'web:personal_workspace' %}">Személyes tér</a>
             <a href="{% url 'web:discovery' %}">Felfedezés</a>
-            <a href="{% url 'web:calendar' %}">Naptár</a>
-            <a href="{% url 'web:agenda' %}">Agenda</a>
             <a href="{% url 'web:memory' %}">Memória</a>
           </div>
-      </details>
-      {% comment %}
-    Twelve links wrapped onto three rows on a phone and put "Beállítások" next
-    to "Kijelentkezés". The management half now sits behind one disclosure, and it
-    is a <details> rather than a CSS hover so it works on touch.
-    {% endcomment %}
-    {% if user.is_authenticated %}
-      <a class="nav-personal" href="{% url 'web:personal_workspace' %}">Személyes</a>
-      <details class="menu">
-        <summary>Adminisztráció</summary>
-        <div class="menu-panel">
-          <a href="/admin/">Django admin</a>
-          <a href="{% url 'llm-manifest' %}">AI (llm)</a>
-          <a href="{% url 'web:api_keys' %}">API kulcsok</a>
-          <a href="{% url 'web:gateway' %}">Gateway</a>
-          <a href="{% url 'web:curator' %}">Curator</a>
-          {% if user.is_staff %}<a href="{% url 'web:groups_admin' %}">Csoportok</a>{% endif %}
-          {% if user.is_superuser %}<a href="{% url 'web:settings_page' %}">Beállítások</a>{% endif %}
-          <a href="{% url 'web:audit_dashboard' %}">Audit napló</a>
-        </div>
-      </details>
-      <span class="user">{{ user }}</span>
-      <form method="post" action="{% url 'logout' %}" class="inline">
-        {% csrf_token %}
-        <button type="submit" class="link">Kijelentkezés</button>
-      </form>
-    {% else %}
-      <a href="{% url 'login' %}">Belépés</a>
-    {% endif %}
-      {% comment %}
-        Names the mode it switches *to*, so the visible word is the whole
-        instruction and there is no icon to lose to a missing font. It lives in
-        the nav rather than beside the brand because the topbar is a two-column
-        space-between row on the desktop, and a third item would land the button
-        in the middle of the header.
-      {% endcomment %}
-      <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false"
-              aria-label="Váltás világos témára" title="Váltás világos témára"><span data-theme-label>Világos</span></button>
+        </details>
+        <details class="menu nav-group">
+          <summary>Tervezés</summary>
+          <div class="menu-panel">
+            <a href="{% url 'web:calendar' %}">Naptár</a>
+            <a href="{% url 'web:agenda' %}">Agenda</a>
+          </div>
+        </details>
+        <details class="menu nav-group nav-system">
+          <summary>Rendszer</summary>
+          <div class="menu-panel">
+            <a href="{% url 'web:gateway' %}">Gateway</a>
+            <a href="{% url 'web:curator' %}">Curator</a>
+            {% if user.is_staff %}<a href="{% url 'web:groups_admin' %}">Csoportok</a>{% endif %}
+            <a href="{% url 'web:api_keys' %}">API kulcsok</a>
+            <a href="{% url 'web:audit_dashboard' %}">Audit napló</a>
+            {% if user.is_superuser %}<a href="{% url 'web:settings_page' %}">Beállítások</a><a href="{% url 'llm-manifest' %}">AI beállítások</a><a href="/admin/">Django admin</a>{% endif %}
+          </div>
+        </details>
+        <details class="menu account-menu">
+          <summary>{{ user }}</summary>
+          <div class="menu-panel">
+            <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false" aria-label="Váltás világos témára" title="Váltás világos témára"><span data-theme-label>Világos</span></button>
+            <form method="post" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button type="submit" class="link">Kijelentkezés</button>
+            </form>
+          </div>
+        </details>
+      {% else %}
+        <a class="button" href="{% url 'login' %}">Belépés</a>
+      {% endif %}
     </nav>
   </header>
   <script>
@@ -136,6 +130,19 @@
       var first = list.querySelector('a');
       if (first && !list.hidden) window.location.href = first.href;
       else input.focus();
+    });
+    document.addEventListener('keydown', function (event) {
+      var target = event.target;
+      var editing = target.matches('input, textarea, select, [contenteditable="true"]');
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        input.focus();
+      } else if (!editing && event.key === '/') {
+        event.preventDefault();
+        input.focus();
+      } else if (event.key === 'Escape') {
+        close();
+      }
     });
     input.addEventListener('input', function () {
       window.clearTimeout(timer);
@@ -207,8 +214,8 @@ document.addEventListener('click', function (event) {
 <script>
 (function () {
   var KEY = 'brainbox.theme';
-  var LABEL = { dark: 'Világos', light: 'Sötét' };
-  var ACTION = { dark: 'Váltás világos témára', light: 'Váltás sötét témára' };
+  var LABEL = { dark: 'Sötét', light: 'Világos' };
+  var ACTION = { dark: 'Váltás sötét témára', light: 'Váltás világos témára' };
   function otherTheme() {
     return document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
   }

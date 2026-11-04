@@ -616,7 +616,7 @@ def search(request):
 
         query = request.GET.get("q", "").strip()
         suggestions = SearchService.search(request.user, query, mode="text", limit=7) if len(query) >= 2 else []
-        return JsonResponse([{ "title": row["title"], "url": reverse("web:document_detail", args=[row["document_id"]]) } for row in suggestions])
+        return JsonResponse([{ "title": row["title"], "url": reverse("web:document_detail", args=[row["document_id"]]) } for row in suggestions], safe=False)
 
     mode_labels = {"hybrid": "hibrid", "text": "szöveges", "semantic": "szemantikus"}
     query = request.GET.get("q", "").strip()
