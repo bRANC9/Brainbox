@@ -58,6 +58,7 @@ services:
       - knowledge_data_dev:/data/knowledge
     ports:
       - "${BRAINBOX_PORT:-8000}:8000"
+    tmpfs: ["/app/staticfiles:uid=1000,gid=1000,mode=0755"]
 
   # Test runner. Opt-in (`profiles`), so `up` never starts it:
   #

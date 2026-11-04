@@ -102,6 +102,16 @@ a:hover { text-decoration: underline; }
 .topbar nav { display: flex; align-items: center; gap: 0.35rem 1rem; flex-wrap: wrap; }
 .topbar .user { color: var(--muted); }
 .inline { display: inline; margin: 0; }
+.header-search { position: relative; display: flex; align-items: center; gap: 0.25rem; margin: 0; }
+.header-search input { width: clamp(9rem, 15vw, 14rem); padding: 0.35rem 0.6rem; border: 1px solid var(--border-input); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 0.9rem; }
+.header-search input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.header-search button { width: 2rem; height: 2rem; border: 0; border-radius: 6px; background: var(--accent); color: var(--on-accent); font-size: 1.2rem; cursor: pointer; }
+.search-suggestions { position: absolute; top: calc(100% + 0.4rem); left: 0; right: 2.25rem; z-index: 30; max-height: min(60vh, 24rem); overflow-y: auto; list-style: none; margin: 0; padding: 0.35rem; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
+.search-suggestions[hidden] { display: none; }
+.search-suggestions a { display: block; padding: 0.45rem 0.6rem; border-radius: 5px; color: var(--text); }
+.search-suggestions a:hover, .search-suggestions a:focus { background: var(--panel-2); text-decoration: none; }
+.search-suggestions .suggestion-empty { padding: 0.45rem 0.6rem; color: var(--muted); font-size: 0.85rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* Superseded by the `main` rule near the top, which owns the max-width; this
    only keeps the padding so the two cannot drift apart silently. */
@@ -117,6 +127,9 @@ main { margin: 0 auto; padding: 1.5rem; }
   margin-bottom: 1rem;
 }
 .page-head h1 { margin: 0; font-size: 1.6rem; }
+.eyebrow { margin: 0 0 0.2rem; color: var(--muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+.recent-head { margin-top: 2rem; }
+.recent-head h2 { margin: 0; font-size: 1.2rem; }
 .crumbs { color: var(--muted); font-size: 0.85rem; margin: 0 0 0.25rem; }
 .muted { color: var(--muted); }
 .meta { color: var(--muted); font-size: 0.85rem; }
@@ -430,6 +443,9 @@ details pre.code { max-height: 320px; }
   .topbar { padding: 0.6rem 0.75rem; }
   .topbar nav { gap: 0.2rem 0.7rem; font-size: 0.9rem; }
   .topbar nav a { white-space: nowrap; }
+  .header-search { width: 100%; }
+  .header-search input { width: min(100%, 22rem); }
+  .header-search button { flex: 0 0 2rem; }
   .page-head { flex-direction: column; align-items: flex-start; }
   .page-head h1 { font-size: 1.35rem; }
   .grid { grid-template-columns: 1fr; }
@@ -543,6 +559,8 @@ details pre.code { max-height: 320px; }
   box-shadow: var(--shadow);
 }
 .topbar .menu-panel a { white-space: nowrap; padding: 0.1rem 0.35rem; }
+.topbar .nav-more > summary { color: var(--muted); }
+.topbar .nav-more .menu-panel { left: 0; right: auto; }
 
 /* A form's submit button stretched to the full column width because .form is a
    flex column. Buttons are actions, not fields: size them to their label. */

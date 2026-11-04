@@ -611,6 +611,13 @@ def folder_create(request, workspace_slug, tree_path=None):
 
 @login_required
 def search(request):
+    if request.GET.get("suggest") == "1":
+        from django.http import JsonResponse
+
+        query = request.GET.get("q", "").strip()
+        suggestions = SearchService.search(request.user, query, mode="text", limit=7) if len(query) >= 2 else []
+        return JsonResponse([{ "title": row["title"], "url": reverse("web:document_detail", args=[row["document_id"]]) } for row in suggestions])
+
     mode_labels = {"hybrid": "hibrid", "text": "szöveges", "semantic": "szemantikus"}
     query = request.GET.get("q", "").strip()
     mode = request.GET.get("mode", "hybrid")

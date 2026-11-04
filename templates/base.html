@@ -44,11 +44,21 @@
     </button>
     <nav id="topnav">
       <a href="{% url 'web:dashboard' %}">Vezérlőpult</a>
-      <a href="{% url 'web:search' %}">Keresés</a>
-      <a href="{% url 'web:discovery' %}">Felfedezés</a>
-      <a href="{% url 'web:calendar' %}">Naptár</a>
-      <a href="{% url 'web:agenda' %}">Agenda</a>
-      <a href="{% url 'web:memory' %}">Memória</a>
+      <form class="header-search" method="get" action="{% url 'web:search' %}" role="search" autocomplete="off">
+        <label class="sr-only" for="header-search-input">Keresés</label>
+        <input id="header-search-input" type="search" name="q" placeholder="Keresés…" aria-label="Keresés" aria-autocomplete="list" aria-controls="header-search-suggestions" aria-expanded="false">
+        <button type="submit" aria-label="Keresés indítása">⌕</button>
+          <ul id="header-search-suggestions" class="search-suggestions" role="listbox" hidden></ul>
+      </form>
+      <details class="menu nav-more">
+          <summary>Továbbiak</summary>
+          <div class="menu-panel">
+            <a href="{% url 'web:discovery' %}">Felfedezés</a>
+            <a href="{% url 'web:calendar' %}">Naptár</a>
+            <a href="{% url 'web:agenda' %}">Agenda</a>
+            <a href="{% url 'web:memory' %}">Memória</a>
+          </div>
+      </details>
       {% comment %}
     Twelve links wrapped onto three rows on a phone and put "Beállítások" next
     to "Kijelentkezés". The management half now sits behind one disclosure, and it
@@ -88,6 +98,78 @@
               aria-label="Váltás világos témára" title="Váltás világos témára"><span data-theme-label>Világos</span></button>
     </nav>
   </header>
+  <script>
+  (function () {
+    var form = document.querySelector('.header-search');
+    if (!form) return;
+    var input = form.querySelector('input[name="q"]');
+    var list = form.querySelector('.search-suggestions');
+    var timer = null;
+    var request = null;
+    function close() {
+      list.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+    }
+    function render(items) {
+      list.replaceChildren();
+      if (!items.length) {
+        var empty = document.createElement('li');
+        empty.className = 'suggestion-empty';
+        empty.textContent = 'Nincs javaslat';
+        list.appendChild(empty);
+      } else {
+        items.forEach(function (item) {
+          var row = document.createElement('li');
+          row.setAttribute('role', 'option');
+          var link = document.createElement('a');
+          link.href = item.url;
+          link.textContent = item.title;
+          row.appendChild(link);
+          list.appendChild(row);
+        });
+      }
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var first = list.querySelector('a');
+      if (first && !list.hidden) window.location.href = first.href;
+      else input.focus();
+    });
+    input.addEventListener('input', function () {
+      window.clearTimeout(timer);
+      if (request) request.abort();
+      var query = input.value.trim();
+      if (query.length < 2) { close(); return; }
+      timer = window.setTimeout(function () {
+        request = new AbortController();
+        var url = new URL(form.action, window.location.origin);
+        url.searchParams.set('q', query);
+        url.searchParams.set('suggest', '1');
+        fetch(url, { signal: request.signal })
+          .then(function (response) { if (!response.ok) throw new Error('search failed'); return response.json(); })
+          .then(function (items) { if (input.value.trim() === query) render(items); })
+          .catch(function (error) { if (error.name !== 'AbortError') close(); });
+      }, 250);
+    });
+    document.addEventListener('click', function (event) { if (!form.contains(event.target)) close(); });
+    input.addEventListener('keydown', function (event) {
+      var links = list.querySelectorAll('a');
+      if (event.key === 'Escape') close();
+      if (event.key === 'ArrowDown' && links.length) { event.preventDefault(); links[0].focus(); }
+    });
+    list.addEventListener('keydown', function (event) {
+      var links = Array.from(list.querySelectorAll('a'));
+      var index = links.indexOf(document.activeElement);
+      if (event.key === 'Escape') { close(); input.focus(); }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        links[(index + (event.key === 'ArrowDown' ? 1 : -1) + links.length) % links.length].focus();
+      }
+    });
+  })();
+  </script>
 
   <main>
     {% if messages %}
