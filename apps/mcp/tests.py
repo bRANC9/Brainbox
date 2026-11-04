@@ -242,6 +242,38 @@ class MCPTests(TestCase):
         self.assertEqual(result["status"], 200)
         self.assertIn("ok", result["body"])
 
+    def test_gateway_mcp_forwards_target_bearer_credential(self):
+        from apps.gateway.services import GatewayService
+        from apps.secrets.services import SecretService
+
+        secret = SecretService.create(
+            owner=self.alice,
+            name="mcp-token",
+            payload="remote-token",
+            secret_type="bearer_token",
+        )
+        target = GatewayService.create(
+            name="AuthenticatedMCP",
+            base_url="https://mcp.example.com",
+            kind="mcp",
+            secret=secret,
+            workspace=self.workspace,
+            created_by=self.alice,
+        )
+        replies = [
+            (200, {"Content-Type": "application/json"}, '{"jsonrpc":"2.0","id":1,"result":{}}', False),
+            (200, {"Content-Type": "application/json"}, '{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}', False),
+        ]
+        with patch("apps.gateway.services.GatewayService._send", side_effect=replies) as send:
+            result = self._payload(
+                "gateway_mcp",
+                {"target": str(target.pk), "list_tools": True},
+                self.alice_key,
+            )
+        self.assertEqual(result["result"], {"tools": []})
+        self.assertEqual(send.call_args_list[0].args[2]["Authorization"], "Bearer remote-token")
+        self.assertEqual(send.call_args_list[1].args[2]["Authorization"], "Bearer remote-token")
+
     def test_gateway_mcp_parses_an_sse_response(self):
         from apps.gateway.services import GatewayService
 

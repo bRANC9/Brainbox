@@ -494,7 +494,7 @@ class GatewayService:
             out[str(key)] = str(value)
         out.setdefault("Accept", "application/json")
 
-        auth = (target.config.get("auth") or "none").lower()
+        auth = (target.config.get("auth") or ("bearer" if secret_value else "none")).lower()
         if secret_value and auth != "none":
             if auth == "bearer":
                 out["Authorization"] = f"Bearer {secret_value}"
