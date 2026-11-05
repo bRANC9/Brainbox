@@ -1,64 +1,103 @@
 {% extends "base.html" %}
-{% load ui %}
+{% load ui static %}
 {% block title %}Vezérlőpult - Brainbox{% endblock %}
 {% block content %}
-<section class="page-head">
-  <div><h1>Workspace-ek</h1></div>
-  <span class="actions">
-    <a class="button primary" href="{% url 'web:workspace_create' %}">Új workspace</a>
-  </span>
-</section>
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<header class="dashboard-hero">
+  <div>
+    <p class="eyebrow">Brainbox munkatér</p>
+    <h1>Jó újra látni, {{ user.display_name|default:user.username }}</h1>
+    <p class="muted">A munkatereid, dokumentumaid és a legutóbb megnyitott tudás egy helyen.</p>
+  </div>
+</header>
 
-{% comment %}
-One list, not two. The personal card leads, the shared ones follow it in the
-same grid. `workspaces` still contains the personal one, hence the guard in the
-loop: it is what stops the personal card from being rendered twice, now that
-the card above and the loop share one grid.
-{% endcomment %}
-<div class="grid">
-  {% if personal_workspace %}
-    <a class="card" href="{% url 'web:workspace_detail' personal_workspace.slug %}">
-      <h2>{{ personal_workspace.name }} <span class="badge">Személyes</span></h2>
-      <p class="muted">Személyes workspace: csak te látod, megosztani nem lehet.</p>
-      <p class="meta">{{ personal_workspace.documents.count }} dokumentum</p>
-    </a>
-  {% endif %}
-  {% for workspace in workspaces %}
-    {% if not personal_workspace or workspace.pk != personal_workspace.pk %}
-      <a class="card" href="{% url 'web:workspace_detail' workspace.slug %}">
-        <h2>{{ workspace.name }}</h2>
-        <p class="muted">{{ workspace.description|default:"Nincs leírás" }}</p>
-        <p class="meta">{{ workspace.project_count }} projekt &middot; {{ workspace.document_count }} dokumentum</p>
+<div class="dashboard-layout">
+  <section class="dashboard-workspaces" aria-labelledby="workspace-heading">
+    <div class="dashboard-section-heading">
+      <div><p class="eyebrow">Hozzáféréseid</p><h2 id="workspace-heading">Workspace-ek</h2></div>
+      <a class="button primary" href="{% url 'web:workspace_create' %}">Új workspace</a>
+    </div>
+    {% if workspaces %}
+      <div class="grid workspace-grid">
+        {% if personal_workspace %}
+          <a class="card workspace-card workspace-card-personal" href="{% url 'web:workspace_detail' personal_workspace.slug %}">
+            <span class="workspace-kind">Személyes tér</span>
+            <h3>{{ personal_workspace.name }}</h3>
+            <p class="muted">Személyes dokumentumaid, csak neked.</p>
+            <span class="meta">{{ personal_workspace.documents.count }} dokumentum</span>
+          </a>
+        {% endif %}
+        {% for workspace in workspaces %}
+          {% if not personal_workspace or workspace.pk != personal_workspace.pk %}
+            <a class="card workspace-card" href="{% url 'web:workspace_detail' workspace.slug %}">
+              <span class="workspace-kind">Megosztott tér</span>
+              <h3>{{ workspace.name }}</h3>
+              <p class="muted">{{ workspace.description|default:"Leírás nélkül" }}</p>
+              <span class="meta">{{ workspace.project_count }} projekt &middot; {{ workspace.document_count }} dokumentum</span>
+            </a>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="dashboard-empty">
+        <h3>Még nincs workspace-ed</h3>
+        <p class="muted">Hozz létre egy munkateret a dokumentumok rendszerezéséhez.</p>
+        <a class="button primary" href="{% url 'web:workspace_create' %}">Első workspace létrehozása</a>
+      </div>
+    {% endif %}
+    {% if not personal_workspace %}
+      <p class="muted">Nincs személyes workspace-ed. <a href="{% url 'web:personal_workspace' %}">Személyes tér megnyitása</a> &ndash; automatikusan létrejön.</p>
+    {% endif %}
+  </section>
+
+  <aside class="dashboard-quick" aria-labelledby="quick-heading">
+    <p class="eyebrow">Gyorsindító</p>
+    <h2 id="quick-heading">Kezdj hozzá</h2>
+    {% if personal_workspace %}
+      <a class="quick-action" href="{% url 'web:workspace_document_create' personal_workspace.slug %}">
+        <span class="quick-action-icon" aria-hidden="true">＋</span>
+        <span><strong>Új dokumentum</strong><small>Jegyzet vagy útmutató</small></span>
+      </a>
+      <a class="quick-action" href="{% url 'web:workspace_detail' personal_workspace.slug %}">
+        <span class="quick-action-icon" aria-hidden="true">↗</span>
+        <span><strong>Személyes tér</strong><small>{{ personal_workspace.documents.count }} dokumentum</small></span>
+      </a>
+    {% else %}
+      <a class="quick-action" href="{% url 'web:personal_workspace' %}">
+        <span class="quick-action-icon" aria-hidden="true">＋</span>
+        <span><strong>Személyes tér létrehozása</strong><small>Privát workspace automatikusan</small></span>
       </a>
     {% endif %}
-  {% endfor %}
+    <a class="quick-action" href="{% url 'web:search' %}">
+      <span class="quick-action-icon" aria-hidden="true">⌕</span>
+      <span><strong>Keresés</strong><small>Találj meg egy tudáselemet</small></span>
+    </a>
+  </aside>
 </div>
-{% if not personal_workspace %}
-  <p class="muted">Nincs személyes workspace-ed. <a href="{% url 'web:personal_workspace' %}">Nyisd meg</a> &ndash; automatikusan létrejön.</p>
-{% endif %}
-{% if personal_workspace and workspaces|length <= 1 %}
-  <p class="muted empty-hint">Ez a személyes tered, csak te látod. Megosztható workspace-et a fenti <strong>Új workspace</strong> gombbal hozhatsz létre.</p>
-{% endif %}
 
-<section class="page-head recent-head">
-  <div><p class="eyebrow">Áttekintés</p><h2>Legutóbbi dokumentumok</h2></div>
-</section>
-{% if recent_documents %}
-  <table class="table">
-    <thead><tr><th>Cím</th><th>Workspace</th><th>Státusz</th><th>Frissítve</th></tr></thead>
-    <tbody>
+<section class="dashboard-recent" aria-labelledby="recent-heading">
+  <div class="dashboard-section-heading">
+    <div><p class="eyebrow">Folytasd, ahol abbahagytad</p><h2 id="recent-heading">Legutóbbi dokumentumok</h2></div>
+  </div>
+  {% if recent_documents %}
+    <div class="recent-list">
       {% for document in recent_documents %}
-        <tr>
-          <td><a href="{% url 'web:document_detail' document.pk %}">{{ document.title }}</a></td>
-          <td>{{ document.workspace.name }} / {{ document.tree_path }}</td>
-          <td><span class="badge badge-{{ document.status }}">{{ document.status|hu }}</span></td>
-          <td>{{ document.updated_at|date:"Y-m-d H:i" }}</td>
-        </tr>
+        <a class="recent-document" href="{% url 'web:document_detail' document.pk %}">
+          <span class="recent-document-mark" aria-hidden="true">{{ document.title|slice:":1"|upper }}</span>
+          <span class="recent-document-main">
+            <strong>{{ document.title }}</strong>
+            <small>{{ document.workspace.name }}{% if document.tree_path %} / {{ document.tree_path }}{% endif %}</small>
+          </span>
+          <span class="badge badge-{{ document.status }}">{{ document.status|hu }}</span>
+          <time class="recent-document-date" datetime="{{ document.updated_at|date:'c' }}">{{ document.updated_at|date:"Y-m-d H:i" }}</time>
+        </a>
       {% endfor %}
-    </tbody>
-  </table>
-{% else %}
-  <p class="muted empty-hint">Még nincs dokumentum a közelmúltból.</p>
-  {% if personal_workspace %}<a class="button" href="{% url 'web:workspace_document_create' personal_workspace.slug %}">Első dokumentum létrehozása</a>{% endif %}
-{% endif %}
+    </div>
+  {% else %}
+    <div class="dashboard-empty dashboard-empty-compact">
+      <p>Még nincs friss dokumentumod.</p>
+      {% if personal_workspace %}<a href="{% url 'web:workspace_document_create' personal_workspace.slug %}">Készítsd el az elsőt <span aria-hidden="true">→</span></a>{% endif %}
+    </div>
+  {% endif %}
+</section>
 {% endblock %}
