@@ -1,38 +1,35 @@
 {% extends "base.html" %}
-{% load ui %}
-{% block title %}Audit - Brainbox{% endblock %}
+{% load ui static %}
+{% block title %}Audit napló - Brainbox{% endblock %}
 {% block content %}
-<section class="page-head"><h1>Audit napló</h1></section>
-
-<form method="get" class="form row">
-  <label>Action
-    <select name="action">
-      <option value="">Mind</option>
-      {% for value, label in actions %}
-        <option value="{{ value }}" {% if action == value %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-  </label>
+<link rel="stylesheet" href="{% static 'css/security.css' %}">
+<header class="security-hero">
+  <div><p class="eyebrow">Biztonság és hozzáférés</p><h1>Audit napló</h1><p class="muted">Műveletek és hitelesítési események a munkatereidben.</p></div>
+  <span class="security-count">{{ events|length }} <small>esemény</small></span>
+</header>
+<form method="get" class="audit-filter">
+  <label for="audit-action">Művelet</label>
+  <select id="audit-action" name="action">
+    <option value="">Minden művelet</option>
+    {% for value, label in actions %}<option value="{{ value }}" {% if action == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
   <button class="button" type="submit">Szűrés</button>
 </form>
-
-<div class="scroll-x">
-<table class="table">
-  <thead><tr><th>Mikor</th><th>Művelet</th><th>Eredmény</th><th>Felhasználó</th><th>Erőforrás</th><th>Forrás</th></tr></thead>
-  <tbody>
-    {% for event in events %}
-      <tr>
-        <td>{{ event.timestamp|date:"Y-m-d H:i:s" }}</td>
-        <td>{{ event.action|hu }}</td>
-        <td>{{ event.result|hu }}</td>
-        <td>{{ event.user|default:"-" }}</td>
-        <td>{{ event.resource|default:"-" }}</td>
-        <td>{{ event.source|hu }}</td>
-      </tr>
-    {% empty %}
-      <tr><td colspan="6" class="muted">Még nincs esemény.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div>
+<section class="security-list" aria-label="Audit események">
+  {% if events %}
+    <div class="audit-list">
+      {% for event in events %}
+        <article class="audit-event">
+          <div class="audit-event-heading"><span class="badge">{{ event.action|hu }}</span><span class="badge {% if event.result == 'success' %}badge-approved{% elif event.result == 'denied' or event.result == 'failure' %}badge-archived{% endif %}">{{ event.result|hu }}</span><time datetime="{{ event.timestamp|date:'c' }}">{{ event.timestamp|date:"Y-m-d H:i:s" }}</time></div>
+          <div class="audit-event-meta"><span>{{ event.user|default:"Ismeretlen kliens" }}</span><span>{{ event.resource|default:"Nincs erőforrás" }}</span><span>{{ event.source|hu }}</span></div>
+          {% if event.action == "mcp_request" and event.result == "denied" %}
+            <div class="audit-auth-details"><strong>MCP hitelesítés elutasítva</strong><span>Ok: {{ event.detail.reason|default:"ismeretlen" }}</span><span>Authorization: {% if event.detail.authorization_present %}{{ event.detail.authorization_scheme }} fejléc érkezett{% else %}hiányzik{% endif %}</span><span>X-API-Key: {% if event.detail.x_api_key_present %}érkezett{% else %}hiányzik{% endif %}</span></div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="security-empty"><span class="security-empty-mark" aria-hidden="true">✓</span><h3>Nincs ilyen audit esemény</h3><p class="muted">Próbálj másik műveletet, vagy nézz vissza később.</p></div>
+  {% endif %}
+</section>
 {% endblock %}

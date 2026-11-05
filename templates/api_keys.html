@@ -1,41 +1,40 @@
 {% extends "base.html" %}
-{% load ui %}
-{% block title %}API keys - Brainbox{% endblock %}
+{% load static %}
+{% block title %}API-kulcsok - Brainbox{% endblock %}
 {% block content %}
-<section class="page-head"><h1>API kulcsok</h1></section>
-
-<form method="post" class="form row">
-  {% csrf_token %}
-  <label style="flex:3">Név <input type="text" name="name" placeholder="Claude - Company" required></label>
-  <input type="hidden" name="action" value="create">
-  <button class="button primary" type="submit">Kulcs létrehozása</button>
-</form>
-
-<div class="scroll-x">
-<table class="table">
-  <thead><tr><th>Név</th><th>Előtag</th><th>Aktív</th><th>Utolsó használat</th><th></th></tr></thead>
-  <tbody>
-    {% for key in keys %}
-      <tr>
-        <td>{{ key.name }}</td>
-        <td><code>{{ key.key_prefix }}…</code></td>
-        <td>{{ key.is_active|yesno:"igen,nem" }}</td>
-        <td>{{ key.last_used_at|date:"Y-m-d H:i"|default:"-" }}</td>
-        <td>
+<link rel="stylesheet" href="{% static 'css/security.css' %}">
+<header class="security-hero">
+  <div><p class="eyebrow">Hozzáférés kezelése</p><h1>API-kulcsok</h1><p class="muted">Az integrációk kulcsai titkosak. A teljes kulcs csak létrehozáskor látható, a listában csak az előtag jelenik meg.</p></div>
+  <span class="security-count">{{ keys|length }} <small>kulcs</small></span>
+</header>
+<section class="security-create">
+  <div><h2>Új kulcs</h2><p class="muted">Adj neki beszédes nevet, hogy később felismerd a használatát.</p></div>
+  <form method="post" class="security-create-form">
+    {% csrf_token %}<input type="hidden" name="action" value="create">
+    <label for="api-key-name">Kulcs neve</label>
+    <div class="security-create-controls"><input id="api-key-name" type="text" name="name" placeholder="Például: CI szerver" required><button class="button primary" type="submit">Kulcs létrehozása</button></div>
+  </form>
+</section>
+<section class="security-list" aria-labelledby="api-key-list-heading">
+  <div class="security-section-heading"><h2 id="api-key-list-heading">Saját kulcsaid</h2></div>
+  {% if keys %}
+    <div class="api-key-list">
+      {% for key in keys %}
+        <article class="api-key-card">
+          <span class="api-key-mark" aria-hidden="true">⌘</span>
+          <div class="api-key-info"><h3>{{ key.name }}</h3><code>{{ key.key_prefix }}…</code><span class="meta">Utoljára használva: {{ key.last_used_at|date:"Y-m-d H:i"|default:"még nem" }}</span></div>
+          <span class="badge {% if key.is_active %}badge-approved{% else %}badge-archived{% endif %}">{% if key.is_active %}Aktív{% else %}Visszavonva{% endif %}</span>
           {% if key.is_active %}
-            <form method="post" class="inline">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="revoke">
-              <input type="hidden" name="key_id" value="{{ key.pk }}">
+            <form method="post" onsubmit="return confirm('Visszavonod ezt az API-kulcsot? Az integrációk többé nem férnek hozzá.')">
+              {% csrf_token %}<input type="hidden" name="action" value="revoke"><input type="hidden" name="key_id" value="{{ key.pk }}">
               <button class="button" type="submit">Visszavonás</button>
             </form>
           {% endif %}
-        </td>
-      </tr>
-    {% empty %}
-      <tr><td colspan="5" class="muted">Még nincs API kulcs.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="security-empty"><span class="security-empty-mark" aria-hidden="true">⌘</span><h3>Még nincs API-kulcsod</h3><p class="muted">Hozz létre egy kulcsot egy külső kliens vagy automatizálás csatlakoztatásához.</p></div>
+  {% endif %}
+</section>
 {% endblock %}

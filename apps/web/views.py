@@ -1376,6 +1376,8 @@ def calendar(request):
             "next_month": next_month,
             "next_month_name": MONTH_NAMES_HU[next_month],
             "weekday_names": ["Hét", "Ked", "Sze", "Csü", "Pén", "Szo", "Vas"],
+            "month_event_count": sum(len(events) for events in by_day.values()),
+            "personal_workspace": PersonalWorkspaceService.get_for(request.user),
         },
     )
 
@@ -1403,7 +1405,15 @@ def agenda(request):
     overdue = sorted([d for d in deadlines if d.due_date < today], key=lambda d: d.due_date)
     upcoming = sorted([d for d in deadlines if d.due_date >= today], key=lambda d: d.due_date)
     return render(
-        request, "agenda.html", {"overdue": overdue, "upcoming": upcoming, "today": today, "days": horizon}
+        request,
+        "agenda.html",
+        {
+            "overdue": overdue,
+            "upcoming": upcoming,
+            "today": today,
+            "days": horizon,
+            "personal_workspace": PersonalWorkspaceService.get_for(request.user),
+        },
     )
 
 

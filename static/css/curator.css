@@ -1,0 +1,23 @@
+.review-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; padding: clamp(1.25rem, 3vw, 2rem); border: 1px solid var(--border); border-radius: 1.1rem; background: linear-gradient(130deg, var(--panel), color-mix(in srgb, var(--panel) 84%, var(--accent))); }
+.review-hero .eyebrow { margin: 0 0 .35rem; }
+.review-hero h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.5rem); letter-spacing: -.04em; }
+.review-hero .muted { max-width: 58ch; margin: .45rem 0 0; }
+.review-counter { display: flex; align-items: baseline; gap: .5rem; padding: .45rem .7rem; border: 1px solid var(--border); border-radius: .7rem; background: var(--bg); font-weight: 750; white-space: nowrap; }
+.review-counter small { color: var(--muted); font-size: .78rem; font-weight: 500; }
+.review-list { overflow: hidden; border: 1px solid var(--border); border-radius: 1rem; background: var(--panel); }
+.review-proposal { display: grid; grid-template-columns: 6rem minmax(0, 1fr) auto; gap: .9rem; align-items: start; padding: 1rem; }
+.review-proposal + .review-proposal { border-top: 1px solid var(--border); }
+.review-proposal-content h2 { margin: 0; font-size: 1rem; }
+.review-proposal-content p { margin: .3rem 0 0; font-size: .9rem; }
+.review-proposal-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.review-proposal-actions form { margin: 0; }
+.review-empty { display: grid; justify-items: center; gap: .5rem; max-width: 48rem; margin: 1.5rem auto; padding: 2.25rem 1.5rem; border: 1px dashed var(--border-input); border-radius: 1rem; background: var(--panel); text-align: center; }
+.review-empty h2 { margin: .35rem 0 0; font-size: 1.25rem; }
+.review-empty .muted { max-width: 50ch; margin: 0 0 .5rem; }
+.review-empty-icon { display: grid; width: 2.8rem; height: 2.8rem; place-items: center; border-radius: 50%; background: var(--success-soft); color: var(--success); font-size: 1.35rem; }
+@media (max-width: 720px) {
+  .review-hero { align-items: flex-start; flex-direction: column; }
+  .review-proposal { grid-template-columns: minmax(0, 1fr); }
+  .review-proposal-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-proposal-actions .button { width: 100%; text-align: center; }
+}

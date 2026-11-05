@@ -1,57 +1,62 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Naptár - Brainbox{% endblock %}
 {% block content %}
-<section class="page-head">
+<link rel="stylesheet" href="{% static 'css/planning.css' %}">
+<section class="planning-hero">
   <div>
-    <h1>Naptár &mdash; {{ month_name }} {{ year }}</h1>
-    <p class="muted">A dokumentumokból kinyert határidők (frontmatter + szöveg).</p>
+    <p class="eyebrow">Tervezés</p>
+    <h1>Naptár</h1>
+    <p class="muted">A dokumentumokból kinyert határidők hónapnézetben.</p>
   </div>
-  <div>
-    <a class="button" href="{% url 'web:agenda' %}">Agenda nézet</a>
-    <a class="button" href="{% url 'web:deadlines_ical' %}">iCal feed</a>
-  </div>
+  <nav class="planning-views" aria-label="Határidő nézet">
+    <a class="planning-view" href="{% url 'web:agenda' %}">Lista</a>
+    <a class="planning-view is-active" href="{% url 'web:calendar' %}?year={{ year }}&amp;month={{ month }}" aria-current="page">Naptár</a>
+    <a class="planning-export" href="{% url 'web:deadlines_ical' %}">iCal export</a>
+  </nav>
 </section>
 
-<p class="cal-nav">
+<nav class="calendar-month-nav" aria-label="Hónap navigáció">
   <a class="button" href="?year={{ prev_year }}&amp;month={{ prev_month }}" title="{{ prev_month_name }} {{ prev_year }}">&larr; {{ prev_month_name }}</a>
+  <span class="calendar-month-label">{{ month_name }} {{ year }}</span>
   <a class="button" href="?year={{ today.year }}&amp;month={{ today.month }}">Ma</a>
   <a class="button" href="?year={{ next_year }}&amp;month={{ next_month }}" title="{{ next_month_name }} {{ next_year }}">{{ next_month_name }} &rarr;</a>
-</p>
+</nav>
 
-{% comment %}
-Below 720px the grid is 560px wide inside the overflow-x box, so the last
-weekday arrives sliced in half with nothing to say it can move. The hint and
-the edge fade are both hidden above that breakpoint in the stylesheet.
-{% endcomment %}
-<p class="cal-scroll-hint">Horizontálisan görgethető &rarr;</p>
+{% if not month_event_count %}
+  <div class="calendar-empty-note">
+    <span class="planning-empty-icon" aria-hidden="true">✓</span>
+    <span>Ebben a hónapban még nincs határidő. A dokumentum határideje itt automatikusan megjelenik.</span>
+    {% if personal_workspace %}<a href="{% url 'web:workspace_document_create' personal_workspace.slug %}">Új dokumentum</a>{% endif %}
+  </div>
+{% endif %}
+
+<p class="cal-scroll-hint">Mobilon görgetve nézheted a hét napjait &rarr;</p>
 <div class="cal-scroll">
-<div class="scroll-x">
-<table class="cal-grid">
-  <thead>
-    <tr>{% for name in weekday_names %}<th>{{ name }}</th>{% endfor %}</tr>
-  </thead>
-  <tbody>
-    {% for week in month_grid %}
-      <tr>
-        {% for day in week %}
-          <td class="cal-day{% if day == today.day and month == today.month and year == today.year %} today{% endif %}">
-            {% if day %}
-              <span class="cal-date">{{ day }}</span>
-              <ul class="cal-events">
-                {% for ev in days %}{% if ev.num == day %}
-                  {% for deadline in ev.events %}
-                    <li class="cal-event{% if deadline.is_overdue %} overdue{% endif %}">
-                      <a href="{% url 'web:document_detail' deadline.document_id %}">{{ deadline.title }}</a>
-                    </li>
-                  {% endfor %}
-                {% endif %}{% endfor %}
-              </ul>
-            {% endif %}          </td>
+  <div class="scroll-x">
+    <table class="cal-grid">
+      <thead><tr>{% for name in weekday_names %}<th>{{ name }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for week in month_grid %}
+          <tr>
+            {% for day in week %}
+              <td class="cal-day{% if day == today.day and month == today.month and year == today.year %} today{% endif %}">
+                {% if day %}
+                  <span class="cal-date">{{ day }}</span>
+                  <ul class="cal-events">
+                    {% for ev in days %}{% if ev.num == day %}
+                      {% for deadline in ev.events %}
+                        <li class="cal-event{% if deadline.is_overdue %} overdue{% endif %}"><a href="{% url 'web:document_detail' deadline.document_id %}">{{ deadline.title }}</a></li>
+                      {% endfor %}
+                    {% endif %}{% endfor %}
+                  </ul>
+                {% endif %}
+              </td>
+            {% endfor %}
+          </tr>
         {% endfor %}
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div>
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

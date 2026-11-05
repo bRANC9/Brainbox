@@ -1,53 +1,70 @@
 {% extends "base.html" %}
-{% load ui %}
-{% block title %}Agenda - Brainbox{% endblock %}
+{% load ui static %}
+{% block title %}Határidők - Brainbox{% endblock %}
 {% block content %}
-<section class="page-head">
+<link rel="stylesheet" href="{% static 'css/planning.css' %}">
+<section class="planning-hero">
   <div>
-    <h1>Agenda</h1>
-    <p class="muted">Lejárt és következő {{ days }} nap (a dokumentumokból kinyert határidők).</p>
+    <p class="eyebrow">Tervezés</p>
+    <h1>Határidők</h1>
+    <p class="muted">A dokumentumokban jelölt teendők, egy áttekinthető listában.</p>
   </div>
-  <div>
-    <a class="button" href="{% url 'web:calendar' %}">Naptár nézet</a>
-    <a class="button" href="{% url 'web:deadlines_ical' %}">iCal feed</a>
-  </div>
+  <nav class="planning-views" aria-label="Határidő nézet">
+    <a class="planning-view is-active" href="{% url 'web:agenda' %}" aria-current="page">Lista</a>
+    <a class="planning-view" href="{% url 'web:calendar' %}">Naptár</a>
+    <a class="planning-export" href="{% url 'web:deadlines_ical' %}">iCal export</a>
+  </nav>
 </section>
 
+<div class="planning-horizon" aria-label="Időszak kiválasztása">
+  <span class="muted">Előretekintés</span>
+  <a class="chip {% if days == 7 %}chip-active{% endif %}" href="?days=7">7 nap</a>
+  <a class="chip {% if days == 30 %}chip-active{% endif %}" href="?days=30">30 nap</a>
+  <a class="chip {% if days == 90 %}chip-active{% endif %}" href="?days=90">90 nap</a>
+</div>
+
 {% if overdue %}
-  <section class="git-panel">
-    <h2>Lejárt ({{ overdue|length }})</h2>
-    <ul>
+  <section class="deadline-section deadline-section-overdue">
+    <div class="deadline-section-head">
+      <div><p class="eyebrow">Figyelmet igényel</p><h2>Lejárt <span class="count">{{ overdue|length }}</span></h2></div>
+    </div>
+    <div class="deadline-list">
       {% for deadline in overdue %}
-        <li>
-          <span class="badge badge-archived">lejárt {{ deadline.due_date|date:"Y-m-d" }}</span>
-          <a href="{% url 'web:document_detail' deadline.document_id %}">{{ deadline.title }}</a>
-          <span class="muted">{{ deadline.document.title }}</span>
-        </li>
+        <a class="deadline-card is-overdue" href="{% url 'web:document_detail' deadline.document_id %}">
+          <span class="deadline-date"><strong>{{ deadline.due_date|date:"d" }}</strong><small>{{ deadline.due_date|date:"M Y" }}</small></span>
+          <span class="deadline-detail"><strong>{{ deadline.title }}</strong><small>{{ deadline.document.title }}</small></span>
+          <span class="badge badge-archived">Lejárt</span>
+          <span class="deadline-arrow" aria-hidden="true">↗</span>
+        </a>
       {% endfor %}
-    </ul>
+    </div>
   </section>
 {% endif %}
 
-<section class="git-panel">
-  <h2>Következő ({{ upcoming|length }})</h2>
+<section class="deadline-section">
+  <div class="deadline-section-head">
+    <div><p class="eyebrow">{{ days }} napos időablak</p><h2>Következő <span class="count">{{ upcoming|length }}</span></h2></div>
+  </div>
   {% if upcoming %}
-    <div class="scroll-x">
-    <table class="table">
-      <thead><tr><th>Dátum</th><th>Mi</th><th>Dokumentum</th><th>Státusz</th></tr></thead>
-      <tbody>
-        {% for deadline in upcoming %}
-          <tr>
-            <td>{{ deadline.due_date|date:"Y-m-d" }}{% if deadline.due_date == today %} <span class="badge">ma</span>{% endif %}</td>
-            <td><a href="{% url 'web:document_detail' deadline.document_id %}">{{ deadline.title }}</a></td>
-            <td class="muted">{{ deadline.document.title }}</td>
-            <td><span class="badge">{{ deadline.status|hu }}</span></td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="deadline-list">
+      {% for deadline in upcoming %}
+        <a class="deadline-card" href="{% url 'web:document_detail' deadline.document_id %}">
+          <span class="deadline-date{% if deadline.due_date == today %} is-today{% endif %}"><strong>{{ deadline.due_date|date:"d" }}</strong><small>{{ deadline.due_date|date:"M Y" }}</small></span>
+          <span class="deadline-detail"><strong>{{ deadline.title }}</strong><small>{{ deadline.document.title }}</small></span>
+          <span class="deadline-status">{% if deadline.due_date == today %}<span class="badge badge-approved">Ma</span>{% else %}<span class="badge">{{ deadline.status|hu }}</span>{% endif %}</span>
+          <span class="deadline-arrow" aria-hidden="true">↗</span>
+        </a>
+      {% endfor %}
     </div>
+  {% elif overdue %}
+    <div class="planning-empty planning-empty-compact"><p>Nincs más határidő a következő {{ days }} napban.</p></div>
   {% else %}
-    <p class="muted">Nincs esedékes határidő a következő {{ days }} napban. Jó hír!</p>
+    <div class="planning-empty">
+      <span class="planning-empty-icon" aria-hidden="true">✓</span>
+      <h2>Nincs közelgő határidő</h2>
+      <p class="muted">A dokumentum határideje automatikusan megjelenik itt. A személyes teredben rögtön felvehetsz egy újat.</p>
+      {% if personal_workspace %}<a class="button primary" href="{% url 'web:workspace_document_create' personal_workspace.slug %}">Dokumentum létrehozása</a>{% endif %}
+    </div>
   {% endif %}
 </section>
 {% endblock %}

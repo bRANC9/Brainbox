@@ -1,0 +1,72 @@
+.gateway-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+  margin-bottom: 1.2rem;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: 1.1rem;
+  background: linear-gradient(130deg, var(--panel), color-mix(in srgb, var(--panel) 84%, var(--accent)));
+}
+.gateway-hero h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.6rem); letter-spacing: -.04em; }
+.gateway-hero .muted { max-width: 65ch; margin: .5rem 0 0; }
+.gateway-trust { display: flex; align-items: center; gap: .55rem; max-width: 22rem; padding: .7rem .8rem; border: 1px solid var(--border); border-radius: .75rem; background: color-mix(in srgb, var(--bg) 65%, transparent); color: var(--muted); font-size: .8rem; }
+.gateway-trust span:first-child { color: var(--accent); font-size: 1.2rem; }
+.gateway-create { margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--panel); }
+.gateway-create > summary { display: flex; align-items: center; justify-content: space-between; gap: .8rem; padding: 1rem 1.15rem; cursor: pointer; list-style: none; }
+.gateway-create > summary::-webkit-details-marker { display: none; }
+.gateway-create > summary::after { content: "+"; display: grid; width: 2rem; height: 2rem; place-items: center; border: 1px solid var(--border); border-radius: .65rem; background: var(--panel-2); color: var(--accent); font-size: 1.25rem; }
+.gateway-create[open] > summary::after { content: "−"; }
+.gateway-create > summary span:first-child { display: grid; gap: .15rem; }
+.gateway-create > summary small { color: var(--muted); }
+.gateway-summary-action { display: none; }
+.gateway-form { display: grid; gap: 1rem; padding: 0 1.15rem 1.15rem; }
+.gateway-fields, .gateway-auth-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; align-items: end; }
+.gateway-fields label, .gateway-auth-fields label, .gateway-operation-form label { display: grid; gap: .3rem; color: var(--muted); font-size: .82rem; }
+.gateway-fields input, .gateway-fields select, .gateway-auth-fields input, .gateway-auth-fields select, .gateway-operation-form input, .gateway-operation-form select, .gateway-operation-form textarea, .gateway-advanced textarea { width: 100%; min-width: 0; padding: .55rem .65rem; border: 1px solid var(--border-input); border-radius: .6rem; background: var(--bg); color: var(--text); font: inherit; }
+.gateway-auth-fields [hidden], [data-credential-fields][hidden], [data-auth-fields][hidden] { display: none !important; }
+.gateway-auth-fields > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.gateway-advanced { border-top: 1px solid var(--border); padding-top: .7rem; }
+.gateway-advanced > summary { color: var(--muted); cursor: pointer; font-size: .85rem; }
+.gateway-advanced label { display: grid; gap: .35rem; margin-top: .65rem; color: var(--muted); font-size: .82rem; }
+.gateway-advanced textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.gateway-targets { margin: 1.5rem 0; }
+.gateway-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: .75rem; }
+.gateway-section-heading .eyebrow { margin: 0 0 .15rem; }
+.gateway-section-heading h2 { margin: 0; font-size: 1.2rem; }
+.gateway-target-list { display: grid; gap: .75rem; }
+.gateway-target { overflow: hidden; border: 1px solid var(--border); border-radius: 1rem; background: var(--panel); }
+.gateway-target-heading { display: flex; align-items: center; gap: .7rem; padding: .9rem 1rem; }
+.gateway-target-mark { display: grid; flex: 0 0 2.35rem; width: 2.35rem; height: 2.35rem; place-items: center; border-radius: .75rem; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
+.gateway-target-name { display: grid; min-width: 0; flex: 1; gap: .15rem; }
+.gateway-target-name h3 { margin: 0; font-size: 1rem; }
+.gateway-target-name .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gateway-audit-link { font-size: .82rem; white-space: nowrap; }
+.gateway-target-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .6rem; padding: 0 1rem 1rem; }
+.gateway-operation { min-width: 0; border: 1px solid var(--border); border-radius: .7rem; background: color-mix(in srgb, var(--bg) 55%, var(--panel)); }
+.gateway-operation > summary { padding: .6rem .75rem; color: var(--text); cursor: pointer; font-size: .85rem; font-weight: 650; }
+.gateway-operation[open] > summary { border-bottom: 1px solid var(--border); }
+.gateway-operation-form { display: grid; gap: .65rem; padding: .75rem; }
+.gateway-operation-form .button { justify-self: start; }
+.gateway-delete .button.danger { color: var(--danger); }
+.gateway-empty { display: grid; justify-items: center; gap: .5rem; padding: 2rem 1rem; border: 1px dashed var(--border-input); border-radius: 1rem; text-align: center; }
+.gateway-empty h3 { margin: .25rem 0 0; }
+.gateway-empty p { max-width: 48ch; margin: 0 0 .4rem; }
+.gateway-empty-mark { display: grid; width: 2.8rem; height: 2.8rem; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 1.3rem; }
+.gateway-result { margin-top: 1.5rem; padding: 1rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--panel); }
+.gateway-result h2 { margin: 0 0 .75rem; font-size: 1.1rem; }
+.gateway-result pre { max-height: 24rem; margin: 0; padding: .8rem; overflow: auto; border-radius: .7rem; background: var(--bg); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (min-width: 1000px) {
+  .gateway-create:not([open]) > summary:hover, .gateway-target summary:hover { background: var(--panel-2); }
+}
+@media (max-width: 720px) {
+  .gateway-hero { align-items: stretch; flex-direction: column; }
+  .gateway-trust { max-width: none; }
+  .gateway-fields, .gateway-auth-fields { grid-template-columns: minmax(0, 1fr); }
+  .gateway-auth-fields > div { grid-template-columns: minmax(0, 1fr); }
+  .gateway-target-heading { flex-wrap: wrap; }
+  .gateway-target-name { flex-basis: calc(100% - 3.2rem); }
+  .gateway-target-actions { grid-template-columns: minmax(0, 1fr); }
+  .gateway-audit-link { margin-left: auto; }
+}

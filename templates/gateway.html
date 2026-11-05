@@ -1,215 +1,130 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Gateway - Brainbox{% endblock %}
 {% block content %}
-{% comment %}
-One place to configure outbound access. A target is an external service plus a
-vault credential; the agent names the target and Brainbox injects the secret, so
-the credential never lives in an agent's own config. This page is the human side
-of the same gateway the REST API and the MCP tools expose.
-{% endcomment %}
-<section class="page-head">
+<link rel="stylesheet" href="{% static 'css/gateway.css' %}">
+<header class="gateway-hero">
   <div>
-    <p class="crumbs"><a href="{% url 'web:dashboard' %}">Vezérlőpult</a> / Gateway</p>
+    <p class="eyebrow">Rendszerkapcsolatok</p>
     <h1>Gateway</h1>
-    <p class="muted">
-      Távoli HTTP(S) szolgáltatások (API-k, MCP szerverek) egy helyen konfigurálva.
-      Helyi MCP-folyamatok indítása és környezeti változóik kezelése nem támogatott.
-      A credentialt a Gateway a vaultból olvassa ki és a távoli kérésbe illeszti.
-    </p>
+    <p class="muted">Távoli HTTP és MCP szolgáltatásaid egy helyen. A hitelesítő adatokat titkosítva tároljuk és csak a híváskor használjuk.</p>
   </div>
-</section>
+  <div class="gateway-trust"><span aria-hidden="true">⌁</span><span>Helyi MCP-folyamatot nem indítunk; csak távoli HTTP(S) célok támogatottak.</span></div>
+</header>
 
-<section class="git-panel">
-  <h2>Új cél</h2>
-  <form method="post" class="form">
-    {% csrf_token %}
-    <input type="hidden" name="action" value="create">
-    <div class="row">
-      <label>Név
-        <input type="text" name="name" required maxlength="255">
-      </label>
-      <label>Alap URL
-        <input type="url" name="base_url" placeholder="https://api.github.com" required>
-      </label>
+<details class="gateway-create" {% if not targets %}open{% endif %}>
+  <summary><span><strong>Új kapcsolat</strong><small>HTTP API, GitHub vagy távoli MCP szerver hozzáadása</small></span><span class="gateway-summary-action">Cél hozzáadása</span></summary>
+  <form method="post" class="gateway-form">
+    {% csrf_token %}<input type="hidden" name="action" value="create">
+    <div class="gateway-fields">
+      <label>Név<input type="text" name="name" required maxlength="255" placeholder="Például: GitHub MCP"></label>
+      <label>Alap URL<input type="url" name="base_url" placeholder="https://api.github.com" required></label>
+      <label>Típus<select name="kind"><option value="http">HTTP API</option><option value="github">GitHub</option><option value="mcp">MCP szerver</option></select></label>
+      <label>Workspace<select name="workspace"><option value="">Személyes</option>{% for ws in workspaces %}<option value="{{ ws.pk }}">{{ ws.name }}</option>{% endfor %}</select></label>
     </div>
-    <div class="row">
-      <label>Típus
-        <select name="kind">
-          <option value="http">HTTP API</option>
-          <option value="github">GitHub</option>
-          <option value="mcp">MCP szerver</option>
-        </select>
-      </label>
-      <label>Workspace (opcionális)
-        <select name="workspace">
-          <option value="">— személyes —</option>
-          {% for ws in workspaces %}<option value="{{ ws.pk }}">{{ ws.name }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>Credential
-        <select name="credential_source" data-credential-source>
-          <option value="none">Nincs</option>
-          <option value="select">Vaultból választok</option>
-            <option value="new">Új credentialt adok meg</option>
-          </select>
-        </label>
-        <div data-credential-fields="select" hidden>
-          <label>Vault credential
-            <select name="secret">
-            <option value="">— válassz —</option>
-              {% for s in my_secrets %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}
-            </select>
-        </label>
-        </div>
-        <div data-credential-fields="new" hidden>
-          <label>Credential értéke
-            <input type="password" name="credential" autocomplete="new-password" placeholder="API key / token">
-          </label>
-        <label>Mentés neve
-          <input type="text" name="credential_name" placeholder="API token">
-        </label>
-      </div>
-      <label>Hitelesítés
-        <select name="auth"><option value="none">Nincs (fejlécben adható meg)</option><option value="bearer">Bearer token</option><option value="header">Credential fejlécben</option><option value="basic">Basic</option></select>
-      </label>
-      <label>Credential fejlécneve
-        <input name="header_name" value="X-Api-Key" placeholder="X-Api-Key">
-      </label>
-      <label>Extra headerek (JSON; credential helyőrző: {% templatetag openvariable %}credential{% templatetag closevariable %})
-        <textarea name="headers" rows="3" placeholder='{"X-API-Version":"2024-01","Authorization":"Bearer {% templatetag openvariable %}credential{% templatetag closevariable %}"}'></textarea>
-      </label>
+    <div class="gateway-auth-fields">
+      <label>Credential forrása<select name="credential_source" data-credential-source><option value="none">Nem kell credential</option><option value="select">Meglévő a vaultból</option><option value="new">Új credential megadása</option></select></label>
+      <div data-credential-fields="select" hidden><label>Vault credential<select name="secret"><option value="">Válassz credentialt</option>{% for s in my_secrets %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label></div>
+      <div data-credential-fields="new" hidden><label>Credential értéke<input type="password" name="credential" autocomplete="new-password" placeholder="API key / token"></label><label>Mentés neve<input type="text" name="credential_name" placeholder="Például: GitHub token"></label></div>
+      <label>Hitelesítési mód<select name="auth" data-auth-select><option value="none">Nincs</option><option value="bearer">Bearer token</option><option value="header">Credential egyedi fejlécben</option><option value="basic">Basic</option></select></label>
+      <div data-auth-fields="header" hidden><label>Credential fejlécneve<input name="header_name" value="X-Api-Key" placeholder="X-Api-Key"></label></div>
     </div>
-    <p class="meta">A credential titkosítva kerül a vaultba. Fejlécértékben a {% templatetag openvariable %}credential{% templatetag closevariable %} helyőrzővel injektálható, például: Bearer {% templatetag openvariable %}credential{% templatetag closevariable %}.</p>
-    <button class="button primary" type="submit">Létrehozás</button>
+    <details class="gateway-advanced"><summary>Speciális fejlécek</summary><label>Extra headerek JSON formátumban<textarea name="headers" rows="3" placeholder='{"X-API-Version":"2024-01","Authorization":"Bearer {% templatetag openvariable %}credential{% templatetag closevariable %}"}'></textarea></label><p class="meta">A {% templatetag openvariable %}credential{% templatetag closevariable %} helyőrző a vaultból származó titkot illeszti a fejlécbe. A titok értéke soha nem jelenik meg itt.</p></details>
+    <button class="button primary" type="submit">Kapcsolat létrehozása</button>
   </form>
-</section>
+</details>
 
-<section class="git-panel">
-  <h2>Elérhető célok</h2>
+<section class="gateway-targets" aria-labelledby="gateway-targets-heading">
+  <div class="gateway-section-heading"><div><p class="eyebrow">Konfigurált végpontok</p><h2 id="gateway-targets-heading">Kapcsolataid</h2></div><span class="badge">{{ targets|length }}</span></div>
   {% if targets %}
-    <table class="table">
-      <thead>
-        <tr><th>Név</th><th>Típus</th><th>URL</th><th>Teszt</th></tr>
-      </thead>
-      <tbody>
-        {% for t in targets %}
-          <tr>
-            <td>{{ t.name }}</td>
-            <td><span class="badge">{{ t.kind }}</span></td>
-            <td class="meta">{{ t.base_url }} · <a href="{% url 'web:gateway_audit' t.pk %}">napló</a></td>
-            <td>
-              <form method="post" class="row">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="call">
-                <input type="hidden" name="target" value="{{ t.pk }}">
-                <select name="method"><option>GET</option><option>POST</option></select>
-                <input type="text" name="path" placeholder="user">
-                <textarea name="body" rows="1" placeholder='{"key":"value"}'></textarea>
-                <button class="button" type="submit">Hívás</button>
-              </form>
-            </td>
-          </tr>
-          {% if t.can_delete %}
-          <tr><td colspan="4">
-            <form method="post" onsubmit="return confirm('Biztosan törlöd ezt a gateway célt? A hozzá kapcsolódó webhookok is törlődnek.')">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="delete">
-              <input type="hidden" name="target" value="{{ t.pk }}">
-              <button class="button" type="submit">Törlés</button>
-            </form>
-          </td></tr>
-          {% endif %}
-          {% if t.can_edit %}
-          <tr><td colspan="4">
-            <details>
-              <summary>Beállítások szerkesztése</summary>
-              <form method="post" class="form">
-                {% csrf_token %}<input type="hidden" name="action" value="update"><input type="hidden" name="target" value="{{ t.pk }}">
-                <div class="row">
-                  <label>Név<input name="name" value="{{ t.name }}" required maxlength="255"></label>
-                  <label>Alap URL<input type="url" name="base_url" value="{{ t.base_url }}" required></label>
-                  <label>Típus<select name="kind">
-                    <option value="http" {% if t.kind == "http" %}selected{% endif %}>HTTP API</option>
-                    <option value="github" {% if t.kind == "github" %}selected{% endif %}>GitHub</option>
-                    <option value="mcp" {% if t.kind == "mcp" %}selected{% endif %}>MCP szerver</option>
-                  </select></label>
-                </div>
-                <div class="row">
-                  <label>Credential
-                    <select name="credential_source" data-credential-source>
-                      <option value="keep">Jelenlegi megtartása</option>
-                      <option value="select">Másik a vaultból</option>
-                      <option value="new">Új credential megadása</option>
-                        <option value="clear">Credential leválasztása</option>
-                      </select>
-                  </label>
-                    <div data-credential-fields="select" hidden>
-                      <label>Vault credential
-                        <select name="secret">
-                        <option value="">— válassz —</option>
-                          {% for s in my_secrets %}<option value="{{ s.pk }}" {% if t.secret_id == s.pk %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
-                        </select>
-                      </label>
-                    </div>
-                  <div data-credential-fields="new" hidden>
-                      <label>Credential értéke
-                        <input type="password" name="credential" autocomplete="new-password" placeholder="API key / token">
-                      </label>
-                      <label>Mentés neve
-                      <input type="text" name="credential_name" placeholder="üresen automatikusan generáljuk">
-                    </label>
-                  </div>
-                </div>
-                <div class="row">
-                  <label>Hitelesítés<select name="auth">
-                    <option value="none" {% if t.config.auth == "none" %}selected{% endif %}>Nincs</option>
-                    <option value="bearer" {% if t.config.auth == "bearer" %}selected{% endif %}>Bearer token</option>
-                    <option value="header" {% if t.config.auth == "header" %}selected{% endif %}>Egyedi fejléc</option>
-                    <option value="basic" {% if t.config.auth == "basic" %}selected{% endif %}>Basic</option>
-                  </select></label>
-                  <label>Credential fejlécneve<input name="header_name" value="{{ t.config.header_name|default:'X-Api-Key' }}" placeholder="X-Api-Key"></label>
-                  <label>Extra headerek (JSON)<textarea name="headers" rows="3">{{ t.headers_json }}</textarea></label>
-                </div>
-                <button class="button primary" type="submit">Mentés</button>
+    <div class="gateway-target-list">
+      {% for t in targets %}
+        <article class="gateway-target">
+          <header class="gateway-target-heading">
+            <span class="gateway-target-mark" aria-hidden="true">{% if t.kind == "mcp" %}M{% elif t.kind == "github" %}G{% else %}↗{% endif %}</span>
+            <div class="gateway-target-name"><h3>{{ t.name }}</h3><span class="meta">{{ t.base_url }}</span></div>
+            <span class="badge">{{ t.kind }}</span>
+            <a class="gateway-audit-link" href="{% url 'web:gateway_audit' t.pk %}">Hívásnapló</a>
+          </header>
+          <div class="gateway-target-actions">
+            <details class="gateway-operation">
+              <summary>HTTP kérés</summary>
+              <form method="post" class="gateway-operation-form">
+                {% csrf_token %}<input type="hidden" name="action" value="call"><input type="hidden" name="target" value="{{ t.pk }}">
+                <label>Metódus<select name="method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></label>
+                <label>Útvonal<input type="text" name="path" placeholder="v1/users"></label>
+                <label>Kérés törzse<textarea name="body" rows="2" placeholder='{"key":"value"}'></textarea></label>
+                <button class="button" type="submit">Kérés küldése</button>
               </form>
             </details>
-          </td></tr>
-          {% endif %}
-          {% if t.kind == "mcp" %}
-          <tr><td colspan="4">
-            <form method="post" class="row">
-              {% csrf_token %}<input type="hidden" name="action" value="tool"><input type="hidden" name="target" value="{{ t.pk }}">
-              <input name="tool" placeholder="Tool neve — üresen: toolok listázása">
-              <textarea name="arguments" rows="1" placeholder='{"argument":"value"}'></textarea>
-              <button class="button" type="submit">Tool hívása / listázása</button>
-            </form>
-          </td></tr>
-          {% endif %}
-        {% endfor %}
-      </tbody>
-    </table>
+            {% if t.kind == "mcp" %}
+              <details class="gateway-operation">
+                <summary>MCP-eszközök</summary>
+                <form method="post" class="gateway-operation-form">
+                  {% csrf_token %}<input type="hidden" name="action" value="tool"><input type="hidden" name="target" value="{{ t.pk }}">
+                  <label>Eszköz neve<input name="tool" placeholder="Üresen: eszközök listázása"></label>
+                  <label>Argumentumok<textarea name="arguments" rows="2" placeholder='{"argument":"value"}'></textarea></label>
+                  <button class="button" type="submit">Eszközök listázása / hívása</button>
+                </form>
+              </details>
+            {% endif %}
+            {% if t.can_edit %}
+              <details class="gateway-operation">
+                <summary>Beállítások</summary>
+                <form method="post" class="gateway-operation-form">
+                  {% csrf_token %}<input type="hidden" name="action" value="update"><input type="hidden" name="target" value="{{ t.pk }}">
+                  <div class="gateway-fields"><label>Név<input name="name" value="{{ t.name }}" required maxlength="255"></label><label>Alap URL<input type="url" name="base_url" value="{{ t.base_url }}" required></label><label>Típus<select name="kind"><option value="http" {% if t.kind == "http" %}selected{% endif %}>HTTP API</option><option value="github" {% if t.kind == "github" %}selected{% endif %}>GitHub</option><option value="mcp" {% if t.kind == "mcp" %}selected{% endif %}>MCP szerver</option></select></label></div>
+                  <div class="gateway-auth-fields"><label>Credential forrása<select name="credential_source" data-credential-source><option value="keep">Jelenlegi megtartása</option><option value="select">Másik credential a vaultból</option><option value="new">Új credential megadása</option><option value="clear">Credential leválasztása</option></select></label><div data-credential-fields="select" hidden><label>Vault credential<select name="secret"><option value="">Válassz credentialt</option>{% for s in my_secrets %}<option value="{{ s.pk }}" {% if t.secret_id == s.pk %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label></div><div data-credential-fields="new" hidden><label>Credential értéke<input type="password" name="credential" autocomplete="new-password" placeholder="API key / token"></label><label>Mentés neve<input name="credential_name" placeholder="Üresen automatikus név"></label></div><label>Hitelesítés<select name="auth" data-auth-select><option value="none" {% if t.config.auth == "none" %}selected{% endif %}>Nincs</option><option value="bearer" {% if t.config.auth == "bearer" %}selected{% endif %}>Bearer token</option><option value="header" {% if t.config.auth == "header" %}selected{% endif %}>Egyedi fejléc</option><option value="basic" {% if t.config.auth == "basic" %}selected{% endif %}>Basic</option></select></label><div data-auth-fields="header" {% if t.config.auth != "header" %}hidden{% endif %}><label>Credential fejlécneve<input name="header_name" value="{{ t.config.header_name|default:'X-Api-Key' }}"></label></div></div>
+                  <details class="gateway-advanced"><summary>Extra fejlécek</summary><label>Headerek JSON formátumban<textarea name="headers" rows="3">{{ t.headers_json }}</textarea></label></details>
+                  <button class="button primary" type="submit">Beállítások mentése</button>
+                </form>
+              </details>
+            {% endif %}
+            {% if t.can_delete %}
+              <details class="gateway-operation gateway-delete">
+                <summary>Kapcsolat törlése</summary>
+                <form method="post" onsubmit="return confirm('Biztosan törlöd ezt a gateway célt és a hozzá kapcsolódó webhookokat?')">
+                  {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="target" value="{{ t.pk }}">
+                  <button class="button danger" type="submit">Végleges törlés</button>
+                </form>
+              </details>
+            {% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
   {% else %}
-    <p class="muted">Még nincs elérhető cél. Hozz létre egyet fent.</p>
+    <div class="gateway-empty"><span class="gateway-empty-mark" aria-hidden="true">↗</span><h3>Még nincs gateway kapcsolat</h3><p class="muted">Hozz létre egy távoli API- vagy MCP-célt. A tokeneket biztonságosan a vaultban kezeljük.</p><a class="button primary" href="#gateway-create">Első kapcsolat létrehozása</a></div>
   {% endif %}
 </section>
 
 {% if result %}
-<section class="git-panel">
-  <h2>Válasz — {{ called_target.name }}</h2>
-  <p class="meta">HTTP {{ result.status }}{% if result.truncated %} (csonkolva){% endif %}</p>
-  <pre class="scroll-x" style="max-height:24rem;overflow:auto">{{ result.body }}</pre>
-</section>
+  <section class="gateway-result"><p class="eyebrow">Válasz · {{ called_target.name }}</p><h2>HTTP {{ result.status }}{% if result.truncated %} <span class="muted">(csonkolva)</span>{% endif %}</h2><pre>{{ result.body }}</pre></section>
 {% endif %}
 <script>
-  document.querySelectorAll("[data-credential-source]").forEach((select) => {
-    const form = select.closest("form");
-    const updateVisibility = () => {
-      form.querySelectorAll("[data-credential-fields]").forEach((fields) => {
+(function () {
+  document.querySelectorAll("[data-credential-source]").forEach(function (select) {
+    var form = select.closest("form");
+    function updateVisibility() {
+      form.querySelectorAll("[data-credential-fields]").forEach(function (fields) {
         fields.hidden = fields.dataset.credentialFields !== select.value;
       });
-    };
+    }
     select.addEventListener("change", updateVisibility);
     updateVisibility();
   });
+  document.querySelectorAll("[data-auth-select]").forEach(function (select) {
+    var form = select.closest("form");
+    function updateVisibility() {
+      form.querySelectorAll("[data-auth-fields]").forEach(function (fields) {
+        fields.hidden = fields.dataset.authFields !== select.value;
+      });
+    }
+    select.addEventListener("change", updateVisibility);
+    updateVisibility();
+  });
+  var create = document.querySelector(".gateway-create");
+  if (create) create.id = "gateway-create";
+})();
 </script>
 {% endblock %}

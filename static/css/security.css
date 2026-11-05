@@ -1,0 +1,45 @@
+.security-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.1rem; padding: clamp(1.25rem, 3vw, 2rem); border: 1px solid var(--border); border-radius: 1.1rem; background: linear-gradient(130deg, var(--panel), color-mix(in srgb, var(--panel) 84%, var(--accent))); }
+.security-hero h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.5rem); letter-spacing: -.04em; }
+.security-hero .eyebrow { margin: 0 0 .35rem; }
+.security-hero .muted { max-width: 60ch; margin: .45rem 0 0; }
+.security-count { display: flex; align-items: baseline; gap: .45rem; padding: .45rem .7rem; border: 1px solid var(--border); border-radius: .7rem; background: var(--bg); font-weight: 750; white-space: nowrap; }
+.security-count small { color: var(--muted); font-size: .78rem; font-weight: 500; }
+.security-create { display: grid; grid-template-columns: minmax(0, .7fr) minmax(18rem, 1fr); align-items: center; gap: 1rem; margin-bottom: 1.5rem; padding: 1rem 1.15rem; border: 1px solid var(--border); border-radius: 1rem; background: var(--panel); }
+.security-create h2, .security-section-heading h2 { margin: 0; font-size: 1.1rem; }
+.security-create p { margin: .25rem 0 0; font-size: .85rem; }
+.security-create-form label, .audit-filter label { display: block; margin-bottom: .3rem; color: var(--muted); font-size: .82rem; }
+.security-create-controls { display: flex; gap: .45rem; }
+.security-create-controls input { flex: 1; min-width: 0; padding: .55rem .7rem; border: 1px solid var(--border-input); border-radius: .65rem; background: var(--bg); color: var(--text); font: inherit; }
+.security-list { overflow: hidden; border: 1px solid var(--border); border-radius: 1rem; background: var(--panel); }
+.security-section-heading { padding: .9rem 1rem; border-bottom: 1px solid var(--border); }
+.api-key-list, .audit-list { display: grid; }
+.api-key-card { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) auto auto; align-items: center; gap: .75rem; padding: .85rem 1rem; }
+.api-key-card + .api-key-card, .audit-event + .audit-event { border-top: 1px solid var(--border); }
+.api-key-mark { display: grid; width: 2.35rem; height: 2.35rem; place-items: center; border-radius: .75rem; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
+.api-key-info { display: grid; min-width: 0; gap: .18rem; }
+.api-key-info h3 { margin: 0; font-size: .95rem; }
+.api-key-info code { width: fit-content; padding: .12rem .35rem; border-radius: .35rem; background: var(--bg); color: var(--muted); font-size: .8rem; }
+.api-key-info .meta { font-size: .76rem; }
+.api-key-card form { margin: 0; }
+.audit-filter { display: flex; align-items: end; gap: .5rem; margin: 0 0 .9rem; }
+.audit-filter label { margin: 0; }
+.audit-filter select { min-width: 12rem; padding: .55rem .7rem; border: 1px solid var(--border-input); border-radius: .65rem; background: var(--panel); color: var(--text); font: inherit; }
+.audit-event { display: grid; gap: .45rem; padding: .9rem 1rem; }
+.audit-event-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; }
+.audit-event-heading time { margin-left: auto; color: var(--muted); font-size: .78rem; }
+.audit-event-meta { display: flex; flex-wrap: wrap; gap: .35rem 1rem; color: var(--muted); font-size: .8rem; }
+.audit-auth-details { display: flex; flex-wrap: wrap; gap: .35rem .8rem; margin-top: .15rem; padding: .55rem .7rem; border-radius: .6rem; background: var(--panel-2); color: var(--muted); font-size: .77rem; }
+.audit-auth-details strong { flex-basis: 100%; color: var(--text); }
+.security-empty { display: grid; justify-items: center; gap: .4rem; padding: 2rem 1.2rem; text-align: center; }
+.security-empty h3 { margin: .2rem 0 0; font-size: 1.05rem; }
+.security-empty .muted { max-width: 46ch; margin: 0 0 .35rem; }
+.security-empty-mark { display: grid; width: 2.6rem; height: 2.6rem; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
+@media (max-width: 720px) {
+  .security-hero { align-items: flex-start; flex-direction: column; }
+  .security-create { grid-template-columns: minmax(0, 1fr); }
+  .api-key-card { grid-template-columns: 2.5rem minmax(0, 1fr) auto; }
+  .api-key-card form { grid-column: 2 / -1; }
+  .api-key-card form .button { width: 100%; }
+  .audit-filter { align-items: stretch; flex-direction: column; }
+  .audit-filter select { width: 100%; }
+}

@@ -1,54 +1,71 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Memória - Brainbox{% endblock %}
 {% block content %}
-{% comment %}
-The consolidated view: the same subject gathered from several documents into one
-place. Every fact links to the document it came from, and only facts the viewer
-may read appear - the projection stops at their ACL boundary.
-{% endcomment %}
-<section class="page-head">
-  <div>
-    <p class="crumbs"><a href="{% url 'web:dashboard' %}">Vezérlőpult</a> / Memória</p>
+<link rel="stylesheet" href="{% static 'css/memory.css' %}">
+<header class="memory-hero">
+  <div class="memory-intro">
+    <p class="eyebrow">Kapcsolatok a tudásban</p>
     <h1>Memória</h1>
-    <p class="muted">
-      Amint a rendszer tud egy-egy subjectről — összegyűjtve, minden tény a
-      forrására linkelve. Csak azt látod, amit olvashatsz.
-    </p>
+    <p class="muted">Egy téma tényei egy helyen, mindig visszakövethető forrással. Csak azokat látod, amelyekhez van olvasási jogod.</p>
   </div>
-  <div class="row">
-    <form method="get" class="row">
-      <input type="text" name="subject" value="{{ subject }}" placeholder="subject (pl. egy név)">
-      <button class="button" type="submit">Szűrés</button>
-    </form>
-    {% if user.is_superuser %}
-    <form method="post">
+  <form method="get" class="memory-filter" role="search">
+    <label for="memory-subject">Keresés témára vagy névre</label>
+    <div class="memory-filter-controls">
+      <input id="memory-subject" type="search" name="subject" value="{{ subject }}" placeholder="Például: Anna, projekt…">
+      <button class="button primary" type="submit">Keresés</button>
+      {% if subject %}<a class="button" href="{% url 'web:memory' %}">Törlés</a>{% endif %}
+    </div>
+  </form>
+  {% if user.is_superuser %}
+    <form method="post" class="memory-refresh">
       {% csrf_token %}
-      <button class="button primary" type="submit">Tények kinyerése most</button>
+      <button class="button" type="submit">Tények frissítése</button>
     </form>
-    {% endif %}
-  </div>
-</section>
+  {% endif %}
+</header>
 
-{% for group in subjects %}
-  <section class="git-panel">
-    <h2>{{ group.subject }}</h2>
-    <ul>
-      {% for fact in group.facts %}
-        <li>
-          {{ fact.predicate }} → {{ fact.object }}
-          {% if fact.source.document_id %}
-            <span class="meta">— forrás:
-              <a href="{% url 'web:document_detail' fact.source.document_id %}">{{ fact.source.title }}</a>
-              ({{ fact.source.tree_path }})
-            </span>
-          {% endif %}
-        </li>
-      {% endfor %}
-    </ul>
+{% if subjects %}
+  <div class="memory-results-heading">
+    <h2>Talált témák <span class="count">{{ subjects|length }}</span></h2>
+  </div>
+  <div class="memory-subject-list">
+    {% for group in subjects %}
+      <section class="memory-subject">
+        <header class="memory-subject-heading">
+          <span class="memory-subject-mark" aria-hidden="true">{{ group.subject|slice:":1"|upper }}</span>
+          <div><h3>{{ group.subject }}</h3><span class="meta">{{ group.facts|length }} tény</span></div>
+        </header>
+        <div class="memory-facts">
+          {% for fact in group.facts %}
+            <article class="memory-fact">
+              <p><strong>{{ fact.predicate }}</strong><span aria-hidden="true">→</span>{{ fact.object }}</p>
+              {% if fact.source.document_id %}
+                <a class="memory-source" href="{% url 'web:document_detail' fact.source.document_id %}">
+                  <span aria-hidden="true">↗</span> {{ fact.source.title }}{% if fact.source.tree_path %}<small>{{ fact.source.tree_path }}</small>{% endif %}
+                </a>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  </div>
+{% else %}
+  <section class="memory-empty">
+    <span class="memory-empty-mark" aria-hidden="true">M</span>
+    {% if subject %}
+      <h2>Nincs találat erre a keresésre</h2>
+      <p class="muted">Próbálj másik nevet vagy témát.</p>
+      <a class="button" href="{% url 'web:memory' %}">Összes téma</a>
+    {% else %}
+      <h2>Még nincs összegyűjtött tény</h2>
+      {% if user.is_superuser %}
+        <p class="muted">A felső <strong>Tények frissítése</strong> gomb a hozzáférhető dokumentumokból összegyűjti és forráshoz köti a tényeket.</p>
+      {% else %}
+        <p class="muted">Kérj meg egy admint a memória frissítésére. A megjelenő tények mindig csak olvasható forrásokból készülnek.</p>
+      {% endif %}
+    {% endif %}
   </section>
-{% empty %}
-  <section class="git-panel">
-    <p class="muted">Nincs megjeleníthető tény. {% if user.is_superuser %}Indítsd el a ténykinyerést a fenti gombbal.{% else %}Kérj meg egy admint a ténykinyerés elindítására.{% endif %}</p>
-  </section>
-{% endfor %}
+{% endif %}
 {% endblock %}

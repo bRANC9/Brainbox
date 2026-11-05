@@ -1,56 +1,42 @@
 {% extends "base.html" %}
-{% block title %}Curator - Brainbox{% endblock %}
+{% load static %}
+{% block title %}Javaslatok - Brainbox{% endblock %}
 {% block content %}
-{% comment %}
-The review queue. The system proposes tidy-ups; a human decides. Applying a
-proposal goes through the normal services, so it is audited and versioned like
-any other change - and a rejection is remembered, so the scan stops suggesting it.
-{% endcomment %}
-<section class="page-head">
+<link rel="stylesheet" href="{% static 'css/curator.css' %}">
+<header class="review-hero">
   <div>
-    <p class="crumbs"><a href="{% url 'web:dashboard' %}">Vezérlőpult</a> / Curator</p>
-    <h1>Curator</h1>
-    <p class="muted">
-      A rendszer javasol, ember dönt. A javaslat alkalmazása a szokásos
-      szolgáltatásokon megy át (ACL, audit, verzió).
-    </p>
+    <p class="eyebrow">Tudásminőség</p>
+    <h1>Javaslatok</h1>
+    <p class="muted">A rendszer észreveszi a rendrakási lehetőségeket. Te döntesz; az elfogadás auditált és verziózott.</p>
   </div>
-</section>
+  <span class="review-counter">{{ proposals|length }} <small>elbírálásra vár</small></span>
+</header>
 
-<section class="git-panel">
-  {% if proposals %}
-    <table class="table">
-      <thead>
-        <tr><th>Típus</th><th>Javaslat</th><th>Indok</th><th>Döntés</th></tr>
-      </thead>
-      <tbody>
-        {% for p in proposals %}
-          <tr>
-            <td><span class="badge">{{ p.kind }}</span></td>
-            <td>{{ p.title }}</td>
-            <td class="meta">{{ p.rationale }}</td>
-            <td>
-              <span class="row">
-                <form method="post" class="inline">
-                  {% csrf_token %}
-                  <input type="hidden" name="proposal" value="{{ p.pk }}">
-                  <input type="hidden" name="decision" value="approve">
-                  <button class="button primary" type="submit">Alkalmaz</button>
-                </form>
-                <form method="post" class="inline">
-                  {% csrf_token %}
-                  <input type="hidden" name="proposal" value="{{ p.pk }}">
-                  <input type="hidden" name="decision" value="reject">
-                  <button class="button" type="submit">Elutasít</button>
-                </form>
-              </span>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="muted">Nincs elbírálható javaslat.</p>
-  {% endif %}
-</section>
+{% if proposals %}
+  <div class="review-list">
+    {% for p in proposals %}
+      <article class="review-proposal">
+        <div class="review-proposal-kind"><span class="badge">{{ p.kind }}</span></div>
+        <div class="review-proposal-content"><h2>{{ p.title }}</h2><p class="muted">{{ p.rationale }}</p></div>
+        <div class="review-proposal-actions">
+          <form method="post">
+            {% csrf_token %}<input type="hidden" name="proposal" value="{{ p.pk }}"><input type="hidden" name="decision" value="approve">
+            <button class="button primary" type="submit">Alkalmaz</button>
+          </form>
+          <form method="post">
+            {% csrf_token %}<input type="hidden" name="proposal" value="{{ p.pk }}"><input type="hidden" name="decision" value="reject">
+            <button class="button" type="submit">Elutasít</button>
+          </form>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <section class="review-empty">
+    <span class="review-empty-icon" aria-hidden="true">✓</span>
+    <h2>Minden rendben</h2>
+    <p class="muted">Most nincs elbírálásra váró javaslat. A következő vizsgálat újra itt jeleníti meg a lehetséges javításokat.</p>
+    <a class="button" href="{% url 'web:dashboard' %}">Vissza a munkaterekhez</a>
+  </section>
+{% endif %}
 {% endblock %}
