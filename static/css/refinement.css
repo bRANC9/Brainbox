@@ -1,0 +1,73 @@
+/* Keep the refreshed interface warm and editorial rather than glossy. */
+html body {
+  background: var(--bg);
+}
+:root { --shadow: 0 5px 14px rgba(0, 0, 0, 0.18); }
+html body .topbar { background: var(--panel); backdrop-filter: none; }
+html body .brand::before { border-radius: 6px; box-shadow: none; }
+html body .button,
+html body .theme-toggle,
+html body .header-search input,
+html body input,
+html body select,
+html body textarea { border-radius: 5px; }
+html body .button { box-shadow: none; transition: background-color 120ms ease, border-color 120ms ease; }
+html body .button:hover { transform: none; }
+html body .badge,
+html body .chip,
+html body .workspace-kind,
+html body .count,
+html body .security-count,
+html body .review-counter { border-radius: 5px; }
+html body .menu-panel,
+html body .card,
+html body .git-panel,
+html body .banner,
+html body .summary,
+html body .document .markdown,
+html body .tabbar label { border-radius: 8px; }
+html body .menu-panel { box-shadow: var(--shadow); }
+html body .card { background: var(--panel); box-shadow: none; transform: none; }
+html body .card:hover { background: var(--panel-2); box-shadow: none; transform: none; }
+html body .eyebrow { text-transform: none; letter-spacing: .055em; font-weight: 650; }
+html body .dashboard-hero,
+html body .planning-hero,
+html body .memory-hero,
+html body .gateway-hero,
+html body .review-hero { border-radius: 8px; background: var(--panel); }
+html body .dashboard-quick,
+html body .recent-list,
+html body .workspace-card,
+html body .memory-subject,
+html body .gateway-create,
+html body .gateway-target,
+html body .review-list,
+html body .security-list,
+html body .security-create { border-radius: 8px; }
+html body .quick-action-icon,
+html body .memory-subject-mark,
+html body .gateway-target-mark,
+html body .api-key-mark,
+html body .recent-document-mark,
+html body .deadline-date { border-radius: 6px; }
+html body .planning-views,
+html body .planning-view,
+html body .planning-export,
+html body .deadline-list,
+html body .deadline-card,
+html body .planning-empty,
+html body .memory-empty,
+html body .gateway-empty,
+html body .review-empty,
+html body .security-empty { border-radius: 8px; }
+html body .document-reading .reading-head,
+html body .document-reading .reading-content,
+html body .document-reading .links,
+html body .document-reading .reading-comments { border-radius: 8px; }
+html body .document-reading .reading-head { background: var(--panel); }
+html body .document-reading .reading-content blockquote { border-radius: 0 5px 5px 0; }
+html body .gateway-advanced,
+html body .gateway-operation { border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  html body *, html body *::before, html body *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
